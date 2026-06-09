@@ -4,7 +4,7 @@
 
 This branch is intended to become a much slimmer OpenClaw fork. The first goal is to remove most features from `main` and keep only the surfaces needed for a focused reminder-agent style deployment.
 
-The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, or packaging paths that no longer match the fork's product shape.
+The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, unused runtime dependencies, or packaging paths that no longer match the fork's product shape.
 
 The final goal is to port the retained slim application from the current TypeScript/Node implementation to Go. The slim fork should define the durable product and protocol surface first, then replace runtime components with Go implementations behind the same documented Docker-first operator experience.
 
@@ -20,6 +20,7 @@ Keep a small, explicit product surface:
 - Built-in memory support through `memory-core` for cross-session recall.
 - A simple Docker image that starts SSH and the Gateway by default.
 - Persistent runtime state under a Docker volume or a documented host mount.
+- A trimmed dependency graph containing only packages needed by the retained runtime, tests, docs, and Docker build.
 - A Go implementation of the retained runtime once the slim TypeScript surface is stable.
 
 Remove or defer everything else unless a concrete reminder-agent requirement depends on it.
@@ -31,6 +32,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Shipping mobile apps as part of this fork.
 - Keeping release, QA, and packaging infrastructure that only serves upstream's full product matrix.
 - Supporting non-OpenAI-compatible model providers.
+- Keeping unused dependencies merely because upstream OpenClaw still needs them.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
 - Rewriting the whole upstream application in Go before the slim runtime surface is proven.
 
@@ -41,6 +43,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Keep runtime state outside the image. The image is shareable; the instance state is not.
 - Keep secrets out of git and image layers.
 - Collapse config to the current supported shape; do not retain old upstream migration paths unless this fork has already shipped them.
+- Remove dependencies when their last retained runtime, build, test, or docs use is deleted. Do not keep package graph weight for removed upstream surfaces.
 - Remove tests only when the covered feature is intentionally removed. Keep or rewrite tests for retained core behavior.
 - Validate each phase with the narrowest command that proves the retained product still works.
 - Treat the TypeScript slim runtime as the behavioral reference for the Go port. Do not start the Go rewrite by re-creating removed upstream surfaces.
@@ -101,12 +104,14 @@ Prune the package graph deliberately:
 - Keep `memory-core` source, build entries, package exports, and plugin-sdk memory host exports because memory is a retained product feature.
 - Regenerate lock/shrinkwrap files using the repo's supported dependency commands.
 - Remove dependency patches only when the patched package is no longer in the retained graph.
+- Audit direct and transitive dependency weight after each pruning phase; remove root dependencies that are no longer imported by retained code or needed by retained scripts.
 - Keep Node and pnpm versions aligned with upstream until the slim fork has its own release policy.
 
 Exit criteria:
 
 - `pnpm install` succeeds from a clean checkout.
 - The lockfile contains only retained workspace and runtime dependencies.
+- Root `dependencies`, `devDependencies`, package patches, and Docker image installs are justified by retained surfaces.
 - Removed package scripts no longer appear in `package.json`.
 
 ## Phase 3: Runtime Pruning
