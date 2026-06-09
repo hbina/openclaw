@@ -853,7 +853,7 @@ export const FIELD_HELP: Record<string, string> = {
   "approvals.exec.targets":
     "Explicit delivery targets used when forwarding mode includes targets, each with channel and destination details. Keep target lists least-privilege and validate each destination before enabling broad forwarding.",
   "approvals.exec.targets[].channel":
-    "Channel/provider ID used for forwarded approval delivery, such as discord, slack, or a plugin channel id. Use valid channel IDs only so approvals do not silently fail due to unknown routes.",
+    "Channel/provider ID used for forwarded approval delivery, such as telegram, discord, or a plugin channel id. Use valid channel IDs only so approvals do not silently fail due to unknown routes.",
   "approvals.exec.targets[].to":
     "Destination identifier inside the target channel (channel ID, user ID, or thread root depending on provider). Verify semantics per provider because destination format differs across channel integrations.",
   "approvals.exec.targets[].accountId":
@@ -873,7 +873,7 @@ export const FIELD_HELP: Record<string, string> = {
   "approvals.plugin.targets":
     "Explicit delivery targets used when plugin approval forwarding mode includes targets, each with channel and destination details.",
   "approvals.plugin.targets[].channel":
-    "Channel/provider ID used for forwarded plugin approval delivery, such as discord, slack, or a plugin channel id.",
+    "Channel/provider ID used for forwarded plugin approval delivery, such as telegram, discord, or a plugin channel id.",
   "approvals.plugin.targets[].to":
     "Destination identifier inside the target channel (channel ID, user ID, or thread root depending on provider).",
   "approvals.plugin.targets[].accountId":
@@ -1084,17 +1084,6 @@ export const FIELD_HELP: Record<string, string> = {
   "models.providers.*.models[].mediaInput.image.tokenMode":
     'Provider image token accounting style: "tile", "detail", or "provider".',
   auth: "Authentication profile root used for multi-profile provider credentials and cooldown-based failover ordering. Keep profiles minimal and explicit so automatic failover behavior stays auditable.",
-  "channels.googlechat.botLoopProtection":
-    "Sliding-window guard for accepted Google Chat bot-to-bot loops. Defaults to the shared bot loop protection budget when allowBots lets bot-authored messages reach dispatch.",
-  "channels.mattermost.botToken":
-    "Bot token from Mattermost System Console -> Integrations -> Bot Accounts.",
-  "channels.mattermost.baseUrl":
-    "Base URL for your Mattermost server (e.g., https://chat.example.com).",
-  "channels.mattermost.chatmode":
-    'Reply to channel messages on mention ("oncall"), on trigger chars (">" or "!") ("onchar"), or on every message ("onmessage").',
-  "channels.mattermost.oncharPrefixes": 'Trigger prefixes for onchar mode (default: [">", "!"]).',
-  "channels.mattermost.requireMention":
-    "Require @mention in channels before responding (default: true).",
   "auth.profiles": "Named auth profiles (provider + mode + optional email).",
   "auth.order": "Ordered auth profile IDs per provider (used for automatic failover).",
   "auth.cooldowns":
@@ -1640,7 +1629,7 @@ export const FIELD_HELP: Record<string, string> = {
   "session.sendPolicy.rules[].match":
     "Defines optional rule match conditions that can combine channel, chatType, and key-prefix constraints. Keep matches narrow so policy intent stays readable and debugging remains straightforward.",
   "session.sendPolicy.rules[].match.channel":
-    "Matches rule application to a specific channel/provider id (for example discord, telegram, slack). Use this when one channel should permit or deny delivery independently of others.",
+    "Matches rule application to a specific channel/provider id (for example telegram, discord, whatsapp). Use this when one channel should permit or deny delivery independently of others.",
   "session.sendPolicy.rules[].match.chatType":
     "Matches rule application to chat type (direct, group, thread) so behavior varies by conversation form. Use this when DM and group destinations require different safety boundaries.",
   "session.sendPolicy.rules[].match.keyPrefix":
@@ -1789,7 +1778,7 @@ export const FIELD_HELP: Record<string, string> = {
   "hooks.mappings[].allowUnsafeExternalContent":
     "When true, mapping content may include less-sanitized external payload data in generated messages. Keep false by default and enable only for trusted sources with reviewed transform logic.",
   "hooks.mappings[].channel":
-    'Delivery channel override for mapping outputs (for example "last", "telegram", "discord", "slack", "signal", "imessage", or "msteams"). Keep channel overrides explicit to avoid accidental cross-channel sends.',
+    'Delivery channel override for mapping outputs (for example "last", "telegram", "discord", or "whatsapp"). Keep channel overrides explicit to avoid accidental cross-channel sends.',
   "hooks.mappings[].to":
     "Destination identifier inside the selected channel when mapping replies should route to a fixed target. Verify provider-specific destination formats before enabling production mappings.",
   "hooks.mappings[].model":
@@ -1881,7 +1870,7 @@ export const FIELD_HELP: Record<string, string> = {
   "messages.queue.mode":
     'Queue mode for active runs. Use "steer" to inject prompts into the active run, "followup" to run later, "collect" to batch compatible messages later, or "interrupt" to abort the active run before starting the newest prompt.',
   "messages.queue.byChannel":
-    "Per-channel queue mode overrides keyed by provider id (for example telegram, discord, slack). Use this when one channel's traffic pattern needs different behavior than global defaults.",
+    "Per-channel queue mode overrides keyed by provider id (for example telegram, discord, whatsapp). Use this when one channel's traffic pattern needs different behavior than global defaults.",
   "messages.queue.debounceMs":
     "Global fallback followup queue debounce window in milliseconds before draining buffered inbound messages. Default is 500ms; higher values coalesce bursts, lower values reduce latency.",
   "messages.queue.debounceMsByChannel":
@@ -1952,8 +1941,6 @@ export const FIELD_HELP: Record<string, string> = {
     'Per-agent override for heartbeat direct/DM delivery policy; use "block" for agents that should only send heartbeat alerts to non-DM destinations.',
   "agents.list.*.heartbeat.skipWhenBusy":
     "Per-agent override that defers heartbeat turns on that agent's extra busy lanes: its own session-keyed subagent or nested command work. Cron lanes always defer heartbeat turns.",
-  "channels.mattermost.configWrites":
-    "Allow Mattermost to write config in response to channel events/commands (default: true).",
   "channels.modelByChannel":
     "Map provider -> channel id -> model override (values are provider/model or aliases).",
   "messages.suppressToolErrors":

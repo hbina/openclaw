@@ -96,21 +96,11 @@ describe("config footprint guardrails", () => {
         "channels.telegram.blockStreaming",
         "channels.telegram.draftChunk",
         "channels.telegram.blockStreamingCoalesce",
-        "channels.slack.streamMode",
-        "channels.slack.chunkMode",
-        "channels.slack.blockStreaming",
-        "channels.slack.blockStreamingCoalesce",
-        "channels.slack.nativeStreaming",
         "channels.discord.streamMode",
         "channels.discord.chunkMode",
         "channels.discord.blockStreaming",
         "channels.discord.draftChunk",
         "channels.discord.blockStreamingCoalesce",
-        "channels.googlechat.streamMode",
-        "channels.slack.channels.*.allow",
-        "channels.slack.accounts.*.channels.*.allow",
-        "channels.googlechat.groups.*.allow",
-        "channels.googlechat.accounts.*.groups.*.allow",
         "channels.discord.channels.*.allow",
         "channels.discord.accounts.*.channels.*.allow",
       ].filter((path) => basePaths.has(path)),
@@ -118,7 +108,7 @@ describe("config footprint guardrails", () => {
   });
 
   it("keeps bundled channel private-network config canonical in generated metadata", () => {
-    const pluginIds = ["matrix", "nextcloud-talk", "tlon"];
+    const pluginIds = ["telegram"];
 
     for (const pluginId of pluginIds) {
       const metadata = GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA.find(
@@ -141,8 +131,11 @@ describe("config footprint guardrails", () => {
   it("keeps canonical nested streaming paths in the public core channel schema", () => {
     const source = readSource("src/config/zod-schema.providers-core.ts");
 
-    expect(source).toContain("streaming: ChannelPreviewStreamingConfigSchema.optional(),");
-    expect(source).toContain("streaming: SlackStreamingConfigSchema.optional(),");
+    expect(source).toContain(
+      "const DiscordPreviewStreamingConfigSchema = ChannelPreviewStreamingConfigSchema;",
+    );
+    expect(source).toContain("streaming: DiscordPreviewStreamingConfigSchema.optional(),");
+    expect(source).toContain("streaming: TelegramPreviewStreamingConfigSchema.optional(),");
     expect(source).not.toContain('streamMode: z.enum(["replace", "status_final", "append"])');
     expect(source).not.toContain("draftChunk:");
     expect(source).not.toContain("nativeStreaming:");
@@ -180,12 +173,12 @@ describe("config footprint guardrails", () => {
     );
     const bundledSchemaExportBlocks = Array.from(
       bundledSection.matchAll(
-        /export \{(?<exports>[^}]*)\} from "\.\.\/config\/zod-schema\.providers-(?:core|googlechat|whatsapp)\.js";/g,
+        /export \{(?<exports>[^}]*)\} from "\.\.\/config\/zod-schema\.providers-(?:core|whatsapp)\.js";/g,
       ),
     )
       .map((match) => match.groups?.exports)
       .filter((block): block is string => Boolean(block));
-    expect(bundledSchemaExportBlocks).toHaveLength(3);
+    expect(bundledSchemaExportBlocks).toHaveLength(2);
     const exportedSchemaNames = Array.from(
       bundledSchemaExportBlocks.join("\n").matchAll(/\b([A-Z][A-Za-z0-9]+ConfigSchema)\b/g),
     )
@@ -195,11 +188,6 @@ describe("config footprint guardrails", () => {
 
     expect(exportedSchemaNames).toEqual([
       "DiscordConfigSchema",
-      "GoogleChatConfigSchema",
-      "IMessageConfigSchema",
-      "MSTeamsConfigSchema",
-      "SignalConfigSchema",
-      "SlackConfigSchema",
       "TelegramConfigSchema",
       "WhatsAppConfigSchema",
     ]);

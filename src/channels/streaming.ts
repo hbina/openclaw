@@ -25,7 +25,6 @@ export type {
   StreamingMode,
   TextChunkMode,
 } from "../config/types.base.js";
-export type { SlackChannelStreamingConfig } from "../config/types.slack.js";
 
 export type StreamingCompatEntry = {
   /** Canonical nested streaming config or legacy preview mode string. */

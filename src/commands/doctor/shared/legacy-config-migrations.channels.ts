@@ -144,7 +144,7 @@ function migrateRoutingGroupChatRequireMention(params: {
   const channels = getRecord(params.raw.channels);
   let matchedChannel = false;
   if (channels) {
-    for (const channelId of ["whatsapp", "telegram", "imessage"]) {
+    for (const channelId of ["whatsapp", "telegram"]) {
       const section = getRecord(channels[channelId]);
       if (!section) {
         continue;

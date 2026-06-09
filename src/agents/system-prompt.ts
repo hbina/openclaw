@@ -513,7 +513,7 @@ function buildMessagingSection(params: {
     "## Messaging",
     messageToolOnly
       ? "- Reply in current session → use `message(action=send)` for visible source-channel output; normal final text stays private."
-      : "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
+      : "- Reply in current session → automatically routes to the source channel (Telegram, WhatsApp, etc.)",
     "- Cross-session messaging → use sessions_send(sessionKey, message)",
     subagentOrchestrationGuidance,
     completionEventGuidance,

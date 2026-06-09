@@ -5,11 +5,7 @@ import { buildConfigSchema, lookupConfigSchema } from "./schema.js";
 import { applyDerivedTags, CONFIG_TAGS, deriveTagsForPath } from "./schema.tags.js";
 import { ToolsSchema } from "./zod-schema.agent-runtime.js";
 import { OpenClawSchema } from "./zod-schema.js";
-import {
-  DiscordConfigSchema,
-  SlackConfigSchema,
-  TelegramConfigSchema,
-} from "./zod-schema.providers-core.js";
+import { DiscordConfigSchema, TelegramConfigSchema } from "./zod-schema.providers-core.js";
 
 describe("config schema", () => {
   type SchemaInput = NonNullable<Parameters<typeof buildConfigSchema>[0]>;
@@ -288,9 +284,6 @@ describe("config schema", () => {
 
     const channelsNode = schema.properties?.channels as Record<string, unknown> | undefined;
     const channelsProps = channelsNode?.properties as Record<string, unknown> | undefined;
-    const channelSchema = channelsProps?.matrix as Record<string, unknown> | undefined;
-    const channelProps = channelSchema?.properties as Record<string, unknown> | undefined;
-    expect(channelProps).toHaveProperty("accessToken");
     const progressPropsFor = (channelId: string) => {
       const channel = channelsProps?.[channelId] as Record<string, unknown> | undefined;
       const properties = channel?.properties as Record<string, unknown> | undefined;
@@ -299,20 +292,10 @@ describe("config schema", () => {
       const progress = streamingProperties?.progress as Record<string, unknown> | undefined;
       return progress?.properties as Record<string, unknown> | undefined;
     };
-    expect(progressPropsFor("slack")).toHaveProperty("nativeTaskCards");
     expect(progressPropsFor("discord")).not.toHaveProperty("nativeTaskCards");
     expect(progressPropsFor("telegram")).not.toHaveProperty("nativeTaskCards");
     expect(progressPropsFor("discord")).toHaveProperty("commentary");
-    expect(progressPropsFor("slack")).toHaveProperty("commentary");
     expect(progressPropsFor("telegram")).toHaveProperty("commentary");
-    expect(res.uiHints["channels.matrix"]?.label).toBe("Matrix");
-    expect(res.uiHints["channels.matrix.accessToken"]?.sensitive).toBe(true);
-    expect(res.uiHints["channels.matrix.streaming.progress.label"]?.label).toBe(
-      "Matrix Progress Label",
-    );
-    expect(res.uiHints["channels.slack.streaming.progress.nativeTaskCards"]?.label).toBe(
-      "Slack Native Progress Task Cards",
-    );
     expect(res.uiHints["channels.discord.streaming.progress.nativeTaskCards"]).toBeUndefined();
     expect(res.uiHints["channels.telegram.streaming.progress.nativeTaskCards"]).toBeUndefined();
     expect(res.uiHints["channels.discord.streaming.progress.toolProgress"]?.label).toBe(
@@ -320,9 +303,6 @@ describe("config schema", () => {
     );
     expect(res.uiHints["channels.telegram.streaming.progress.commentary"]?.label).toBe(
       "Telegram Progress Commentary",
-    );
-    expect(res.uiHints["channels.mattermost.streaming.progress.label"]?.label).toBe(
-      "Mattermost Progress Label",
     );
   });
 
@@ -409,9 +389,9 @@ describe("config schema", () => {
 
     const defaultsHint = res.uiHints["agents.defaults.heartbeat.target"];
     const listHint = res.uiHints["agents.list.*.heartbeat.target"];
-    expect(defaultsHint?.help).toContain("imessage");
+    expect(defaultsHint?.help).toContain("telegram");
     expect(defaultsHint?.help).toContain("last");
-    expect(listHint?.help).toContain("imessage");
+    expect(listHint?.help).toContain("telegram");
   });
 
   it("caches merged schemas for identical plugin/channel metadata", () => {
@@ -490,15 +470,6 @@ describe("config schema", () => {
 
     expect(
       TelegramConfigSchema.safeParse({
-        streaming: {
-          mode: "progress",
-          progress: { commentary: true },
-        },
-      }).success,
-    ).toBe(true);
-
-    expect(
-      SlackConfigSchema.safeParse({
         streaming: {
           mode: "progress",
           progress: { commentary: true },
@@ -866,7 +837,7 @@ describe("config schema", () => {
     const withTags = applyDerivedTags({
       "gateway.auth.token": {},
       "tools.web.fetch.timeoutSeconds": {},
-      "channels.slack.accounts.*.token": {},
+      "channels.telegram.accounts.*.botToken": {},
     });
     const allowed = new Set<string>(CONFIG_TAGS);
     for (const hint of Object.values(withTags)) {
@@ -913,10 +884,12 @@ describe("config schema", () => {
     expect(schema?.properties).toBeUndefined();
   });
 
-  it("lists Matrix in messages.queue.byChannel schema lookup", () => {
+  it("lists supported channels in messages.queue.byChannel schema lookup", () => {
     const lookup = lookupConfigSchema(baseSchema, "messages.queue.byChannel");
     expect(lookup?.path).toBe("messages.queue.byChannel");
-    expect(lookup?.children.map((child) => child.key)).toEqual(expect.arrayContaining(["matrix"]));
+    expect(lookup?.children.map((child) => child.key)).toEqual(
+      expect.arrayContaining(["telegram", "whatsapp", "discord"]),
+    );
     expect(lookup?.schema).toMatchObject({ additionalProperties: false });
   });
 

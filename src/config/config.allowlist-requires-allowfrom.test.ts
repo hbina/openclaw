@@ -1,13 +1,6 @@
 // Regresses allowlist config requiring explicit allowFrom entries.
 import { describe, expect, it } from "vitest";
-import {
-  DiscordConfigSchema,
-  IMessageConfigSchema,
-  IrcConfigSchema,
-  SignalConfigSchema,
-  SlackConfigSchema,
-  TelegramConfigSchema,
-} from "./zod-schema.providers-core.js";
+import { DiscordConfigSchema, TelegramConfigSchema } from "./zod-schema.providers-core.js";
 import { WhatsAppConfigSchema } from "./zod-schema.providers-whatsapp.js";
 
 function expectSchemaAllowlistIssue(
@@ -37,12 +30,6 @@ describe('dmPolicy="allowlist" requires non-empty effective allowFrom', () => {
       name: "telegram",
       schema: TelegramConfigSchema,
       config: { dmPolicy: "allowlist", botToken: "fake" },
-      issuePath: "allowFrom",
-    },
-    {
-      name: "signal",
-      schema: SignalConfigSchema,
-      config: { dmPolicy: "allowlist" },
       issuePath: "allowFrom",
     },
     {
@@ -81,41 +68,14 @@ describe('account dmPolicy="allowlist" uses inherited allowFrom', () => {
       },
     },
     {
-      name: "signal",
-      schema: SignalConfigSchema,
-      config: { allowFrom: ["+15550001111"], accounts: { work: { dmPolicy: "allowlist" } } },
-    },
-    {
       name: "discord",
       schema: DiscordConfigSchema,
       config: { allowFrom: ["123456789"], accounts: { work: { dmPolicy: "allowlist" } } },
     },
     {
-      name: "slack",
-      schema: SlackConfigSchema,
-      config: {
-        allowFrom: ["U123"],
-        botToken: "xoxb-top",
-        appToken: "xapp-top",
-        accounts: {
-          work: { dmPolicy: "allowlist", botToken: "xoxb-work", appToken: "xapp-work" },
-        },
-      },
-    },
-    {
       name: "whatsapp",
       schema: WhatsAppConfigSchema,
       config: { allowFrom: ["+15550001111"], accounts: { work: { dmPolicy: "allowlist" } } },
-    },
-    {
-      name: "imessage",
-      schema: IMessageConfigSchema,
-      config: { allowFrom: ["alice"], accounts: { work: { dmPolicy: "allowlist" } } },
-    },
-    {
-      name: "irc",
-      schema: IrcConfigSchema,
-      config: { allowFrom: ["nick"], accounts: { work: { dmPolicy: "allowlist" } } },
     },
   ] as const)(
     "accepts $name account allowlist when parent allowFrom exists",
