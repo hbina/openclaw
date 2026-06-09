@@ -15,6 +15,7 @@ Keep a small, explicit product surface:
 - Minimal web/dashboard surface required to operate the agent.
 - Telegram, WhatsApp, and Discord channel support only.
 - One model provider contract: any OpenAI API-compatible endpoint.
+- Built-in memory support through `memory-core` for cross-session recall.
 - A simple Docker image that starts SSH and the Gateway by default.
 - Persistent runtime state under a Docker volume or a documented host mount.
 
@@ -57,9 +58,20 @@ Exit criteria:
 
 Create an explicit keep/drop matrix before more deletion:
 
-- Keep: Gateway, config loader, agent loop, Telegram, WhatsApp, Discord, OpenAI-compatible provider runtime/config, minimal dashboard, Docker manual image.
+- Keep: Gateway, config loader, agent loop, Telegram, WhatsApp, Discord, OpenAI-compatible provider runtime/config, memory-core recall/dreaming, minimal dashboard, Docker manual image.
 - Drop: mobile apps, unsupported channel plugins, non-OpenAI-compatible providers, provider-specific auth flows outside the OpenAI-compatible API contract, bundled QA lab/matrix/channel fixtures, release paths for removed artifacts.
-- Decide: browser/canvas tools, memory, file-transfer, dashboard depth, updater, docs site packaging, and which OpenAI-compatible features are required.
+- Decide: browser/canvas tools, file-transfer, dashboard depth, updater, docs site packaging, and which OpenAI-compatible features are required.
+
+Retained plugin/integration matrix:
+
+| Surface                          | Retain | Notes                                                                                                    |
+| -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| `openai` provider                | Yes    | OpenAI-compatible Chat Completions only. API key + base URL + model id.                                  |
+| `telegram` channel               | Yes    | Bot-token setup, pairing, inbound/outbound messaging.                                                    |
+| `whatsapp` channel               | Yes    | Existing WhatsApp Web QR/session flow.                                                                   |
+| `discord` channel                | Yes    | Bot-token setup, conservative DM/allowlisted behavior first.                                             |
+| `memory-core` plugin             | Yes    | Cross-session recall through `memory_get`/`memory_search`, local memory provider, and optional dreaming. |
+| Other providers/channels/plugins | No     | Remove from runtime, setup, docs, tests, and package surfaces unless later explicitly re-added.          |
 
 For every kept surface, name:
 
@@ -80,6 +92,7 @@ Prune the package graph deliberately:
 
 - Remove deleted apps/plugins from `pnpm-workspace.yaml`.
 - Remove package exports, files entries, package excludes, scripts, and generated metadata for removed surfaces.
+- Keep `memory-core` source, build entries, package exports, and plugin-sdk memory host exports because memory is a retained product feature.
 - Regenerate lock/shrinkwrap files using the repo's supported dependency commands.
 - Remove dependency patches only when the patched package is no longer in the retained graph.
 - Keep Node and pnpm versions aligned with upstream until the slim fork has its own release policy.
@@ -98,6 +111,8 @@ Remove runtime code in dependency order:
 - Delete config schemas and defaults for removed surfaces.
 - Delete setup/onboarding branches for removed providers and channels.
 - Delete runtime discovery for removed bundled plugins.
+- Keep runtime discovery/build output for retained bundled plugins: `openai`, `telegram`, `whatsapp`, `discord`, and `memory-core`.
+- Keep memory tool registration and memory runtime hooks, but trim any docs/UI/setup language that implies non-retained memory backends are supported.
 - Simplify startup metadata so it reports only retained capabilities.
 - Keep errors explicit when a removed feature is requested.
 
@@ -105,6 +120,7 @@ Exit criteria:
 
 - Gateway starts with the slim config.
 - Removed plugins/providers cannot be loaded accidentally.
+- `dist/extensions` contains only retained bundled plugins plus shared runtime dependencies.
 - Startup logs and health output describe the slim runtime accurately.
 
 ## Phase 4: Docker-First Setup
@@ -114,6 +130,7 @@ Make the manual Docker path the primary setup path:
 - Build a shareable image that includes source, dependencies, SSH, and the Gateway entrypoint.
 - Start SSH and Gateway by default.
 - Keep `/home/node` as persistent volume state.
+- Persist `memory-core` state under the same `/home/node` volume; never bake memory stores or recall indexes into the image.
 - Expose only required ports by default: SSH, Gateway, bridge, and any retained callback port.
 - Document first-run configuration: SSH into the container, configure an OpenAI-compatible provider, configure Telegram/WhatsApp/Discord credentials, restart.
 - Add a healthcheck once the Gateway can start reliably before first auth.
@@ -170,7 +187,8 @@ Keep only docs and UI that match the fork:
 
 - Update README and setup docs to describe the slim fork, not upstream OpenClaw.
 - Remove docs for unsupported channels, providers, apps, QA tooling, and release workflows.
-- Keep a small operator runbook: build image, run container, SSH login, OpenAI-compatible provider setup, Telegram/WhatsApp/Discord setup, health checks, logs, backup/restore.
+- Keep memory docs only for the retained `memory-core` path. Remove or rewrite docs that present removed memory backends as supported in the fork.
+- Keep a small operator runbook: build image, run container, SSH login, OpenAI-compatible provider setup, Telegram/WhatsApp/Discord setup, memory/backup expectations, health checks, logs, backup/restore.
 - Ensure dashboard/control UI does not advertise removed features.
 
 Exit criteria:
@@ -183,8 +201,9 @@ Exit criteria:
 
 Replace broad upstream coverage with focused slim coverage:
 
-- Keep unit tests for config, Gateway startup, agent loop, OpenAI-compatible provider requests, Telegram pairing/inbound/outbound, WhatsApp pairing/inbound/outbound, Discord pairing/inbound/outbound, and Docker entrypoint behavior.
+- Keep unit tests for config, Gateway startup, agent loop, OpenAI-compatible provider requests, `memory-core` recall/dreaming behavior, Telegram pairing/inbound/outbound, WhatsApp pairing/inbound/outbound, Discord pairing/inbound/outbound, and Docker entrypoint behavior.
 - Delete tests for removed apps/plugins/providers.
+- Delete or rewrite tests for removed memory backends, but keep tests for `memory-core` and its retained plugin-sdk memory host contracts.
 - Add smoke tests for the slim container startup path.
 - Keep one local fast lane and one Docker smoke lane.
 
@@ -192,6 +211,7 @@ Exit criteria:
 
 - Focused test command is documented and passes.
 - Docker smoke proves SSH and Gateway startup.
+- Memory smoke proves retained `memory-core` tools register and can read/search persisted runtime state after restart.
 - No test references deleted packages or unsupported features.
 
 ## Phase 9: Release And Distribution
@@ -203,6 +223,7 @@ Define a release model for the fork:
 - Remove upstream release scripts that publish removed artifacts.
 - Add a minimal release checklist: build image, scan for secrets, run Docker smoke, tag, push image.
 - Document backup/restore for the persistent volume.
+- Include memory state in backup/restore expectations because `memory-core` is retained and user-visible.
 
 Exit criteria:
 
@@ -216,14 +237,16 @@ Exit criteria:
 2. Decide the exact retained feature set and record it in the keep/drop matrix.
 3. Rebuild the manual Docker image with the fixed entrypoint environment.
 4. Verify container restart brings SSH and Gateway back automatically.
-5. Complete one OpenAI-compatible provider reply test.
-6. Complete Telegram, WhatsApp, and Discord pairing and reply tests.
-7. Reduce staged deletions into reviewable commits by phase.
+5. Verify `memory-core` is present in `dist/extensions` and memory tools register in the slim Gateway.
+6. Complete one OpenAI-compatible provider reply test.
+7. Complete Telegram, WhatsApp, and Discord pairing and reply tests.
+8. Reduce staged deletions into reviewable commits by phase.
 
 ## Open Questions
 
 - Is the dashboard retained as-is, trimmed, or replaced with CLI-only operation?
 - Which OpenAI-compatible features are required for the first cut: streaming, tool calls, images, embeddings, structured output, or reasoning fields?
+- Which `memory-core` behaviors are enabled by default for the first cut: search only, `memory_get`, dreaming, or explicit opt-in memory?
 - Which WhatsApp integration path is retained: QR/device login, bot/business API, or the existing upstream provider only?
 - Which Discord intents are required, and should server/channel behavior be disabled by default?
 - Should browser/canvas/tools remain available for the reminder agent?
@@ -240,6 +263,8 @@ Before the first slim-fork commit:
 - Container starts without crash-looping.
 - SSH login works.
 - Gateway health responds.
+- `memory-core` is bundled and its retained tools register.
+- Memory state survives a container restart through the `/home/node` volume.
 - OpenAI-compatible provider reply works.
 - Telegram pairing and reply work.
 - WhatsApp pairing and reply work.

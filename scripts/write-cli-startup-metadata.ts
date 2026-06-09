@@ -89,6 +89,11 @@ function updateHashFromFiles(
   sourceRootDir: string = rootDir,
 ): void {
   for (const file of files.toSorted()) {
+    // Optional plugin help sources may be absent; skip them so the signature
+    // stays stable when a bundled plugin is not present in this checkout.
+    if (!existsSync(file)) {
+      continue;
+    }
     hash.update(`${path.relative(sourceRootDir, file)}\0`);
     hash.update(readFileSync(file));
     hash.update("\0");
@@ -98,9 +103,12 @@ function updateHashFromFiles(
 function resolveBrowserHelpSourceSignature(sourceRootDir: string = rootDir): string {
   const hash = createHash("sha1");
   const browserCliDir = path.join(sourceRootDir, "extensions/browser/src/cli");
-  const browserCliFiles = readdirSync(browserCliDir)
-    .filter((entry) => entry.endsWith(".ts"))
-    .map((entry) => path.join(browserCliDir, entry));
+  // Browser plugin is optional; skip its help-source files when it is not present.
+  const browserCliFiles = existsSync(browserCliDir)
+    ? readdirSync(browserCliDir)
+        .filter((entry) => entry.endsWith(".ts"))
+        .map((entry) => path.join(browserCliDir, entry))
+    : [];
   updateHashFromFiles(hash, browserCliFiles, sourceRootDir);
   updateHashFromFiles(
     hash,
@@ -551,9 +559,12 @@ function renderSourceRootHelpText(
 async function renderSourceBrowserHelpText(
   renderContext: RootHelpRenderContext = createIsolatedRootHelpRenderContext(),
 ): Promise<string> {
-  const browserCliUrl = pathToFileURL(
-    path.join(rootDir, "extensions/browser/src/cli/browser-cli.ts"),
-  ).href;
+  const browserCliPath = path.join(rootDir, "extensions/browser/src/cli/browser-cli.ts");
+  // Browser plugin is optional; with it absent there is no browser help to prebake.
+  if (!existsSync(browserCliPath)) {
+    return "";
+  }
+  const browserCliUrl = pathToFileURL(browserCliPath).href;
   const helpUrl = pathToFileURL(path.join(rootDir, "src/cli/program/help.ts")).href;
   const contextUrl = pathToFileURL(path.join(rootDir, "src/cli/program/context.ts")).href;
   const inlineModule = [

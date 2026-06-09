@@ -1,5 +1,3 @@
-// Control UI module implements tool display behavior.
-import SHARED_TOOL_DISPLAY_JSON from "../../../apps/shared/OpenClawKit/Sources/OpenClawKit/Resources/tool-display.json" with { type: "json" };
 import {
   defaultTitle,
   formatToolDetailText,
@@ -10,6 +8,8 @@ import {
 import type { ToolDetailMode } from "../../../src/agents/tool-display-exec.js";
 import type { IconName } from "./icons.ts";
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
+// Control UI module implements tool display behavior.
+import SHARED_TOOL_DISPLAY_JSON from "./tool-display.json" with { type: "json" };
 
 type ToolDisplaySpec = ToolDisplaySpecBase & {
   icon?: string;

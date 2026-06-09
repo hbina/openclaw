@@ -1,0 +1,27 @@
+services:
+  openclaw-manual:
+    build:
+      context: .
+      dockerfile: scripts/docker/manual-ssh.Dockerfile
+    image: openclaw:manual-ssh
+    environment:
+      SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
+      OPENCLAW_MANUAL_PASSWORD: ${OPENCLAW_MANUAL_PASSWORD:-openclaw}
+      OPENCLAW_MANUAL_USER: node
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_PASSWORD: ${OPENCLAW_GATEWAY_PASSWORD:-openclaw}
+      OPENCLAW_GATEWAY_BIND: lan
+      OPENCLAW_GATEWAY_PORT: "18789"
+    ports:
+      - "127.0.0.1:2223:22"
+      - "127.0.0.1:18791:18789"
+    volumes:
+      - openclaw-manual-home:/home/node
+    restart: unless-stopped
+
+volumes:
+  openclaw-manual-home:

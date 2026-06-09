@@ -8,6 +8,98 @@ title: "Docker"
 
 Docker is **optional**. Use it only if you want a containerized gateway or to validate the Docker flow.
 
+## Slim manual SSH image
+
+The slim fork is Docker-only for user deployments. It ships one manual image
+that starts both SSH and the Gateway, persists runtime state under `/home/node`,
+and publishes only local host ports:
+
+- SSH: `127.0.0.1:2223 -> 22`
+- Gateway: `127.0.0.1:18791 -> 18789`
+
+<Steps>
+  <Step title="Build and start the container">
+
+```bash
+docker compose -f docker-compose.manual-ssh.yml up -d --build --force-recreate
+```
+
+  </Step>
+
+  <Step title="SSH into the container">
+
+```bash
+ssh node@127.0.0.1 -p 2223
+```
+
+    The default local SSH and Gateway password is `openclaw`. For key-based SSH
+    login, set `SSH_PUBLIC_KEY` before starting the container. Override Gateway
+    auth with `OPENCLAW_GATEWAY_PASSWORD`.
+
+  </Step>
+
+  <Step title="Configure the model provider">
+
+    The slim fork supports one provider id, `openai`, through
+    OpenAI-compatible Chat Completions.
+
+```bash
+mkdir -p /home/node/.openclaw
+cat >/home/node/.openclaw/openclaw.json <<'JSON5'
+{
+  env: {
+    OPENAI_BASE_URL: "https://api.openai.com/v1",
+    OPENAI_API_KEY: "replace-with-your-api-key",
+  },
+  agents: {
+    defaults: {
+      model: { primary: "openai/gpt-5.5" },
+    },
+  },
+}
+JSON5
+```
+
+    Replace the model id with the model served by your compatible endpoint.
+
+  </Step>
+
+  <Step title="Configure a channel">
+
+    Telegram and Discord can use environment variables. WhatsApp uses the
+    existing WhatsApp Web QR login and stores session state under the Docker
+    volume.
+
+```bash
+# Telegram
+export TELEGRAM_BOT_TOKEN="123456:ABCDEF..."
+
+# Discord
+export DISCORD_BOT_TOKEN="..."
+
+# WhatsApp QR login
+pnpm openclaw channels login --channel whatsapp
+```
+
+    For durable container restarts, store channel credentials in
+    `/home/node/.openclaw/openclaw.json`, `/home/node/.openclaw/.env`, or the
+    channel-specific credential flow documented on
+    [Telegram](/channels/telegram), [Discord](/channels/discord), and
+    [WhatsApp](/channels/whatsapp).
+
+  </Step>
+
+  <Step title="Restart and verify">
+
+```bash
+exit
+docker compose -f docker-compose.manual-ssh.yml restart openclaw-manual
+curl -fsS http://127.0.0.1:18791/healthz
+```
+
+  </Step>
+</Steps>
+
 ## Is Docker right for me?
 
 - **Yes**: you want an isolated, throwaway gateway environment or to run OpenClaw on a host without local installs.
