@@ -2,9 +2,11 @@
 
 ## Goal
 
-This branch is intended to become a much slimmer OpenClaw fork. The goal is to remove most features from `main` and keep only the surfaces needed for a focused reminder-agent style deployment.
+This branch is intended to become a much slimmer OpenClaw fork. The first goal is to remove most features from `main` and keep only the surfaces needed for a focused reminder-agent style deployment.
 
 The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, or packaging paths that no longer match the fork's product shape.
+
+The final goal is to port the retained slim application from the current TypeScript/Node implementation to Go. The slim fork should define the durable product and protocol surface first, then replace runtime components with Go implementations behind the same documented Docker-first operator experience.
 
 ## Target Shape
 
@@ -18,6 +20,7 @@ Keep a small, explicit product surface:
 - Built-in memory support through `memory-core` for cross-session recall.
 - A simple Docker image that starts SSH and the Gateway by default.
 - Persistent runtime state under a Docker volume or a documented host mount.
+- A Go implementation of the retained runtime once the slim TypeScript surface is stable.
 
 Remove or defer everything else unless a concrete reminder-agent requirement depends on it.
 
@@ -29,6 +32,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Keeping release, QA, and packaging infrastructure that only serves upstream's full product matrix.
 - Supporting non-OpenAI-compatible model providers.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
+- Rewriting the whole upstream application in Go before the slim runtime surface is proven.
 
 ## Migration Principles
 
@@ -39,6 +43,8 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Collapse config to the current supported shape; do not retain old upstream migration paths unless this fork has already shipped them.
 - Remove tests only when the covered feature is intentionally removed. Keep or rewrite tests for retained core behavior.
 - Validate each phase with the narrowest command that proves the retained product still works.
+- Treat the TypeScript slim runtime as the behavioral reference for the Go port. Do not start the Go rewrite by re-creating removed upstream surfaces.
+- Keep protocol, config, state, and Docker behavior explicit enough that Go components can replace TypeScript components incrementally.
 
 ## Phase 0: Safety Cleanup
 
@@ -231,6 +237,40 @@ Exit criteria:
 - A user can run the published image with documented commands.
 - No private instance state is included in the image.
 
+## Phase 10: Go Port
+
+Port the retained slim application to Go after the TypeScript slim runtime has a stable, verified surface.
+
+Retained Go target:
+
+- Gateway HTTP/WebSocket runtime.
+- Agent loop for one primary profile.
+- OpenAI-compatible Chat Completions client.
+- Telegram, WhatsApp, and Discord channel adapters.
+- `memory-core` equivalent: persisted recall/search and the retained dreaming behavior.
+- Config loader for the slim config shape only.
+- SQLite/runtime state under `/home/node`.
+- Docker image that keeps the same first-run operator flow: SSH, Gateway, volume state, health checks, and channel/provider setup.
+
+Porting sequence:
+
+1. Freeze the slim TypeScript behavior with focused tests and Docker smoke proof.
+2. Write protocol/config/state fixtures from the TypeScript runtime for Gateway, channels, provider calls, pairing, and memory.
+3. Implement Go packages behind the retained boundaries: config, state, provider, channel adapters, memory, Gateway, and Docker entrypoint.
+4. Run Go and TypeScript implementations side by side against the same fixture corpus until behavior matches for retained surfaces.
+5. Switch the Docker image to the Go binary once provider reply, memory, channel pairing/reply, restart, and health checks pass.
+6. Remove TypeScript runtime-only code after the Go image fully owns the retained product surface.
+
+Exit criteria:
+
+- A clean clone builds a Go binary and Docker image without Node runtime dependencies for production use.
+- The Go image supports the same documented slim first-run path.
+- OpenAI-compatible provider reply works through the Go Gateway.
+- Telegram, WhatsApp, and Discord pairing/reply work through the Go Gateway.
+- Memory recall/search persists across container restart.
+- Existing slim config and state either load directly or have a documented one-time migration.
+- TypeScript runtime code is no longer required in the production image.
+
 ## Immediate Next Actions
 
 1. Remove `TELEGRAM_BOT_TOKEN` from git and local disk if it contains a real token.
@@ -240,7 +280,8 @@ Exit criteria:
 5. Verify `memory-core` is present in `dist/extensions` and memory tools register in the slim Gateway.
 6. Complete one OpenAI-compatible provider reply test.
 7. Complete Telegram, WhatsApp, and Discord pairing and reply tests.
-8. Reduce staged deletions into reviewable commits by phase.
+8. Capture protocol/config/state fixtures that will become the Go-port compatibility corpus.
+9. Reduce staged deletions into reviewable commits by phase.
 
 ## Open Questions
 
@@ -252,6 +293,9 @@ Exit criteria:
 - Should browser/canvas/tools remain available for the reminder agent?
 - Should this fork keep upstream package names or rename package/image/docs surfaces?
 - Should Docker expose ports only on loopback by default, or support LAN by default for local network access?
+- Should the Go port preserve OpenClaw's existing Gateway API shape exactly, or define a smaller v1 protocol for the fork?
+- Which Go WhatsApp library/runtime should replace the current WhatsApp Web implementation, and what session migration is acceptable?
+- Should the Go port keep a small web dashboard, or make CLI/API operation the only supported operator surface?
 
 ## Validation Checklist
 
@@ -276,3 +320,10 @@ Before publishing an image:
 - Confirm no `.env`, channel token, provider API key, or OpenClaw credentials are present in image layers.
 - Run the documented first-run path with a fresh Docker volume.
 - Record exact image tag, commit SHA, and verification commands.
+
+Before replacing TypeScript with Go:
+
+- Go binary and Docker image build from a clean clone.
+- Go implementation passes the retained fixture corpus.
+- Go Docker smoke proves SSH, Gateway health, restart, provider reply, memory persistence, and retained channel pairing/reply.
+- Migration behavior for existing `/home/node` state is documented and tested.
