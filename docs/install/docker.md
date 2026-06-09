@@ -94,7 +94,7 @@ pnpm openclaw channels login --channel whatsapp
 ```bash
 exit
 docker compose -f docker-compose.manual-ssh.yml restart openclaw-manual
-curl -fsS http://127.0.0.1:18791/healthz
+until curl -fsS http://127.0.0.1:18791/healthz; do sleep 1; done
 ```
 
   </Step>

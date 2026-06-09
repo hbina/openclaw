@@ -19,6 +19,12 @@ services:
     ports:
       - "127.0.0.1:2223:22"
       - "127.0.0.1:18791:18789"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS \"http://127.0.0.1:$${OPENCLAW_GATEWAY_PORT:-18789}/healthz\" >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
     volumes:
       - openclaw-manual-home:/home/node
     restart: unless-stopped
