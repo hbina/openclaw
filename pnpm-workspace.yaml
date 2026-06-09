@@ -11,7 +11,6 @@ minimumReleaseAgeExclude:
   - "@openclaw/proxyline@0.3.3"
   - "acpx"
   - "tokenjuice"
-  - "@agentclientprotocol/claude-agent-acp@0.39.0"
   - "@agentclientprotocol/sdk"
   - "axios"
   - "basic-ftp"
@@ -43,8 +42,6 @@ minimumReleaseAgeExclude:
   - "@microsoft/teams.cards@2.0.12"
   - "@microsoft/teams.common@2.0.12"
   - "@microsoft/teams.graph@2.0.12"
-  - "@openai/codex"
-  - "@openai/codex-*"
   - "@pierre/diffs@1.2.3"
   - "@smithy/shared-ini-file-loader@4.5.4"
   - "@typescript/native-preview*"
@@ -118,6 +115,3 @@ packageExtensions:
     peerDependenciesMeta:
       sharp:
         optional: true
-
-patchedDependencies:
-  "@agentclientprotocol/claude-agent-acp@0.39.0": patches/@agentclientprotocol__claude-agent-acp@0.39.0.patch

@@ -12,7 +12,7 @@ import { shouldBuildBundledCluster } from "./optional-bundled-clusters.mjs";
 const TOP_LEVEL_PUBLIC_SURFACE_EXTENSIONS = new Set([".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"]);
 /** Bundled plugin directories built with core but not packaged as standalone npm plugins. */
 export const NON_PACKAGED_BUNDLED_PLUGIN_DIRS = new Set(["qa-channel", "qa-lab", "qa-matrix"]);
-const EXCLUDED_CORE_BUNDLED_PLUGIN_DIRS = new Set(["qqbot", "whatsapp"]);
+const EXCLUDED_CORE_BUNDLED_PLUGIN_DIRS = new Set(["qqbot"]);
 const BUNDLED_PLUGIN_BUILD_IDS_ENV = "OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS";
 const TOP_LEVEL_PRIVATE_TEST_SURFACE_RE =
   /(?:^|[._-])(?:test|spec|test-support|test-helpers|test-fixtures|test-harness|mock-setup)(?:[._-]|$)/u;
@@ -196,6 +196,9 @@ export function collectBundledPluginBuildEntries(params = {}) {
 
   for (const candidate of collectBundledPluginCandidates(cwd, extensionsRoot)) {
     const { dirName, pluginDir, relativeFiles, topLevelPublicSurfaceEntries } = candidate;
+    if (!fs.existsSync(pluginDir)) {
+      continue;
+    }
     const manifestPath = path.join(pluginDir, "openclaw.plugin.json");
     const hasManifest =
       relativeFiles?.includes("openclaw.plugin.json") ?? fs.existsSync(manifestPath);
@@ -223,17 +226,19 @@ export function collectBundledPluginBuildEntries(params = {}) {
       continue;
     }
 
+    const sourceEntries = Array.from(
+      new Set([
+        ...(hasManifest ? collectPluginSourceEntries(packageJson) : []),
+        ...topLevelPublicSurfaceEntries,
+      ]),
+    ).filter((entry) => fs.existsSync(path.join(pluginDir, entry.replace(/^\.\//u, ""))));
+
     entries.push({
       id: dirName,
       hasManifest,
       hasPackageJson: packageJson !== null,
       packageJson,
-      sourceEntries: Array.from(
-        new Set([
-          ...(hasManifest ? collectPluginSourceEntries(packageJson) : []),
-          ...topLevelPublicSurfaceEntries,
-        ]),
-      ),
+      sourceEntries,
     });
   }
 

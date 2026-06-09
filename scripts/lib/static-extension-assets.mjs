@@ -108,6 +108,9 @@ export function discoverStaticExtensionAssets(params = {}) {
     rootDir,
     fsImpl,
   )) {
+    if (!fsImpl.existsSync(packageJsonPath)) {
+      continue;
+    }
     if (!(hasPackageJson ?? fsImpl.existsSync(packageJsonPath))) {
       continue;
     }
