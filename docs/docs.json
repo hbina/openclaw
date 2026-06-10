@@ -245,10 +245,6 @@
       "destination": "/concepts/agent-workspace"
     },
     {
-      "source": "/android",
-      "destination": "/platforms/android"
-    },
-    {
       "source": "/architecture",
       "destination": "/concepts/architecture"
     },
@@ -433,10 +429,6 @@
       "destination": "/nodes/images"
     },
     {
-      "source": "/ios",
-      "destination": "/platforms/ios"
-    },
-    {
       "source": "/linux",
       "destination": "/platforms/linux"
     },
@@ -453,84 +445,8 @@
       "destination": "/start/lore"
     },
     {
-      "source": "/mac/bun",
-      "destination": "/platforms/mac/bundled-gateway"
-    },
-    {
-      "source": "/platforms/mac/bun",
-      "destination": "/platforms/mac/bundled-gateway"
-    },
-    {
-      "source": "/mac/canvas",
-      "destination": "/platforms/mac/canvas"
-    },
-    {
-      "source": "/mac/child-process",
-      "destination": "/platforms/mac/child-process"
-    },
-    {
-      "source": "/mac/dev-setup",
-      "destination": "/platforms/mac/dev-setup"
-    },
-    {
-      "source": "/mac/health",
-      "destination": "/platforms/mac/health"
-    },
-    {
-      "source": "/mac/icon",
-      "destination": "/platforms/mac/icon"
-    },
-    {
-      "source": "/mac/logging",
-      "destination": "/platforms/mac/logging"
-    },
-    {
-      "source": "/mac/menu-bar",
-      "destination": "/platforms/mac/menu-bar"
-    },
-    {
-      "source": "/mac/peekaboo",
-      "destination": "/platforms/mac/peekaboo"
-    },
-    {
-      "source": "/mac/permissions",
-      "destination": "/platforms/mac/permissions"
-    },
-    {
       "source": "/mac/release",
       "destination": "/reference/RELEASING"
-    },
-    {
-      "source": "/mac/remote",
-      "destination": "/platforms/mac/remote"
-    },
-    {
-      "source": "/mac/signing",
-      "destination": "/platforms/mac/signing"
-    },
-    {
-      "source": "/mac/skills",
-      "destination": "/platforms/mac/skills"
-    },
-    {
-      "source": "/mac/voice-overlay",
-      "destination": "/platforms/mac/voice-overlay"
-    },
-    {
-      "source": "/mac/voicewake",
-      "destination": "/platforms/mac/voicewake"
-    },
-    {
-      "source": "/mac/webchat",
-      "destination": "/platforms/mac/webchat"
-    },
-    {
-      "source": "/mac/xpc",
-      "destination": "/platforms/mac/xpc"
-    },
-    {
-      "source": "/macos",
-      "destination": "/platforms/macos"
     },
     {
       "source": "/model-failover",
@@ -739,10 +655,6 @@
     {
       "source": "/whatsapp",
       "destination": "/channels/whatsapp"
-    },
-    {
-      "source": "/windows",
-      "destination": "/platforms/windows"
     },
     {
       "source": "/wizard",
@@ -1174,8 +1086,7 @@
                       "tools/browser",
                       "tools/browser-control",
                       "tools/browser-login",
-                      "tools/browser-linux-troubleshooting",
-                      "tools/browser-wsl2-windows-remote-cdp-troubleshooting"
+                      "tools/browser-linux-troubleshooting"
                     ]
                   },
                   {
@@ -1282,49 +1193,8 @@
                 "group": "Platforms overview",
                 "pages": [
                   "platforms/index",
-                  "platforms/macos",
                   "platforms/linux",
-                  "platforms/windows",
-                  "platforms/android",
-                  "platforms/ios",
                   "platforms/easyrunner"
-                ]
-              },
-              {
-                "group": "macOS companion app",
-                "pages": [
-                  {
-                    "group": "Setup",
-                    "pages": [
-                      "platforms/mac/dev-setup",
-                      "platforms/mac/menu-bar",
-                      "platforms/mac/icon",
-                      "platforms/mac/permissions",
-                      "platforms/mac/signing"
-                    ]
-                  },
-                  {
-                    "group": "Runtime",
-                    "pages": [
-                      "platforms/mac/bundled-gateway",
-                      "platforms/mac/child-process",
-                      "platforms/mac/health",
-                      "platforms/mac/logging",
-                      "platforms/mac/remote",
-                      "platforms/mac/xpc"
-                    ]
-                  },
-                  {
-                    "group": "Features",
-                    "pages": [
-                      "platforms/mac/voicewake",
-                      "platforms/mac/voice-overlay",
-                      "platforms/mac/webchat",
-                      "platforms/mac/canvas",
-                      "platforms/mac/skills",
-                      "platforms/mac/peekaboo"
-                    ]
-                  }
                 ]
               }
             ]
