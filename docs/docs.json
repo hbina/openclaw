@@ -81,14 +81,6 @@
       "destination": "/openclaw-agent-runtime"
     },
     {
-      "source": "/providers/modelstudio",
-      "destination": "/providers/qwen"
-    },
-    {
-      "source": "/providers/qwen_modelstudio",
-      "destination": "/providers/qwen"
-    },
-    {
       "source": "/platforms/oracle",
       "destination": "/install/oracle"
     },
@@ -177,14 +169,6 @@
       "destination": "/automation/cron-jobs"
     },
     {
-      "source": "/minimax",
-      "destination": "/providers/minimax"
-    },
-    {
-      "source": "/xiaomi",
-      "destination": "/providers/xiaomi"
-    },
-    {
       "source": "/openai",
       "destination": "/providers/openai"
     },
@@ -199,42 +183,6 @@
     {
       "source": "/anthropic/",
       "destination": "/providers/anthropic"
-    },
-    {
-      "source": "/moonshot",
-      "destination": "/providers/moonshot"
-    },
-    {
-      "source": "/mistral",
-      "destination": "/providers/mistral"
-    },
-    {
-      "source": "/openrouter",
-      "destination": "/providers/openrouter"
-    },
-    {
-      "source": "/opencode",
-      "destination": "/providers/opencode"
-    },
-    {
-      "source": "/opencode-go",
-      "destination": "/providers/opencode-go"
-    },
-    {
-      "source": "/qianfan",
-      "destination": "/providers/qianfan"
-    },
-    {
-      "source": "/glm",
-      "destination": "/providers/zai"
-    },
-    {
-      "source": "/zai",
-      "destination": "/providers/zai"
-    },
-    {
-      "source": "/providers/glm",
-      "destination": "/providers/zai"
     },
     {
       "source": "/message",
@@ -1320,66 +1268,9 @@
               {
                 "group": "Providers",
                 "pages": [
-                  "providers/alibaba",
-                  "providers/bedrock",
-                  "providers/bedrock-mantle",
                   "providers/anthropic",
-                  "providers/arcee",
-                  "providers/azure-speech",
-                  "providers/cerebras",
-                  "providers/chutes",
                   "providers/claude-max-api-proxy",
-                  "providers/cloudflare-ai-gateway",
-                  "providers/comfy",
-                  "providers/deepgram",
-                  "providers/deepinfra",
-                  "providers/deepseek",
-                  "providers/ds4",
-                  "providers/elevenlabs",
-                  "providers/fal",
-                  "providers/fireworks",
-                  "providers/github-copilot",
-                  "providers/gmi",
-                  "providers/google",
-                  "providers/gradium",
-                  "providers/groq",
-                  "providers/huggingface",
-                  "providers/inferrs",
-                  "providers/inworld",
-                  "providers/kilocode",
-                  "providers/litellm",
-                  "providers/lmstudio",
-                  "providers/minimax",
-                  "providers/mistral",
-                  "providers/moonshot",
-                  "providers/novita",
-                  "providers/nvidia",
-                  "providers/ollama",
-                  "providers/ollama-cloud",
-                  "providers/openai",
-                  "providers/opencode",
-                  "providers/opencode-go",
-                  "providers/openrouter",
-                  "providers/perplexity-provider",
-                  "providers/pixverse",
-                  "providers/qianfan",
-                  "providers/qwen",
-                  "providers/qwen-oauth",
-                  "providers/runway",
-                  "providers/senseaudio",
-                  "providers/sglang",
-                  "providers/stepfun",
-                  "providers/synthetic",
-                  "providers/tencent",
-                  "providers/together",
-                  "providers/venice",
-                  "providers/vercel-ai-gateway",
-                  "providers/vllm",
-                  "providers/volcengine",
-                  "providers/vydra",
-                  "providers/xai",
-                  "providers/xiaomi",
-                  "providers/zai"
+                  "providers/openai"
                 ]
               }
             ]

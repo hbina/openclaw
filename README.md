@@ -18,12 +18,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
-**OpenClaw** is a _personal AI assistant_ you run on your own devices.
-It answers you on the channels you already use. It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane — the product is the assistant.
+**OpenClaw** (slim fork) is a _personal AI assistant_ you run on your own devices.
+It answers you on the channels you already use. The Gateway is just the control plane — the product is the assistant.
 
-If you want a personal, single-user assistant that feels local, fast, and always-on, this is it.
+This is a slimmed-down fork focused on a Docker-first reminder-agent deployment.
 
-Supported channels include: WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WeChat, QQ, WebChat.
+Supported channels: Telegram, WhatsApp, Discord.
+Supported model providers: OpenAI (and any OpenAI API-compatible endpoint) and Anthropic.
 
 [Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
 
@@ -31,7 +32,7 @@ New install? Start here: [Getting started](https://docs.openclaw.ai/start/gettin
 
 Preferred setup: run `openclaw onboard` in your terminal.
 OpenClaw Onboard guides you step by step through setting up the gateway, workspace, channels, and skills. It is the recommended CLI setup path and works on **macOS, Linux, and Windows**.
-Windows desktop users can start with the native [Windows Hub](https://docs.openclaw.ai/platforms/windows) companion app for setup, tray status, chat, node mode, and local MCP mode.
+This slim fork is Docker-first; see [Docker](https://docs.openclaw.ai/install/docker) for the primary setup path.
 Works with npm, pnpm, or bun.
 
 ## Sponsors
@@ -93,7 +94,7 @@ Works with npm, pnpm, or bun.
 
 - **[OpenAI](https://openai.com/)** (ChatGPT/Codex)
 
-Model note: while many providers and models are supported, prefer a current flagship model from the provider you trust and already use. See [Onboarding](https://docs.openclaw.ai/start/wizard).
+Model note: this fork supports OpenAI (and OpenAI-compatible endpoints) and Anthropic; prefer a current flagship model from the provider you trust and already use. See [Onboarding](https://docs.openclaw.ai/start/wizard).
 
 ## Install (recommended)
 
@@ -134,7 +135,7 @@ Send a test message or ask the assistant after either startup mode is running:
 # Send a message
 openclaw message send --target +1234567890 --message "Hello from OpenClaw"
 
-# Talk to the assistant (optionally deliver back to any connected channel: WhatsApp/Telegram/Slack/Discord/Google Chat/Signal/iMessage/IRC/Microsoft Teams/Matrix/Feishu/LINE/Mattermost/Nextcloud Talk/Nostr/Synology Chat/Tlon/Twitch/Zalo/Zalo Personal/WeChat/QQ/WebChat)
+# Talk to the assistant (optionally deliver back to a connected channel: Telegram/WhatsApp/Discord)
 openclaw agent --message "Ship checklist" --thinking high
 ```
 
@@ -149,23 +150,21 @@ OpenClaw connects to real messaging surfaces. Treat inbound DMs as **untrusted i
 Full security guide: [Security](https://docs.openclaw.ai/gateway/security).
 Before remote exposure, use the [Gateway exposure runbook](https://docs.openclaw.ai/gateway/security/exposure-runbook).
 
-Default behavior on Telegram/WhatsApp/Signal/iMessage/Microsoft Teams/Discord/Google Chat/Slack:
+Default behavior on Telegram/WhatsApp/Discord:
 
-- **DM pairing** (`dmPolicy="pairing"` / `channels.discord.dmPolicy="pairing"` / `channels.slack.dmPolicy="pairing"`; legacy: `channels.discord.dm.policy`, `channels.slack.dm.policy`): unknown senders receive a short pairing code and the bot does not process their message.
+- **DM pairing** (`dmPolicy="pairing"` / `channels.discord.dmPolicy="pairing"`): unknown senders receive a short pairing code and the bot does not process their message.
 - Approve with: `openclaw pairing approve <channel> <code>` (then the sender is added to a local allowlist store).
-- Public inbound DMs require an explicit opt-in: set `dmPolicy="open"` and include `"*"` in the channel allowlist (`allowFrom` / `channels.discord.allowFrom` / `channels.slack.allowFrom`; legacy: `channels.discord.dm.allowFrom`, `channels.slack.dm.allowFrom`).
+- Public inbound DMs require an explicit opt-in: set `dmPolicy="open"` and include `"*"` in the channel allowlist (`allowFrom` / `channels.discord.allowFrom`).
 
 Run `openclaw doctor` to surface risky/misconfigured DM policies.
 
 ## Highlights
 
 - **[Local-first Gateway](https://docs.openclaw.ai/gateway)** — single control plane for sessions, channels, tools, and events.
-- **[Multi-channel inbox](https://docs.openclaw.ai/channels)** — WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WeChat, QQ, WebChat, macOS, iOS/Android.
+- **[Multi-channel inbox](https://docs.openclaw.ai/channels)** — Telegram, WhatsApp, Discord.
 - **[Multi-agent routing](https://docs.openclaw.ai/gateway/configuration)** — route inbound channels/accounts/peers to isolated agents (workspaces + per-agent sessions).
-- **[Voice Wake](https://docs.openclaw.ai/nodes/voicewake) + [Talk Mode](https://docs.openclaw.ai/nodes/talk)** — wake words on macOS/iOS and continuous voice on Android (ElevenLabs + system TTS fallback).
-- **[Live Canvas](https://docs.openclaw.ai/platforms/mac/canvas)** — agent-driven visual workspace with [A2UI](https://docs.openclaw.ai/platforms/mac/canvas#canvas-a2ui).
-- **[First-class tools](https://docs.openclaw.ai/tools)** — browser, canvas, nodes, cron, sessions, and Discord/Slack actions.
-- **[Companion apps](https://docs.openclaw.ai/platforms)** — Windows Hub, macOS menu bar app, and iOS/Android [nodes](https://docs.openclaw.ai/nodes).
+- **[Cross-session memory](https://docs.openclaw.ai/concepts/memory)** — built-in recall/search via `memory-core`.
+- **[First-class tools](https://docs.openclaw.ai/tools)** — cron, sessions, and Discord actions.
 - **[Onboarding](https://docs.openclaw.ai/start/wizard) + [skills](https://docs.openclaw.ai/tools/skills)** — onboarding-driven setup with bundled/managed/workspace skills.
 
 ## Security model (important)
@@ -185,42 +184,12 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 ## Docs by goal
 
 - New here: [Getting started](https://docs.openclaw.ai/start/getting-started), [Onboarding](https://docs.openclaw.ai/start/wizard), [Updating](https://docs.openclaw.ai/install/updating)
-- Channel setup: [Channels index](https://docs.openclaw.ai/channels), [WhatsApp](https://docs.openclaw.ai/channels/whatsapp), [Telegram](https://docs.openclaw.ai/channels/telegram), [Discord](https://docs.openclaw.ai/channels/discord), [Slack](https://docs.openclaw.ai/channels/slack)
-- Apps + nodes: [Windows Hub](https://docs.openclaw.ai/platforms/windows), [macOS](https://docs.openclaw.ai/platforms/macos), [iOS](https://docs.openclaw.ai/platforms/ios), [Android](https://docs.openclaw.ai/platforms/android), [Nodes](https://docs.openclaw.ai/nodes)
+- Channel setup: [Channels index](https://docs.openclaw.ai/channels), [Telegram](https://docs.openclaw.ai/channels/telegram), [WhatsApp](https://docs.openclaw.ai/channels/whatsapp), [Discord](https://docs.openclaw.ai/channels/discord)
 - Config + security: [Configuration](https://docs.openclaw.ai/gateway/configuration), [Security](https://docs.openclaw.ai/gateway/security), [Exposure runbook](https://docs.openclaw.ai/gateway/security/exposure-runbook), [Sandboxing](https://docs.openclaw.ai/gateway/sandboxing)
 - Remote + web: [Gateway](https://docs.openclaw.ai/gateway), [Remote access](https://docs.openclaw.ai/gateway/remote), [Tailscale](https://docs.openclaw.ai/gateway/tailscale), [Web surfaces](https://docs.openclaw.ai/web)
 - Tools + automation: [Tools](https://docs.openclaw.ai/tools), [Skills](https://docs.openclaw.ai/tools/skills), [Cron jobs](https://docs.openclaw.ai/automation/cron-jobs), [Webhooks](https://docs.openclaw.ai/automation/webhook), [Gmail Pub/Sub](https://docs.openclaw.ai/automation/gmail-pubsub)
 - Internals: [Architecture](https://docs.openclaw.ai/concepts/architecture), [Agent](https://docs.openclaw.ai/concepts/agent), [Session model](https://docs.openclaw.ai/concepts/session), [Gateway protocol](https://docs.openclaw.ai/reference/rpc)
 - Troubleshooting: [Channel troubleshooting](https://docs.openclaw.ai/channels/troubleshooting), [Logging](https://docs.openclaw.ai/logging), [Docs home](https://docs.openclaw.ai)
-
-## Apps (optional)
-
-The Gateway alone delivers a great experience. All apps are optional and add extra features.
-
-If you plan to build/run companion apps, follow the platform runbooks below.
-
-### macOS (OpenClaw.app) (optional)
-
-- Menu bar control for the Gateway and health.
-- Voice Wake + push-to-talk overlay.
-- WebChat + debug tools.
-- Remote gateway control over SSH.
-
-Note: signed builds required for macOS permissions to stick across rebuilds (see [macOS Permissions](https://docs.openclaw.ai/platforms/mac/permissions)).
-
-### iOS node (optional)
-
-- Pairs as a node over the Gateway WebSocket (device pairing).
-- Voice trigger forwarding + Canvas surface.
-- Controlled via `openclaw nodes …`.
-
-Runbook: [iOS connect](https://docs.openclaw.ai/platforms/ios).
-
-### Android node (optional)
-
-- Pairs as a WS node via device pairing (`openclaw devices ...`).
-- Exposes Connect/Chat/Voice tabs plus Canvas, Camera, Screen capture, and Android device command families.
-- Runbook: [Android connect](https://docs.openclaw.ai/platforms/android).
 
 ## From source (development)
 

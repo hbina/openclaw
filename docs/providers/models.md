@@ -1,13 +1,13 @@
 ---
-summary: "Model providers (LLMs) supported by OpenClaw"
+summary: "Model providers (LLMs) supported by the slim fork"
 read_when:
   - You want to choose a model provider
   - You want quick setup examples for LLM auth + model selection
 title: "Model provider quickstart"
 ---
 
-OpenClaw can use many LLM providers. Pick one, authenticate, then set the default
-model as `provider/model`.
+This slim fork supports OpenAI (and any OpenAI API-compatible endpoint) and
+Anthropic. Pick one, authenticate, then set the default model as `provider/model`.
 
 ## Quick start (two steps)
 
@@ -20,42 +20,10 @@ model as `provider/model`.
 }
 ```
 
-## Supported providers (starter set)
+## Supported providers
 
-- [Alibaba Model Studio](/providers/alibaba)
-- [Amazon Bedrock](/providers/bedrock)
-- [Anthropic (API + Claude CLI)](/providers/anthropic)
-- [BytePlus (International)](/concepts/model-providers#byteplus-international)
-- [Chutes](/providers/chutes)
-- [ComfyUI](/providers/comfy)
-- [Cloudflare AI Gateway](/providers/cloudflare-ai-gateway)
-- [DeepInfra](/providers/deepinfra)
-- [fal](/providers/fal)
-- [Fireworks](/providers/fireworks)
-- [MiniMax](/providers/minimax)
-- [Mistral](/providers/mistral)
-- [Moonshot AI (Kimi + Kimi Coding)](/providers/moonshot)
-- [OpenAI (API + Codex)](/providers/openai)
-- [OpenCode (Zen + Go)](/providers/opencode)
-- [OpenRouter](/providers/openrouter)
-- [Qianfan](/providers/qianfan)
-- [Qwen](/providers/qwen)
-- [Runway](/providers/runway)
-- [StepFun](/providers/stepfun)
-- [Synthetic](/providers/synthetic)
-- [Vercel AI Gateway](/providers/vercel-ai-gateway)
-- [Venice (Venice AI)](/providers/venice)
-- [xAI](/providers/xai)
-- [Z.AI (GLM)](/providers/zai)
-
-## Additional provider variants
-
-- `anthropic-vertex` - install `@openclaw/anthropic-vertex-provider` for implicit Anthropic on Google Vertex support when Vertex credentials are available; no separate onboarding auth choice
-- `copilot-proxy` - local VS Code Copilot Proxy bridge; use `openclaw onboard --auth-choice copilot-proxy`
-- `google-gemini-cli` - unofficial Gemini CLI OAuth flow; requires a local `gemini` install (`brew install gemini-cli` or `npm install -g @google/gemini-cli`); default model `google-gemini-cli/gemini-3-flash-preview`; use `openclaw onboard --auth-choice google-gemini-cli` or `openclaw models auth login --provider google-gemini-cli --set-default`
-
-For the full provider catalog (xAI, Groq, Mistral, etc.) and advanced configuration,
-see [Model providers](/concepts/model-providers).
+- [OpenAI (and OpenAI-compatible endpoints)](/providers/openai) - set `OPENAI_BASE_URL` to point at any OpenAI-compatible server (vLLM, Ollama, LM Studio, LiteLLM, OpenRouter, etc.).
+- [Anthropic (API key + Claude CLI)](/providers/anthropic)
 
 ## Related
 
