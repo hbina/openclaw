@@ -42,7 +42,6 @@ import {
   shouldUseSecretsHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
-import { normalizeWindowsArgv } from "./windows-argv.js";
 
 export {
   resolvePrecomputedSubcommandHelpFastPath,
@@ -473,7 +472,7 @@ async function bootstrapCliProxyCaptureAndDispatcher(
 }
 
 export async function runCli(argv: string[] = process.argv) {
-  const originalArgv = normalizeWindowsArgv(argv);
+  const originalArgv = argv;
   const startupTrace = createGatewayCliMainStartupTrace(originalArgv);
   const parsedContainer = parseCliContainerArgs(originalArgv);
   if (!parsedContainer.ok) {

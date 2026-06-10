@@ -7,7 +7,6 @@ import { getCommandPathWithRootOptions, hasFlag, isRootHelpInvocation } from "./
 import { parseCliContainerArgs, resolveCliContainerTarget } from "./cli/container-target.js";
 import { applyCliProfileEnv, parseCliProfileArgs } from "./cli/profile.js";
 import type { RootHelpRenderOptions } from "./cli/program/root-help.js";
-import { normalizeWindowsArgv } from "./cli/windows-argv.js";
 import {
   enableOpenClawCompileCache,
   resolveEntryInstallRoot,
@@ -125,8 +124,6 @@ if (
       // Parent must not continue running the CLI.
       return true;
     }
-
-    process.argv = normalizeWindowsArgv(process.argv);
 
     if (!ensureCliRespawnReady()) {
       const parsedContainer = parseCliContainerArgs(process.argv);

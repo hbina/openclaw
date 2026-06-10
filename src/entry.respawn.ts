@@ -6,7 +6,6 @@ import {
   shouldSkipRespawnForArgv,
   shouldSkipStartupEnvironmentRespawnForArgv,
 } from "./cli/respawn-policy.js";
-import { normalizeWindowsArgv } from "./cli/windows-argv.js";
 import { isTruthyEnvValue } from "./infra/env.js";
 import { attachChildProcessBridge } from "./process/child-process-bridge.js";
 import {
@@ -85,8 +84,7 @@ export function buildCliRespawnPlan(
   const execArgv = params.execArgv ?? process.execArgv;
   const execPath = params.execPath ?? process.execPath;
   const platform = params.platform ?? process.platform;
-  const normalizedArgv =
-    platform === "win32" ? normalizeWindowsArgv(argv, { platform, execPath }) : argv;
+  const normalizedArgv = argv;
 
   if (
     shouldSkipStartupEnvironmentRespawnForArgv(normalizedArgv) ||

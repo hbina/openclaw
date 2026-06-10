@@ -12,7 +12,6 @@ import { runCommandWithRuntime } from "./cli-utils.js";
 import { hasExplicitOptions } from "./command-options.js";
 import { formatHelpExamples } from "./help-format.js";
 import { applyParentDefaultHelpAction } from "./program/parent-default-help.js";
-import { normalizeWindowsArgv } from "./windows-argv.js";
 
 type ChannelsCommandsModule = typeof import("../commands/channels.js");
 type BundledPackageChannelMetadataModule =
@@ -59,7 +58,7 @@ function shouldRegisterChannelSetupOptions(
   if (options.includeSetupOptions) {
     return true;
   }
-  const { commandPath } = resolveCliArgvInvocation(normalizeWindowsArgv(argv));
+  const { commandPath } = resolveCliArgvInvocation(argv);
   return commandPath[0] === "channels" && commandPath[1] === "add";
 }
 
