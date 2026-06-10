@@ -16,7 +16,7 @@ Keep a small, explicit product surface:
 - One primary agent profile.
 - Minimal web/dashboard surface required to operate the agent.
 - Telegram, WhatsApp, and Discord channel support only.
-- One model provider contract: any OpenAI API-compatible endpoint.
+- Two model providers: OpenAI (including any OpenAI API-compatible endpoint) and Anthropic.
 - Built-in memory support through `memory-core` for cross-session recall.
 - A simple Docker image that starts SSH and the Gateway by default.
 - Persistent runtime state under a Docker volume or a documented host mount.
@@ -31,7 +31,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Preserving every bundled plugin or provider as a compatibility promise.
 - Shipping mobile apps as part of this fork.
 - Keeping release, QA, and packaging infrastructure that only serves upstream's full product matrix.
-- Supporting non-OpenAI-compatible model providers.
+- Supporting model providers other than OpenAI (and OpenAI-compatible endpoints) and Anthropic.
 - Keeping unused dependencies merely because upstream OpenClaw still needs them.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
 - Rewriting the whole upstream application in Go before the slim runtime surface is proven.
@@ -67,15 +67,16 @@ Exit criteria:
 
 Create an explicit keep/drop matrix before more deletion:
 
-- Keep: Gateway, config loader, agent loop, Telegram, WhatsApp, Discord, OpenAI-compatible provider runtime/config, memory-core recall/dreaming, minimal dashboard, Docker manual image.
-- Drop: mobile apps, unsupported channel plugins, non-OpenAI-compatible providers, provider-specific auth flows outside the OpenAI-compatible API contract, bundled QA lab/matrix/channel fixtures, release paths for removed artifacts.
+- Keep: Gateway, config loader, agent loop, Telegram, WhatsApp, Discord, OpenAI and Anthropic provider runtime/config, memory-core recall/dreaming, minimal dashboard, Docker manual image.
+- Drop: mobile apps, unsupported channel plugins, providers other than OpenAI (and OpenAI-compatible endpoints) and Anthropic, provider-specific auth flows outside the OpenAI/Anthropic API contracts, bundled QA lab/matrix/channel fixtures, release paths for removed artifacts.
 - Decide: browser/canvas tools, file-transfer, dashboard depth, updater, docs site packaging, and which OpenAI-compatible features are required.
 
 Retained plugin/integration matrix:
 
 | Surface                          | Retain | Notes                                                                                                    |
 | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------- |
-| `openai` provider                | Yes    | OpenAI-compatible Chat Completions only. API key + base URL + model id.                                  |
+| `openai` provider                | Yes    | OpenAI + any OpenAI-compatible endpoint. API key + base URL + model id.                                  |
+| `anthropic` provider             | Yes    | Native Anthropic Messages API. API key + model id.                                                       |
 | `telegram` channel               | Yes    | Bot-token setup, pairing, inbound/outbound messaging.                                                    |
 | `whatsapp` channel               | Yes    | Existing WhatsApp Web QR/session flow.                                                                   |
 | `discord` channel                | Yes    | Bot-token setup, conservative DM/allowlisted behavior first.                                             |
@@ -176,19 +177,21 @@ Exit criteria:
 - Discord can connect with the documented intents and receive a paired reply.
 - Each retained channel receives a model-backed reply.
 
-## Phase 6: OpenAI-Compatible Provider Path
+## Phase 6: Model Provider Path (OpenAI + Anthropic)
 
-Make OpenAI-compatible APIs the only model provider surface:
+Make OpenAI (including OpenAI-compatible endpoints) and Anthropic the only model provider surfaces:
 
-- Keep provider config for base URL, API key or secret reference, model id, and optional compatibility flags.
-- Remove Anthropic, Claude CLI, vendor-specific auth, and non-OpenAI-compatible provider setup paths.
-- Keep provider behavior focused on the OpenAI-compatible request/response contract used by the agent.
-- Add a startup or doctor check that reports missing provider endpoint, key, or model id clearly.
-- Decide which compatibility features are supported: streaming, tool calls, images, embeddings, structured output, and reasoning fields.
+- Keep OpenAI provider config: base URL, API key or secret reference, model id, and optional compatibility flags.
+- Keep Anthropic provider config: API key or secret reference and model id (native Messages API).
+- Remove all other providers (Amazon Bedrock, Anthropic-via-Vertex, Google/Gemini, and any other vendor providers) plus their vendor-specific auth and setup paths.
+- Decide whether subscription-based Claude CLI auth is retained or dropped in favor of Anthropic API keys.
+- Keep provider behavior focused on the OpenAI and Anthropic request/response contracts used by the agent.
+- Add a startup or doctor check that reports a missing key or model id clearly for the configured provider.
+- Decide which features are supported per provider: streaming, tool calls, images, embeddings, structured output, and reasoning/thinking fields.
 
 Exit criteria:
 
-- A local or hosted OpenAI-compatible endpoint can produce a Gateway-backed agent reply.
+- An OpenAI (or OpenAI-compatible) endpoint and an Anthropic API key can each produce a Gateway-backed agent reply.
 - Missing provider config fails with an actionable message.
 - Removed providers cannot be selected from setup, config defaults, runtime catalogs, or docs.
 
@@ -250,7 +253,7 @@ Retained Go target:
 
 - Gateway HTTP/WebSocket runtime.
 - Agent loop for one primary profile.
-- OpenAI-compatible Chat Completions client.
+- OpenAI Chat Completions client (incl. OpenAI-compatible endpoints) and Anthropic Messages client.
 - Telegram, WhatsApp, and Discord channel adapters.
 - `memory-core` equivalent: persisted recall/search and the retained dreaming behavior.
 - Config loader for the slim config shape only.
@@ -291,7 +294,8 @@ Exit criteria:
 ## Open Questions
 
 - Is the dashboard retained as-is, trimmed, or replaced with CLI-only operation?
-- Which OpenAI-compatible features are required for the first cut: streaming, tool calls, images, embeddings, structured output, or reasoning fields?
+- Which OpenAI/Anthropic features are required for the first cut: streaming, tool calls, images, embeddings, structured output, or reasoning/thinking fields?
+- Which Anthropic access path is retained: native API key only, or also subscription-based Claude CLI auth? (Anthropic-via-Bedrock/Vertex is dropped.)
 - Which `memory-core` behaviors are enabled by default for the first cut: search only, `memory_get`, dreaming, or explicit opt-in memory?
 - Which WhatsApp integration path is retained: QR/device login, bot/business API, or the existing upstream provider only?
 - Which Discord intents are required, and should server/channel behavior be disabled by default?
