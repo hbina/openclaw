@@ -14,7 +14,6 @@ import { resolveTimerTimeoutMs } from "../shared/number-coercion.js";
 import { replaceFileAtomicSync } from "./replace-file.js";
 import { cleanStaleGatewayProcessesSync, findGatewayPidsOnPortSync } from "./restart-stale-pids.js";
 import type { RestartAttempt } from "./restart.types.js";
-import { relaunchGatewayScheduledTask } from "./windows-task-restart.js";
 
 export type { RestartAttempt } from "./restart.types.js";
 
@@ -313,22 +312,9 @@ export function emitGatewayRestart(
   try {
     if (process.listenerCount("SIGUSR1") > 0) {
       // Signal path: let the run-loop's SIGUSR1 handler drive restart.
-      // Works on all platforms including Windows when a listener is registered.
       process.emit("SIGUSR1");
-    } else if (process.platform === "win32") {
-      // On Windows with no SIGUSR1 listener, fall back to task-scheduler handoff.
-      // triggerOpenClawRestart() uses schtasks to restart the gateway.
-      const result = triggerOpenClawRestart();
-      if (!result.ok) {
-        // Roll back the cycle marker so future restart requests can still proceed.
-        rollBackGatewayRestartEmission();
-        restartLog.warn("Windows scheduled task restart failed, token rolled back");
-        return false;
-      }
-      consumeGatewaySigusr1RestartAuthorization();
-      markGatewaySigusr1RestartHandled();
     } else {
-      // Unix without listener: send signal directly.
+      // Without a SIGUSR1 listener: send signal directly.
       process.kill(process.pid, "SIGUSR1");
     }
   } catch {
@@ -635,10 +621,6 @@ export function triggerOpenClawRestart(): RestartAttempt {
     return { ok: false, method: "systemd", detail, tried };
   }
 
-  if (process.platform === "win32") {
-    return relaunchGatewayScheduledTask(process.env);
-  }
-
   if (process.platform !== "darwin") {
     return {
       ok: false,
@@ -736,7 +718,7 @@ export function scheduleGatewaySigusr1Restart(opts?: {
       ? opts.reason.trim().slice(0, 200)
       : undefined;
   const hasSigusr1Listener = process.listenerCount("SIGUSR1") > 0;
-  const mode = hasSigusr1Listener ? "emit" : process.platform === "win32" ? "supervisor" : "signal";
+  const mode = hasSigusr1Listener ? "emit" : "signal";
   const nowMs = Date.now();
   const skipCooldown = opts?.skipCooldown === true;
   const cooldownMsApplied = skipCooldown
