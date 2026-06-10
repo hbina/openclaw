@@ -184,7 +184,7 @@ Make OpenAI (including OpenAI-compatible endpoints) and Anthropic the only model
 - Keep OpenAI provider config: base URL, API key or secret reference, model id, and optional compatibility flags.
 - Keep Anthropic provider config: API key or secret reference and model id (native Messages API).
 - Remove all other providers (Amazon Bedrock, Anthropic-via-Vertex, Google/Gemini, and any other vendor providers) plus their vendor-specific auth and setup paths.
-- Decide whether subscription-based Claude CLI auth is retained or dropped in favor of Anthropic API keys.
+- Keep Anthropic auth via both native API key/secret ref and subscription-based Claude CLI; drop Anthropic-via-Bedrock/Vertex.
 - Keep provider behavior focused on the OpenAI and Anthropic request/response contracts used by the agent.
 - Add a startup or doctor check that reports a missing key or model id clearly for the configured provider.
 - Decide which features are supported per provider: streaming, tool calls, images, embeddings, structured output, and reasoning/thinking fields.
@@ -295,7 +295,7 @@ Exit criteria:
 
 - Is the dashboard retained as-is, trimmed, or replaced with CLI-only operation?
 - Which OpenAI/Anthropic features are required for the first cut: streaming, tool calls, images, embeddings, structured output, or reasoning/thinking fields?
-- Which Anthropic access path is retained: native API key only, or also subscription-based Claude CLI auth? (Anthropic-via-Bedrock/Vertex is dropped.)
+- Anthropic access path decided: native API key plus subscription-based Claude CLI auth; Anthropic-via-Bedrock/Vertex dropped.
 - Which `memory-core` behaviors are enabled by default for the first cut: search only, `memory_get`, dreaming, or explicit opt-in memory?
 - Which WhatsApp integration path is retained: QR/device login, bot/business API, or the existing upstream provider only?
 - Which Discord intents are required, and should server/channel behavior be disabled by default?
