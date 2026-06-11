@@ -4,10 +4,6 @@ import fsSync from "node:fs";
 import { uniqueValues } from "@openclaw/normalization-core/string-normalization";
 import { isGatewayArgv, parseProcCmdline } from "./gateway-process-argv.js";
 import { findGatewayPidsOnPortSync as findUnixGatewayPidsOnPortSync } from "./restart-stale-pids.js";
-import {
-  readWindowsListeningPidsOnPortSync,
-  readWindowsProcessArgsSync,
-} from "./windows-port-pids.js";
 
 // Gateway process helpers verify argv before signaling or reporting listener
 // PIDs so stale port owners cannot be mistaken for OpenClaw.
@@ -31,9 +27,6 @@ export function readGatewayProcessArgsSync(pid: number): string[] | null {
     const command = ps.stdout.trim();
     return command ? command.split(/\s+/) : null;
   }
-  if (process.platform === "win32") {
-    return readWindowsProcessArgsSync(pid);
-  }
   return null;
 }
 
@@ -48,10 +41,7 @@ export function signalVerifiedGatewayPidSync(pid: number, signal: "SIGTERM" | "S
 
 /** Find listener PIDs on `port` and keep only verified gateway processes. */
 export function findVerifiedGatewayListenerPidsOnPortSync(port: number): number[] {
-  const rawPids =
-    process.platform === "win32"
-      ? readWindowsListeningPidsOnPortSync(port)
-      : findUnixGatewayPidsOnPortSync(port);
+  const rawPids = findUnixGatewayPidsOnPortSync(port);
 
   return uniqueValues(rawPids)
     .filter((pid): pid is number => Number.isFinite(pid) && pid > 0 && pid !== process.pid)
