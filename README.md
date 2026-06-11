@@ -26,14 +26,14 @@ This is a slimmed-down fork focused on a Docker-first reminder-agent deployment.
 Supported channels: Telegram, WhatsApp, Discord.
 Supported model providers: OpenAI (and any OpenAI API-compatible endpoint) and Anthropic.
 
-[Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
+[Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
 
-New install? Start here: [Getting started](https://docs.openclaw.ai/start/getting-started)
+New install? Start here: [Docker](https://docs.openclaw.ai/install/docker).
 
-Preferred setup: run `openclaw onboard` in your terminal.
-OpenClaw Onboard guides you step by step through setting up the gateway, workspace, channels, and skills. It is the recommended CLI setup path and works on **macOS, Linux, and Windows**.
-This slim fork is Docker-first; see [Docker](https://docs.openclaw.ai/install/docker) for the primary setup path.
-Works with npm, pnpm, or bun.
+Preferred setup: run the Docker image with a mounted `openclaw.json` file and a
+separate mounted secrets file. This slim fork is Docker-first on Unix-like
+hosts; native Windows installers and interactive onboarding are not supported
+as the primary operator path.
 
 ## Sponsors
 
@@ -94,20 +94,18 @@ Works with npm, pnpm, or bun.
 
 - **[OpenAI](https://openai.com/)** (ChatGPT/Codex)
 
-Model note: this fork supports OpenAI (and OpenAI-compatible endpoints) and Anthropic; prefer a current flagship model from the provider you trust and already use. See [Onboarding](https://docs.openclaw.ai/start/wizard).
+Model note: this fork supports OpenAI (and OpenAI-compatible endpoints) and Anthropic; prefer a current flagship model from the provider you trust and already use.
 
 ## Install (recommended)
 
 Runtime: **Node 24 (recommended) or Node 22.19+**.
 
 ```bash
-npm install -g openclaw@latest
-# or: pnpm add -g openclaw@latest
-
-openclaw onboard --install-daemon
+docker compose -f docker-compose.manual-ssh.yml up -d --build
 ```
 
-OpenClaw Onboard installs the Gateway daemon (launchd/systemd user service) so it stays running.
+The manual image starts SSH and the Gateway. Runtime state, `openclaw.json`,
+and secrets live under the mounted `/home/node` volume, not inside the image.
 
 ## Quick start (TL;DR)
 
@@ -115,10 +113,11 @@ Runtime: **Node 24 (recommended) or Node 22.19+**.
 
 Full beginner guide (auth, pairing, channels): [Getting started](https://docs.openclaw.ai/start/getting-started)
 
-Recommended daemon mode:
+Recommended Docker mode:
 
 ```bash
-openclaw onboard --install-daemon
+docker compose -f docker-compose.manual-ssh.yml up -d --build
+ssh -p 2223 node@127.0.0.1
 openclaw gateway status
 ```
 
@@ -165,7 +164,7 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 - **[Multi-agent routing](https://docs.openclaw.ai/gateway/configuration)** — route inbound channels/accounts/peers to isolated agents (workspaces + per-agent sessions).
 - **[Cross-session memory](https://docs.openclaw.ai/concepts/memory)** — built-in recall/search via `memory-core`.
 - **[First-class tools](https://docs.openclaw.ai/tools)** — cron, sessions, and Discord actions.
-- **[Onboarding](https://docs.openclaw.ai/start/wizard) + [skills](https://docs.openclaw.ai/tools/skills)** — onboarding-driven setup with bundled/managed/workspace skills.
+- **[File-based setup](https://docs.openclaw.ai/install/docker) + [skills](https://docs.openclaw.ai/tools/skills)** — configure `openclaw.json`, mount secrets, then restart the container.
 
 ## Security model (important)
 
@@ -183,7 +182,7 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 
 ## Docs by goal
 
-- New here: [Getting started](https://docs.openclaw.ai/start/getting-started), [Onboarding](https://docs.openclaw.ai/start/wizard), [Updating](https://docs.openclaw.ai/install/updating)
+- New here: [Getting started](https://docs.openclaw.ai/start/getting-started), [Docker](https://docs.openclaw.ai/install/docker), [Updating](https://docs.openclaw.ai/install/updating)
 - Channel setup: [Channels index](https://docs.openclaw.ai/channels), [Telegram](https://docs.openclaw.ai/channels/telegram), [WhatsApp](https://docs.openclaw.ai/channels/whatsapp), [Discord](https://docs.openclaw.ai/channels/discord)
 - Config + security: [Configuration](https://docs.openclaw.ai/gateway/configuration), [Security](https://docs.openclaw.ai/gateway/security), [Exposure runbook](https://docs.openclaw.ai/gateway/security/exposure-runbook), [Sandboxing](https://docs.openclaw.ai/gateway/sandboxing)
 - Remote + web: [Gateway](https://docs.openclaw.ai/gateway), [Remote access](https://docs.openclaw.ai/gateway/remote), [Tailscale](https://docs.openclaw.ai/gateway/tailscale), [Web surfaces](https://docs.openclaw.ai/web)
@@ -206,9 +205,6 @@ cd openclaw
 
 pnpm install
 
-# First run only (or after resetting local OpenClaw config/workspace)
-pnpm openclaw setup
-
 # Optional: prebuild Control UI before first startup
 pnpm ui:build
 
@@ -223,7 +219,10 @@ pnpm build
 pnpm ui:build
 ```
 
-`pnpm openclaw setup` writes the local config/workspace needed for `pnpm gateway:watch`. It is safe to re-run, but you normally only need it on first setup or after resetting local state. `pnpm gateway:watch` does not rebuild `dist/control-ui`, so rerun `pnpm ui:build` after `ui/` changes or use `pnpm ui:dev` when iterating on the Control UI. If you want this checkout to run onboarding directly, use `pnpm openclaw onboard --install-daemon`.
+Create or mount `~/.openclaw/openclaw.json` plus a separate secrets file before
+starting `pnpm gateway:watch`. `pnpm gateway:watch` does not rebuild
+`dist/control-ui`, so rerun `pnpm ui:build` after `ui/` changes or use
+`pnpm ui:dev` when iterating on the Control UI.
 
 Note: `pnpm openclaw ...` runs TypeScript directly (via `tsx`). `pnpm build` produces `dist/` for running via Node / the packaged `openclaw` binary, while `pnpm gateway:watch` rebuilds the runtime on demand during the dev loop.
 

@@ -2,7 +2,7 @@
 summary: "Pairing overview: approve who can DM you + which nodes can join"
 read_when:
   - Setting up DM access control
-  - Pairing a new iOS/Android node
+  - Reviewing retained channel access
   - Reviewing OpenClaw security posture
 title: "Pairing"
 ---
@@ -11,7 +11,7 @@ title: "Pairing"
 It is used in two places:
 
 1. **DM pairing** (who is allowed to talk to the bot)
-2. **Node pairing** (which devices/nodes are allowed to join the gateway network)
+2. **Node pairing** (which headless nodes are allowed to join the gateway network)
 
 Security context: [Security](/gateway/security)
 
@@ -45,7 +45,7 @@ That gives first-time setups an explicit owner for privileged commands and exec
 approval prompts. After an owner exists, later pairing approvals only grant DM
 access; they do not add more owners.
 
-Supported channels: `discord`, `feishu`, `googlechat`, `imessage`, `irc`, `line`, `matrix`, `mattermost`, `msteams`, `nextcloud-talk`, `nostr`, `openclaw-weixin`, `signal`, `slack`, `synology-chat`, `telegram`, `twitch`, `whatsapp`, `zalo`, `zalouser`.
+Supported channels in this slim fork: `discord`, `telegram`, `whatsapp`.
 
 ### Reusable sender groups
 
@@ -101,20 +101,19 @@ channel's group allowlists (for example `groupAllowFrom`, `groups`, or per-group
 or per-topic overrides depending on the channel).
 </Note>
 
-## 2) Node device pairing (iOS/Android/macOS/headless nodes)
+## 2) Node device pairing (headless nodes)
 
 Nodes connect to the Gateway as **devices** with `role: node`. The Gateway
 creates a device pairing request that must be approved.
 
-### Pair via Telegram (recommended for iOS)
+### Pair via Telegram
 
 If you use the `device-pair` plugin, you can do first-time device pairing entirely from Telegram:
 
 1. In Telegram, message your bot: `/pair`
 2. The bot replies with two messages: an instruction message and a separate **setup code** message (easy to copy/paste in Telegram).
-3. On your phone, open the OpenClaw iOS app → Settings → Gateway.
-4. Scan the QR code or paste the setup code and connect.
-5. Back in Telegram: `/pair pending` (review request IDs, role, and scopes), then approve.
+3. Use the setup code with the node or automation process you are joining.
+4. Back in Telegram: `/pair pending` (review request IDs, role, and scopes), then approve.
 
 The setup code is a base64-encoded JSON payload that contains:
 
@@ -208,7 +207,4 @@ Stored under `~/.openclaw/devices/`:
 - Channel configs:
   - Telegram: [Telegram](/channels/telegram)
   - WhatsApp: [WhatsApp](/channels/whatsapp)
-  - Signal: [Signal](/channels/signal)
-  - iMessage: [iMessage](/channels/imessage)
   - Discord: [Discord](/channels/discord)
-  - Slack: [Slack](/channels/slack)

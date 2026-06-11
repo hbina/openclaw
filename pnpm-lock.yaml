@@ -6,8 +6,6 @@ settings:
 
 overrides:
   '@anthropic-ai/sdk': 0.100.1
-  '@aws-sdk/core': 3.974.13
-  '@aws-sdk/xml-builder': 3.972.25
   hono: 4.12.18
   '@hono/node-server': 1.19.14
   axios: 1.16.0

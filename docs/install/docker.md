@@ -1,12 +1,15 @@
 ---
-summary: "Optional Docker-based setup and onboarding for OpenClaw"
+summary: "Docker-first setup with mounted config and secrets files"
 read_when:
   - You want a containerized gateway instead of local installs
   - You are validating the Docker flow
 title: "Docker"
 ---
 
-Docker is **optional**. Use it only if you want a containerized gateway or to validate the Docker flow.
+The slim fork is Docker-first for user deployments. Run the manual SSH image,
+mount persistent state under `/home/node`, keep non-secret setup in
+`openclaw.json`, and keep credentials in the mounted state-dir `.env` file or
+SecretRef-backed files.
 
 ## Slim manual SSH image
 
@@ -40,17 +43,14 @@ ssh node@127.0.0.1 -p 2223
 
   <Step title="Configure the model provider">
 
-    The slim fork supports one provider id, `openai`, through
-    OpenAI-compatible Chat Completions.
+    The slim fork supports OpenAI-compatible endpoints through `openai` and
+    native Anthropic through `anthropic`.
 
 ```bash
 mkdir -p /home/node/.openclaw
 cat >/home/node/.openclaw/openclaw.json <<'JSON5'
 {
-  env: {
-    OPENAI_BASE_URL: "https://api.openai.com/v1",
-    OPENAI_API_KEY: "replace-with-your-api-key",
-  },
+  secrets: { providers: { default: { source: "env" } } },
   agents: {
     defaults: {
       model: { primary: "openai/gpt-5.5" },
@@ -58,6 +58,12 @@ cat >/home/node/.openclaw/openclaw.json <<'JSON5'
   },
 }
 JSON5
+cat >/home/node/.openclaw/.env <<'ENV'
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=<openai-api-key>
+# ANTHROPIC_API_KEY=<anthropic-api-key>
+ENV
+chmod 600 /home/node/.openclaw/.env
 ```
 
     Replace the model id with the model served by your compatible endpoint.
@@ -66,24 +72,23 @@ JSON5
 
   <Step title="Configure a channel">
 
-    Telegram and Discord can use environment variables. WhatsApp uses the
-    existing WhatsApp Web QR login and stores session state under the Docker
-    volume.
+    Telegram and Discord read token values from the mounted state-dir `.env`
+    file or from configured SecretRefs.
+    WhatsApp uses the existing WhatsApp Web QR login and stores session state
+    under the Docker volume.
 
 ```bash
-# Telegram
-export TELEGRAM_BOT_TOKEN="123456:ABCDEF..."
-
-# Discord
-export DISCORD_BOT_TOKEN="..."
+cat >>/home/node/.openclaw/.env <<'ENV'
+TELEGRAM_BOT_TOKEN=<telegram-bot-token>
+DISCORD_BOT_TOKEN=<discord-bot-token>
+ENV
 
 # WhatsApp QR login
 pnpm openclaw channels login --channel whatsapp
 ```
 
-    For durable container restarts, store channel credentials in
-    `/home/node/.openclaw/openclaw.json`, `/home/node/.openclaw/.env`, or the
-    channel-specific credential flow documented on
+    Do not commit `.env` or copy it into the image. Mount or edit it in the
+    persistent runtime volume. Channel-specific details live in
     [Telegram](/channels/telegram), [Discord](/channels/discord), and
     [WhatsApp](/channels/whatsapp).
 
@@ -100,118 +105,30 @@ until curl -fsS http://127.0.0.1:18791/healthz; do sleep 1; done
   </Step>
 </Steps>
 
-## Is Docker right for me?
-
-- **Yes**: you want an isolated, throwaway gateway environment or to run OpenClaw on a host without local installs.
-- **No**: you are running on your own machine and just want the fastest dev loop. Use the normal install flow instead.
-- **Sandboxing note**: the default sandbox backend uses Docker when sandboxing is enabled, but sandboxing is off by default and does **not** require the full gateway to run in Docker. SSH and OpenShell sandbox backends are also available. See [Sandboxing](/gateway/sandboxing).
-
 ## Prerequisites
 
-- Docker Desktop (or Docker Engine) + Docker Compose v2
+- Docker Engine or Docker Desktop on a Unix-like host
+- Docker Compose v2
 - At least 2 GB RAM for image build (`pnpm install` may be OOM-killed on 1 GB hosts with exit 137)
 - Enough disk for images and logs
 - If running on a VPS/public host, review
   [Security hardening for network exposure](/gateway/security),
   especially Docker `DOCKER-USER` firewall policy.
 
-## Containerized gateway
+## Runtime files
 
-<Steps>
-  <Step title="Build the image">
-    From the repo root, run the setup script:
+Keep these files in the mounted `/home/node` volume:
 
-    ```bash
-    ./scripts/docker/setup.sh
-    ```
+| Path                                 | Purpose                                    |
+| ------------------------------------ | ------------------------------------------ |
+| `/home/node/.openclaw/openclaw.json` | Canonical non-secret runtime configuration |
+| `/home/node/.openclaw/.env`          | Provider keys and channel bot tokens       |
+| `/home/node/.openclaw/workspace`     | Agent workspace and skills                 |
+| `/home/node/.openclaw`               | Runtime state, pairings, sessions, memory  |
 
-    This builds the gateway image locally. To use a pre-built image instead:
-
-    ```bash
-    export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
-    ./scripts/docker/setup.sh
-    ```
-
-    Pre-built images are published at the
-    [GitHub Container Registry](https://github.com/openclaw/openclaw/pkgs/container/openclaw).
-    Common tags: `main`, `latest`, `<version>` (e.g. `2026.2.26`).
-
-  </Step>
-
-  <Step title="Complete onboarding">
-    The setup script runs onboarding automatically. It will:
-
-    - prompt for provider API keys
-    - generate a gateway token and write it to `.env`
-    - create the auth-profile secret key directory
-    - start the gateway via Docker Compose
-
-    During setup, pre-start onboarding and config writes run through
-    `openclaw-gateway` directly. `openclaw-cli` is for commands you run after
-    the gateway container already exists.
-
-  </Step>
-
-  <Step title="Open the Control UI">
-    Open `http://127.0.0.1:18789/` in your browser and paste the configured
-    shared secret into Settings. The setup script writes a token to `.env` by
-    default; if you switch the container config to password auth, use that
-    password instead.
-
-    Need the URL again?
-
-    ```bash
-    docker compose run --rm openclaw-cli dashboard --no-open
-    ```
-
-  </Step>
-
-  <Step title="Configure channels (optional)">
-    Use the CLI container to add messaging channels:
-
-    ```bash
-    # WhatsApp (QR)
-    docker compose run --rm openclaw-cli channels login
-
-    # Telegram
-    docker compose run --rm openclaw-cli channels add --channel telegram --token "<token>"
-
-    # Discord
-    docker compose run --rm openclaw-cli channels add --channel discord --token "<token>"
-    ```
-
-    Docs: [WhatsApp](/channels/whatsapp), [Telegram](/channels/telegram), [Discord](/channels/discord)
-
-  </Step>
-</Steps>
-
-### Manual flow
-
-If you prefer to run each step yourself instead of using the setup script:
-
-```bash
-docker build -t openclaw:local -f Dockerfile .
-docker compose run --rm --no-deps --entrypoint node openclaw-gateway \
-  dist/index.js onboard --mode local --no-install-daemon
-docker compose run --rm --no-deps --entrypoint node openclaw-gateway \
-  dist/index.js config set --batch-json '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"},{"path":"gateway.controlUi.allowedOrigins","value":["http://localhost:18789","http://127.0.0.1:18789"]}]'
-docker compose up -d openclaw-gateway
-```
-
-<Note>
-Run `docker compose` from the repo root. If you enabled `OPENCLAW_EXTRA_MOUNTS`
-or `OPENCLAW_HOME_VOLUME`, the setup script writes `docker-compose.extra.yml`;
-include it after any standard override file, for example
-`-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.extra.yml`
-when both override files exist.
-</Note>
-
-<Note>
-Because `openclaw-cli` shares `openclaw-gateway`'s network namespace, it is a
-post-start tool. Before `docker compose up -d openclaw-gateway`, run onboarding
-and setup-time config writes through `openclaw-gateway` with
-`--no-deps --entrypoint node`.
-</Note>
+Use `openclaw doctor`, `openclaw validate`, and `openclaw migrate` for checks
+and upgrades. Interactive onboarding is not the primary setup path for this
+fork.
 
 ### Environment variables
 

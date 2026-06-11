@@ -24,24 +24,9 @@ minimumReleaseAgeExclude:
   - "@cloudflare/workers-types"
   - "@hono/node-server"
   - "@mariozechner/*"
-  - "@aws-sdk/client-bedrock-runtime@3.1053.0"
-  - "@aws-sdk/client-bedrock@3.1053.0"
-  - "@aws-sdk/client-cognito-identity@3.1053.0"
-  - "@aws-sdk/client-s3@3.1053.0"
-  - "@aws-sdk/core"
-  - "@aws-sdk/credential-providers@3.1053.0"
-  - "@aws-sdk/s3-request-presigner@3.1053.0"
-  - "@aws-sdk/token-providers@3.1052.0"
-  - "@aws-sdk/token-providers@3.1053.0"
   - "@copilotkit/aimock@1.27.1"
   - "@earendil-works/pi-tui"
   - "@google/genai@2.6.0"
-  - "@larksuiteoapi/node-sdk@1.66.0"
-  - "@microsoft/teams.api@2.0.12"
-  - "@microsoft/teams.apps@2.0.12"
-  - "@microsoft/teams.cards@2.0.12"
-  - "@microsoft/teams.common@2.0.12"
-  - "@microsoft/teams.graph@2.0.12"
   - "@pierre/diffs@1.2.3"
   - "@smithy/shared-ini-file-loader@4.5.4"
   - "@typescript/native-preview*"
@@ -64,8 +49,6 @@ blockExoticSubdeps: true
 
 overrides:
   "@anthropic-ai/sdk": 0.100.1
-  "@aws-sdk/core": 3.974.13
-  "@aws-sdk/xml-builder": 3.972.25
   hono: 4.12.18
   "@hono/node-server": 1.19.14
   axios: 1.16.0
@@ -94,7 +77,6 @@ allowBuilds:
   "@openclaw/fs-safe": true
   "@google/genai": true
   "@lydell/node-pty": true
-  "@matrix-org/matrix-sdk-crypto-nodejs": true
   "@tloncorp/api": true
   "@tloncorp/tlon-skill": true
   baileys: true

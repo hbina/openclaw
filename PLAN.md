@@ -4,11 +4,14 @@
 
 This branch is intended to become a much slimmer OpenClaw fork. The first goal is to remove most features from `main` and keep only the surfaces needed for a focused reminder-agent style deployment.
 
+Setup should be simple and portable: one canonical JSON config file for non-secret behavior, plus one separate secret file for credentials. Both live outside the image and can be moved between machines with the persisted runtime volume.
+
 The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, unused runtime dependencies, or packaging paths that no longer match the fork's product shape.
 
 Native Windows support is not part of this fork's product surface. The supported operator path is the Docker-first runtime on Unix-like hosts.
 
-The final goal is to port the retained slim application from the current TypeScript/Node implementation to Go. The slim fork should define the durable product and protocol surface first, then replace runtime components with Go implementations behind the same documented Docker-first operator experience.
+Go porting is out of scope. The retained TypeScript/Node runtime is the final
+implementation target for this slim fork.
 
 ## Target Shape
 
@@ -21,9 +24,9 @@ Keep a small, explicit product surface:
 - Two model providers: OpenAI (including any OpenAI API-compatible endpoint) and Anthropic.
 - Built-in memory support through `memory-core` for cross-session recall.
 - A simple Docker image that starts SSH and the Gateway by default.
+- A single `openclaw.json` setup file plus a companion secret file for credentials, both stored outside the image.
 - Persistent runtime state under a Docker volume or a documented host mount.
 - A trimmed dependency graph containing only packages needed by the retained runtime, tests, docs, and Docker build.
-- A Go implementation of the retained runtime once the slim TypeScript surface is stable.
 - No native Windows distribution, installer, or runtime support.
 
 Remove or defer everything else unless a concrete reminder-agent requirement depends on it.
@@ -38,21 +41,22 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Keeping unused dependencies merely because upstream OpenClaw still needs them.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
 - Supporting native Windows, WSL2-specific packaging, or Windows-only installers in this fork.
-- Rewriting the whole upstream application in Go before the slim runtime surface is proven.
+- Rewriting the slim application in Go.
 
 ## Migration Principles
 
 - Prefer deletion over compatibility shims for surfaces not supported by the fork.
 - Keep one canonical setup path: Docker-first, with manual SSH access available for auth and debugging.
 - Keep runtime state outside the image. The image is shareable; the instance state is not.
+- Keep non-secret setup in `openclaw.json` and keep secrets in a separate file. Do not mix credentials into the canonical config file.
 - Keep secrets out of git and image layers.
 - Collapse config to the current supported shape; do not retain old upstream migration paths unless this fork has already shipped them.
 - Remove dependencies when their last retained runtime, build, test, or docs use is deleted. Do not keep package graph weight for removed upstream surfaces.
 - Remove tests only when the covered feature is intentionally removed. Keep or rewrite tests for retained core behavior.
 - Validate each phase with the narrowest command that proves the retained product still works.
 - Treat Windows support as removed scope unless a retained Docker/runtime requirement explicitly depends on it.
-- Treat the TypeScript slim runtime as the behavioral reference for the Go port. Do not start the Go rewrite by re-creating removed upstream surfaces.
-- Keep protocol, config, state, and Docker behavior explicit enough that Go components can replace TypeScript components incrementally.
+- Treat the TypeScript slim runtime as the product runtime. Do not start or
+  prepare a Go rewrite in this fork.
 
 ## Status (as of branch `slim/reminder-agent`)
 
@@ -67,7 +71,7 @@ Progress so far, by phase:
 - **Phase 6 (Providers):** Code complete. OpenAI (+ OpenAI-compatible) and Anthropic only; the Anthropic provider plugin (incl. Claude CLI auth) was restored, external provider catalog trimmed. Live reply proofs need an endpoint/key.
 - **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Control UI channels, quick settings, and session labels are now pruned to the retained channel set. Remaining: audit the rest of the dashboard/control UI for removed-feature references.
 - **Phase 8 (Tests):** Reset. The entire inherited `*.test.ts` suite (4,610 files) was removed for a clean-slate rebuild; vitest config + test helpers kept so focused tests can be re-added. The Phase 8 suite has not been written yet.
-- **Phases 9–10 (Release, Go port):** Not started.
+- **Phase 9 (Release):** Not started. Go porting is intentionally out of scope.
 
 Cross-cutting decisions made during this work:
 
@@ -171,6 +175,7 @@ Make the manual Docker path the primary setup path:
 - Expose only required ports by default: SSH, Gateway, bridge, and any retained callback port.
 - Keep the Docker runtime supported on Unix-like hosts only; do not add native Windows packaging or setup paths.
 - Document first-run configuration: SSH into the container, configure an OpenAI-compatible provider, configure Telegram/WhatsApp/Discord credentials, restart.
+- Document first-run configuration as editing or mounting `openclaw.json` plus the separate secret file, then restarting.
 - Add a healthcheck once the Gateway can start reliably before first auth.
 
 Exit criteria:
@@ -273,40 +278,6 @@ Exit criteria:
 - A user can run the published image with documented commands.
 - No private instance state is included in the image.
 
-## Phase 10: Go Port
-
-Port the retained slim application to Go after the TypeScript slim runtime has a stable, verified surface.
-
-Retained Go target:
-
-- Gateway HTTP/WebSocket runtime.
-- Agent loop for one primary profile.
-- OpenAI Chat Completions client (incl. OpenAI-compatible endpoints) and Anthropic Messages client.
-- Telegram, WhatsApp, and Discord channel adapters.
-- `memory-core` equivalent: persisted recall/search and the retained dreaming behavior.
-- Config loader for the slim config shape only.
-- SQLite/runtime state under `/home/node`.
-- Docker image that keeps the same first-run operator flow: SSH, Gateway, volume state, health checks, and channel/provider setup.
-
-Porting sequence:
-
-1. Freeze the slim TypeScript behavior with focused tests and Docker smoke proof.
-2. Write protocol/config/state fixtures from the TypeScript runtime for Gateway, channels, provider calls, pairing, and memory.
-3. Implement Go packages behind the retained boundaries: config, state, provider, channel adapters, memory, Gateway, and Docker entrypoint.
-4. Run Go and TypeScript implementations side by side against the same fixture corpus until behavior matches for retained surfaces.
-5. Switch the Docker image to the Go binary once provider reply, memory, channel pairing/reply, restart, and health checks pass.
-6. Remove TypeScript runtime-only code after the Go image fully owns the retained product surface.
-
-Exit criteria:
-
-- A clean clone builds a Go binary and Docker image without Node runtime dependencies for production use.
-- The Go image supports the same documented slim first-run path.
-- OpenAI-compatible provider reply works through the Go Gateway.
-- Telegram, WhatsApp, and Discord pairing/reply work through the Go Gateway.
-- Memory recall/search persists across container restart.
-- Existing slim config and state either load directly or have a documented one-time migration.
-- TypeScript runtime code is no longer required in the production image.
-
 ## Immediate Next Actions
 
 1. Remove `TELEGRAM_BOT_TOKEN` from git and local disk if it contains a real token.
@@ -316,8 +287,7 @@ Exit criteria:
 5. Verify `memory-core` is present in `dist/extensions` and memory tools register in the slim Gateway.
 6. Complete one OpenAI-compatible provider reply test.
 7. Complete Telegram, WhatsApp, and Discord pairing and reply tests.
-8. Capture protocol/config/state fixtures that will become the Go-port compatibility corpus.
-9. Reduce staged deletions into reviewable commits by phase.
+8. Reduce staged deletions into reviewable commits by phase.
 
 ## Open Questions
 
@@ -330,9 +300,6 @@ Exit criteria:
 - Should browser/canvas/tools remain available for the reminder agent?
 - Should this fork keep upstream package names or rename package/image/docs surfaces?
 - Should Docker expose ports only on loopback by default, or support LAN by default for local network access?
-- Should the Go port preserve OpenClaw's existing Gateway API shape exactly, or define a smaller v1 protocol for the fork?
-- Which Go WhatsApp library/runtime should replace the current WhatsApp Web implementation, and what session migration is acceptable?
-- Should the Go port keep a small web dashboard, or make CLI/API operation the only supported operator surface?
 
 ## Validation Checklist
 
@@ -357,10 +324,3 @@ Before publishing an image:
 - Confirm no `.env`, channel token, provider API key, or OpenClaw credentials are present in image layers.
 - Run the documented first-run path with a fresh Docker volume.
 - Record exact image tag, commit SHA, and verification commands.
-
-Before replacing TypeScript with Go:
-
-- Go binary and Docker image build from a clean clone.
-- Go implementation passes the retained fixture corpus.
-- Go Docker smoke proves SSH, Gateway health, restart, provider reply, memory persistence, and retained channel pairing/reply.
-- Migration behavior for existing `/home/node` state is documented and tested.

@@ -1,5 +1,5 @@
 ---
-summary: "Group chat behavior across surfaces (Discord/iMessage/Matrix/Microsoft Teams/Signal/Slack/Telegram/WhatsApp/Zalo)"
+summary: "Group chat behavior across Discord, Telegram, and WhatsApp"
 read_when:
   - Changing group chat behavior or mention gating
   - Scoping mentionPatterns to specific group conversations
@@ -7,7 +7,8 @@ title: "Groups"
 sidebarTitle: "Groups"
 ---
 
-OpenClaw treats group chats consistently across surfaces: Discord, iMessage, Matrix, Microsoft Teams, Signal, Slack, Telegram, WhatsApp, Zalo.
+OpenClaw treats group chats consistently across the retained surfaces: Discord,
+Telegram, and WhatsApp.
 
 For always-on rooms that should provide quiet context unless the agent explicitly sends a visible message, see [Ambient room events](/channels/ambient-room-events).
 
@@ -121,7 +122,7 @@ By default, OpenClaw prioritizes normal chat behavior and keeps context mostly a
 
 <AccordionGroup>
   <Accordion title="Current behavior is channel-specific">
-    - Some channels already apply sender-based filtering for supplemental context in specific paths (for example Slack thread seeding, Matrix reply/thread lookups).
+    - Some channels already apply sender-based filtering for supplemental context in specific paths.
     - Other channels still pass quote/reply/forward context through as received.
 
   </Accordion>
@@ -250,34 +251,10 @@ Control how group/room messages are handled per channel:
       groupPolicy: "disabled",
       groupAllowFrom: ["123456789"], // numeric Telegram user id (wizard can resolve @username)
     },
-    signal: {
-      groupPolicy: "disabled",
-      groupAllowFrom: ["+15551234567"],
-    },
-    imessage: {
-      groupPolicy: "disabled",
-      groupAllowFrom: ["chat_id:123"],
-    },
-    msteams: {
-      groupPolicy: "disabled",
-      groupAllowFrom: ["user@org.com"],
-    },
     discord: {
       groupPolicy: "allowlist",
       guilds: {
         GUILD_ID: { channels: { help: { allow: true } } },
-      },
-    },
-    slack: {
-      groupPolicy: "allowlist",
-      channels: { "#general": { allow: true } },
-    },
-    matrix: {
-      groupPolicy: "allowlist",
-      groupAllowFrom: ["@owner:example.org"],
-      groups: {
-        "!roomId:example.org": { enabled: true },
-        "#alias:example.org": { enabled: true },
       },
     },
   },
@@ -293,13 +270,10 @@ Control how group/room messages are handled per channel:
 <AccordionGroup>
   <Accordion title="Per-channel notes">
     - `groupPolicy` is separate from mention-gating (which requires @mentions).
-    - WhatsApp/Telegram/Signal/iMessage/Microsoft Teams/Zalo: use `groupAllowFrom` (fallback: explicit `allowFrom`).
-    - Signal: `groupAllowFrom` can match either the inbound Signal group id or the sender phone/UUID.
+    - WhatsApp and Telegram use `groupAllowFrom` (fallback: explicit `allowFrom`).
     - DM pairing approvals (`*-allowFrom` store entries) apply to DM access only; group sender authorization stays explicit to group allowlists.
     - Discord: allowlist uses `channels.discord.guilds.<id>.channels`.
-    - Slack: allowlist uses `channels.slack.channels`.
-    - Matrix: allowlist uses `channels.matrix.groups`. Prefer room IDs or aliases; joined-room name lookup is best-effort, and unresolved names are ignored at runtime. Use `channels.matrix.groupAllowFrom` to restrict senders; per-room `users` allowlists are also supported.
-    - Group DMs are controlled separately (`channels.discord.dm.*`, `channels.slack.dm.*`).
+    - Discord group DMs are controlled separately (`channels.discord.dm.*`).
     - Telegram allowlist can match user IDs (`"123456789"`, `"telegram:123456789"`, `"tg:123456789"`) or usernames (`"@alice"` or `"alice"`); prefixes are case-insensitive.
     - Default is `groupPolicy: "allowlist"`; if your group allowlist is empty, group messages are blocked.
     - Runtime safety: when a provider block is completely missing (`channels.<provider>` absent), group policy falls back to a fail-closed mode (typically `allowlist`) instead of inheriting `channels.defaults.groupPolicy`.
@@ -325,7 +299,7 @@ Quick mental model (evaluation order for group messages):
 
 Group messages require a mention unless overridden per group. Defaults live per subsystem under `*.groups."*"`.
 
-Replying to a bot message counts as an implicit mention when the channel supports reply metadata. Quoting a bot message can also count as an implicit mention on channels that expose quote metadata. Current built-in cases include Telegram, WhatsApp, Slack, Discord, Microsoft Teams, and ZaloUser.
+Replying to a bot message counts as an implicit mention when the channel supports reply metadata. Quoting a bot message can also count as an implicit mention on channels that expose quote metadata. Current retained cases include Telegram, WhatsApp, and Discord.
 
 ```json5
 {
@@ -368,7 +342,7 @@ Replying to a bot message counts as an implicit mention when the channel support
 Configured `mentionPatterns` are regex fallback triggers. Use them when the
 platform does not expose a native bot mention, or when you want plain text such
 as `openclaw:` to count as a mention. Native platform mentions are separate:
-when Discord, Slack, Telegram, Matrix, or another channel can prove the message
+when Discord, Telegram, WhatsApp, or another retained channel can prove the message
 explicitly mentioned the bot, that native mention still triggers even if
 configured regex patterns are denied.
 
@@ -388,10 +362,10 @@ channel, then opt in specific rooms with `allowIn`:
     },
   },
   channels: {
-    slack: {
+    whatsapp: {
       mentionPatterns: {
         mode: "deny",
-        allowIn: ["C0123OPS"],
+        allowIn: ["123@g.us"],
       },
     },
   },
@@ -432,8 +406,6 @@ Supported scoped regex policy today:
 | Channel  | IDs used in `allowIn` / `denyIn`                             |
 | -------- | ------------------------------------------------------------ |
 | Discord  | Discord channel IDs.                                         |
-| Matrix   | Matrix room IDs.                                             |
-| Slack    | Slack channel IDs.                                           |
 | Telegram | Group chat IDs, or `chatId:topic:threadId` for forum topics. |
 | WhatsApp | WhatsApp conversation IDs such as `123@g.us`.                |
 
@@ -506,12 +478,15 @@ Example (Telegram):
 ```
 
 <Note>
-Group/channel tool restrictions are applied in addition to global/agent tool policy (deny still wins). Some channels use different nesting for rooms/channels (e.g., Discord `guilds.*.channels.*`, Slack `channels.*`, Microsoft Teams `teams.*.channels.*`).
+Group/channel tool restrictions are applied in addition to global/agent tool policy (deny still wins). Discord uses `guilds.*.channels.*`; Telegram and WhatsApp use their `groups` maps.
 </Note>
 
 ## Group allowlists
 
-When `channels.whatsapp.groups`, `channels.telegram.groups`, or `channels.imessage.groups` is configured, the keys act as a group allowlist. Use `"*"` to allow all groups while still setting default mention behavior.
+When `channels.whatsapp.groups` or `channels.telegram.groups` is configured,
+the keys act as a group allowlist. Discord uses
+`channels.discord.guilds.<id>.channels`. Use `"*"` where supported to allow
+all groups while still setting default mention behavior.
 
 <Warning>
 Common confusion: DM pairing approval is not the same as group authorization. For channels that support DM pairing, the pairing store unlocks DMs only. Group commands still require explicit group sender authorization from config allowlists such as `groupAllowFrom` or the documented config fallback for that channel.
@@ -587,12 +562,6 @@ Group inbound payloads set:
 - Telegram forum topics also include `MessageThreadId` and `IsForum`.
 
 The agent system prompt includes a group intro on the first turn of a new group session. It reminds the model to respond like a human, avoid Markdown tables, minimize empty lines and follow normal chat spacing, and avoid typing literal `\n` sequences. Channel-sourced group names and participant labels are rendered as fenced untrusted metadata, not inline system instructions.
-
-## iMessage specifics
-
-- Prefer `chat_id:<id>` when routing or allowlisting.
-- List chats: `imsg chats --limit 20`.
-- Group replies always go back to the same `chat_id`.
 
 ## WhatsApp system prompts
 

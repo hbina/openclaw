@@ -1,5 +1,5 @@
 ---
-summary: "Channel configuration: access control, pairing, per-channel keys across Slack, Discord, Telegram, WhatsApp, Matrix, iMessage, and more"
+summary: "Channel configuration: access control, pairing, and per-channel keys for Discord, Telegram, and WhatsApp"
 read_when:
   - Configuring a channel plugin (auth, access control, multi-account)
   - Troubleshooting per-channel config keys
@@ -8,8 +8,8 @@ title: "Configuration — channels"
 ---
 
 Per-channel configuration keys under `channels.*`. Covers DM and group access,
-multi-account setups, mention gating, and per-channel keys for Slack, Discord,
-Telegram, WhatsApp, Matrix, iMessage, and the other bundled channel plugins.
+multi-account setups, mention gating, and per-channel keys for Discord,
+Telegram, and WhatsApp.
 
 For agents, tools, gateway runtime, and other top-level keys, see
 [Configuration reference](/gateway/configuration-reference).
@@ -51,9 +51,6 @@ Use `channels.modelByChannel` to pin specific channel IDs to a model. Values acc
     modelByChannel: {
       discord: {
         "123456789012345678": "anthropic/claude-opus-4-6",
-      },
-      slack: {
-        C1234567890: "openai/gpt-5.5",
       },
       telegram: {
         "-1001234567890": "openai/gpt-5.4-mini",
@@ -371,385 +368,6 @@ WhatsApp runs through the gateway's web channel (Baileys Web). It starts automat
 
 **Reaction notification modes:** `off` (none), `own` (bot's messages, default), `all` (all messages), `allowlist` (from `guilds.<id>.users` on all messages).
 
-### Google Chat
-
-```json5
-{
-  channels: {
-    googlechat: {
-      enabled: true,
-      serviceAccountFile: "/path/to/service-account.json",
-      audienceType: "app-url", // app-url | project-number
-      audience: "https://gateway.example.com/googlechat",
-      webhookPath: "/googlechat",
-      botUser: "users/1234567890",
-      dm: {
-        enabled: true,
-        policy: "pairing",
-        allowFrom: ["users/1234567890"],
-      },
-      groupPolicy: "allowlist",
-      groups: {
-        "spaces/AAAA": { allow: true, requireMention: true },
-      },
-      actions: { reactions: true },
-      typingIndicator: "message",
-      mediaMaxMb: 20,
-    },
-  },
-}
-```
-
-- Service account JSON: inline (`serviceAccount`) or file-based (`serviceAccountFile`).
-- Service account SecretRef is also supported (`serviceAccountRef`).
-- Env fallbacks: `GOOGLE_CHAT_SERVICE_ACCOUNT` or `GOOGLE_CHAT_SERVICE_ACCOUNT_FILE`.
-- Use `spaces/<spaceId>` or `users/<userId>` for delivery targets.
-- `channels.googlechat.dangerouslyAllowNameMatching` re-enables mutable email principal matching (break-glass compatibility mode).
-
-### Slack
-
-```json5
-{
-  channels: {
-    slack: {
-      enabled: true,
-      botToken: "xoxb-...",
-      appToken: "xapp-...",
-      socketMode: {
-        clientPingTimeout: 15000,
-        serverPingTimeout: 30000,
-        pingPongLoggingEnabled: false,
-      },
-      dmPolicy: "pairing",
-      allowFrom: ["U123", "U456", "*"],
-      dm: { enabled: true, groupEnabled: false, groupChannels: ["G123"] },
-      channels: {
-        C123: { allow: true, requireMention: true, allowBots: false },
-        "#general": {
-          allow: true,
-          requireMention: true,
-          allowBots: false,
-          users: ["U123"],
-          skills: ["docs"],
-          systemPrompt: "Short answers only.",
-        },
-      },
-      historyLimit: 50,
-      allowBots: false,
-      reactionNotifications: "own",
-      reactionAllowlist: ["U123"],
-      replyToMode: "off", // off | first | all | batched
-      thread: {
-        historyScope: "thread", // thread | channel
-        inheritParent: false,
-      },
-      actions: {
-        reactions: true,
-        messages: true,
-        pins: true,
-        memberInfo: true,
-        emojiList: true,
-      },
-      slashCommand: {
-        enabled: true,
-        name: "openclaw",
-        sessionPrefix: "slack:slash",
-        ephemeral: true,
-      },
-      typingReaction: "hourglass_flowing_sand",
-      unfurlLinks: false,
-      unfurlMedia: false,
-      textChunkLimit: 4000,
-      chunkMode: "length",
-      streaming: {
-        mode: "partial", // off | partial | block | progress
-        nativeTransport: true, // use Slack native streaming API when mode=partial
-      },
-      mediaMaxMb: 20,
-      execApprovals: {
-        enabled: "auto", // true | false | "auto"
-        approvers: ["U123"],
-        agentFilter: ["default"],
-        sessionFilter: ["slack:"],
-        target: "dm", // dm | channel | both
-      },
-    },
-  },
-}
-```
-
-- **Socket mode** requires both `botToken` and `appToken` (`SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` for default account env fallback).
-- **HTTP mode** requires `botToken` plus `signingSecret` (at root or per-account).
-- `socketMode` passes Slack SDK Socket Mode transport tuning through to the public Bolt receiver API. Use it only when investigating ping/pong timeout or stale websocket behavior. `clientPingTimeout` defaults to `15000`; `serverPingTimeout` and `pingPongLoggingEnabled` are passed only when configured.
-- `botToken`, `appToken`, `signingSecret`, and `userToken` accept plaintext
-  strings or SecretRef objects.
-- Slack account snapshots expose per-credential source/status fields such as
-  `botTokenSource`, `botTokenStatus`, `appTokenStatus`, and, in HTTP mode,
-  `signingSecretStatus`. `configured_unavailable` means the account is
-  configured through SecretRef but the current command/runtime path could not
-  resolve the secret value.
-- `configWrites: false` blocks Slack-initiated config writes.
-- Optional `channels.slack.defaultAccount` overrides default account selection when it matches a configured account id.
-- `channels.slack.streaming.mode` is the canonical Slack stream mode key. `channels.slack.streaming.nativeTransport` controls Slack's native streaming transport. Legacy `streamMode`, boolean `streaming`, and `nativeStreaming` values remain runtime aliases; run `openclaw doctor --fix` to rewrite persisted config.
-- `unfurlLinks` and `unfurlMedia` pass Slack's `chat.postMessage` link and media unfurl booleans through for bot replies. `unfurlLinks` defaults to `false` so outbound bot links do not expand inline unless enabled; `unfurlMedia` is omitted unless configured. Set either value at `channels.slack.accounts.<accountId>` to override the top-level value for one account.
-- Use `user:<id>` (DM) or `channel:<id>` for delivery targets.
-
-**Reaction notification modes:** `off`, `own` (default), `all`, `allowlist` (from `reactionAllowlist`).
-
-**Thread session isolation:** `thread.historyScope` is per-thread (default) or shared across channel. `thread.inheritParent` copies parent channel transcript to new threads.
-
-- Slack native streaming plus the Slack assistant-style "is typing..." thread status require a reply thread target. Top-level DMs stay off-thread by default, so they can still stream through Slack draft post-and-edit previews instead of showing the thread-style native stream/status preview.
-- `typingReaction` adds a temporary reaction to the inbound Slack message while a reply is running, then removes it on completion. Use a Slack emoji shortcode such as `"hourglass_flowing_sand"`.
-- `channels.slack.execApprovals`: Slack-native approval-client delivery and exec approver authorization. Same schema as Discord: `enabled` (`true`/`false`/`"auto"`), `approvers` (Slack user IDs), `agentFilter`, `sessionFilter`, and `target` (`"dm"`, `"channel"`, or `"both"`). Plugin approvals can use this native-client path for Slack-origin requests when Slack plugin approvers resolve; Slack-native plugin approval delivery can also be enabled through `approvals.plugin` for Slack-origin sessions or Slack targets. Plugin approvals use Slack plugin approvers from `allowFrom` and default routing, not exec approvers.
-
-| Action group | Default | Notes                  |
-| ------------ | ------- | ---------------------- |
-| reactions    | enabled | React + list reactions |
-| messages     | enabled | Read/send/edit/delete  |
-| pins         | enabled | Pin/unpin/list         |
-| memberInfo   | enabled | Member info            |
-| emojiList    | enabled | Custom emoji list      |
-
-### Mattermost
-
-Mattermost ships as a bundled plugin in current OpenClaw releases. Older or
-custom builds can install a current npm package with
-`openclaw plugins install @openclaw/mattermost`. Check
-[npmjs.com/package/@openclaw/mattermost](https://www.npmjs.com/package/@openclaw/mattermost)
-for the current dist-tags before pinning a version.
-
-```json5
-{
-  channels: {
-    mattermost: {
-      enabled: true,
-      botToken: "mm-token",
-      baseUrl: "https://chat.example.com",
-      dmPolicy: "pairing",
-      chatmode: "oncall", // oncall | onmessage | onchar
-      oncharPrefixes: [">", "!"],
-      groups: {
-        "*": { requireMention: true },
-        "team-channel-id": { requireMention: false },
-      },
-      commands: {
-        native: true, // opt-in
-        nativeSkills: true,
-        callbackPath: "/api/channels/mattermost/command",
-        // Optional explicit URL for reverse-proxy/public deployments
-        callbackUrl: "https://gateway.example.com/api/channels/mattermost/command",
-      },
-      textChunkLimit: 4000,
-      chunkMode: "length",
-    },
-  },
-}
-```
-
-Chat modes: `oncall` (respond on @-mention, default), `onmessage` (every message), `onchar` (messages starting with trigger prefix).
-
-When Mattermost native commands are enabled:
-
-- `commands.callbackPath` must be a path (for example `/api/channels/mattermost/command`), not a full URL.
-- `commands.callbackUrl` must resolve to the OpenClaw gateway endpoint and be reachable from the Mattermost server.
-- Native slash callbacks are authenticated with the per-command tokens returned
-  by Mattermost during slash command registration. If registration fails or no
-  commands are activated, OpenClaw rejects callbacks with
-  `Unauthorized: invalid command token.`
-- For private/tailnet/internal callback hosts, Mattermost may require
-  `ServiceSettings.AllowedUntrustedInternalConnections` to include the callback host/domain.
-  Use host/domain values, not full URLs.
-- `channels.mattermost.configWrites`: allow or deny Mattermost-initiated config writes.
-- `channels.mattermost.requireMention`: require `@mention` before replying in channels.
-- `channels.mattermost.groups.<channelId>.requireMention`: per-channel mention-gating override (`"*"` for default).
-- Optional `channels.mattermost.defaultAccount` overrides default account selection when it matches a configured account id.
-
-### Signal
-
-```json5
-{
-  channels: {
-    signal: {
-      enabled: true,
-      account: "+15555550123", // optional account binding
-      dmPolicy: "pairing",
-      allowFrom: ["+15551234567", "uuid:123e4567-e89b-12d3-a456-426614174000"],
-      configWrites: true,
-      reactionNotifications: "own", // off | own | all | allowlist
-      reactionAllowlist: ["+15551234567", "uuid:123e4567-e89b-12d3-a456-426614174000"],
-      historyLimit: 50,
-    },
-  },
-}
-```
-
-**Reaction notification modes:** `off`, `own` (default), `all`, `allowlist` (from `reactionAllowlist`).
-
-- `channels.signal.account`: pin channel startup to a specific Signal account identity.
-- `channels.signal.configWrites`: allow or deny Signal-initiated config writes.
-- Optional `channels.signal.defaultAccount` overrides default account selection when it matches a configured account id.
-
-### iMessage
-
-OpenClaw spawns `imsg rpc` (JSON-RPC over stdio). No daemon or port required. This is the preferred path for new OpenClaw iMessage setups when the host can grant Messages database and Automation permissions.
-
-BlueBubbles support was removed. `channels.bluebubbles` is not a supported runtime config surface on current OpenClaw. Migrate old configs to `channels.imessage`; use [BlueBubbles removal and the imsg iMessage path](/announcements/bluebubbles-imessage) for the short version and [Coming from BlueBubbles](/channels/imessage-from-bluebubbles) for the full translation table.
-
-If the Gateway is not running on the signed-in Messages Mac, keep `channels.imessage.enabled=true` and set `channels.imessage.cliPath` to an SSH wrapper that runs `imsg "$@"` on that Mac. The default local `imsg` path is macOS-only.
-
-Before relying on an SSH wrapper for production sends, verify an outbound `imsg send` through that exact wrapper. Some macOS TCC states assign Messages Automation to `/usr/libexec/sshd-keygen-wrapper`, which can make reads and probes work while sends fail with AppleEvents `-1743`; see [SSH wrapper sends fail with AppleEvents -1743](/channels/imessage#ssh-wrapper-sends-fail-with-appleevents-1743).
-
-```json5
-{
-  channels: {
-    imessage: {
-      enabled: true,
-      cliPath: "imsg",
-      dbPath: "~/Library/Messages/chat.db",
-      remoteHost: "user@gateway-host",
-      dmPolicy: "pairing",
-      allowFrom: ["+15555550123", "user@example.com", "chat_id:123"],
-      historyLimit: 50,
-      includeAttachments: false,
-      attachmentRoots: ["/Users/*/Library/Messages/Attachments"],
-      remoteAttachmentRoots: ["/Users/*/Library/Messages/Attachments"],
-      mediaMaxMb: 16,
-      service: "auto",
-      region: "US",
-      actions: {
-        reactions: true,
-        edit: true,
-        unsend: true,
-        reply: true,
-        sendWithEffect: true,
-        sendAttachment: true,
-      },
-      catchup: {
-        enabled: false,
-      },
-    },
-  },
-}
-```
-
-- Optional `channels.imessage.defaultAccount` overrides default account selection when it matches a configured account id.
-
-- Requires Full Disk Access to the Messages DB.
-- Prefer `chat_id:<id>` targets. Use `imsg chats --limit 20` to list chats.
-- `cliPath` can point to an SSH wrapper; set `remoteHost` (`host` or `user@host`) for SCP attachment fetching.
-- `attachmentRoots` and `remoteAttachmentRoots` restrict inbound attachment paths (default: `/Users/*/Library/Messages/Attachments`).
-- SCP uses strict host-key checking, so ensure the relay host key already exists in `~/.ssh/known_hosts`.
-- `channels.imessage.configWrites`: allow or deny iMessage-initiated config writes.
-- `channels.imessage.actions.*`: enable private API actions that are also gated by `imsg status` / `openclaw channels status --probe`.
-- `channels.imessage.includeAttachments` is off by default; set it to `true` before expecting inbound media in agent turns.
-- `channels.imessage.catchup.enabled`: opt in to replaying inbound messages that arrived while the Gateway was down.
-- `channels.imessage.groups`: group registry and per-group settings. With `groupPolicy: "allowlist"`, configure either explicit `chat_id` keys or a `"*"` wildcard entry so group messages can pass the registry gate.
-- Top-level `bindings[]` entries with `type: "acp"` can bind iMessage conversations to persistent ACP sessions. Use a normalized handle or explicit chat target (`chat_id:*`, `chat_guid:*`, `chat_identifier:*`) in `match.peer.id`. Shared field semantics: [ACP Agents](/tools/acp-agents#persistent-channel-bindings).
-
-<Accordion title="iMessage SSH wrapper example">
-
-```bash
-#!/usr/bin/env bash
-exec ssh -T gateway-host imsg "$@"
-```
-
-</Accordion>
-
-### Matrix
-
-Matrix is plugin-backed and configured under `channels.matrix`.
-
-```json5
-{
-  channels: {
-    matrix: {
-      enabled: true,
-      homeserver: "https://matrix.example.org",
-      accessToken: "syt_bot_xxx",
-      proxy: "http://127.0.0.1:7890",
-      encryption: true,
-      initialSyncLimit: 20,
-      defaultAccount: "ops",
-      accounts: {
-        ops: {
-          name: "Ops",
-          userId: "@ops:example.org",
-          accessToken: "syt_ops_xxx",
-        },
-        alerts: {
-          userId: "@alerts:example.org",
-          password: "secret",
-          proxy: "http://127.0.0.1:7891",
-        },
-      },
-    },
-  },
-}
-```
-
-- Token auth uses `accessToken`; password auth uses `userId` + `password`.
-- `channels.matrix.proxy` routes Matrix HTTP traffic through an explicit HTTP(S) proxy. Named accounts can override it with `channels.matrix.accounts.<id>.proxy`.
-- `channels.matrix.network.dangerouslyAllowPrivateNetwork` allows private/internal homeservers. `proxy` and this network opt-in are independent controls.
-- `channels.matrix.defaultAccount` selects the preferred account in multi-account setups.
-- `channels.matrix.autoJoin` defaults to `off`, so invited rooms and fresh DM-style invites are ignored until you set `autoJoin: "allowlist"` with `autoJoinAllowlist` or `autoJoin: "always"`.
-- `channels.matrix.execApprovals`: Matrix-native exec approval delivery and approver authorization.
-  - `enabled`: `true`, `false`, or `"auto"` (default). In auto mode, exec approvals activate when approvers can be resolved from `approvers` or `commands.ownerAllowFrom`.
-  - `approvers`: Matrix user IDs (e.g. `@owner:example.org`) allowed to approve exec requests.
-  - `agentFilter`: optional agent ID allowlist. Omit to forward approvals for all agents.
-  - `sessionFilter`: optional session key patterns (substring or regex).
-  - `target`: where to send approval prompts. `"dm"` (default), `"channel"` (originating room), or `"both"`.
-  - Per-account overrides: `channels.matrix.accounts.<id>.execApprovals`.
-- `channels.matrix.dm.sessionScope` controls how Matrix DMs group into sessions: `per-user` (default) shares by routed peer, while `per-room` isolates each DM room.
-- Matrix status probes and live directory lookups use the same proxy policy as runtime traffic.
-- Full Matrix configuration, targeting rules, and setup examples are documented in [Matrix](/channels/matrix).
-
-### Microsoft Teams
-
-Microsoft Teams is plugin-backed and configured under `channels.msteams`.
-
-```json5
-{
-  channels: {
-    msteams: {
-      enabled: true,
-      configWrites: true,
-      // appId, appPassword, tenantId, webhook, team/channel policies:
-      // see /channels/msteams
-    },
-  },
-}
-```
-
-- Core key paths covered here: `channels.msteams`, `channels.msteams.configWrites`.
-- Full Teams config (credentials, webhook, DM/group policy, per-team/per-channel overrides) is documented in [Microsoft Teams](/channels/msteams).
-
-### IRC
-
-IRC is plugin-backed and configured under `channels.irc`.
-
-```json5
-{
-  channels: {
-    irc: {
-      enabled: true,
-      dmPolicy: "pairing",
-      configWrites: true,
-      nickserv: {
-        enabled: true,
-        service: "NickServ",
-        password: "${IRC_NICKSERV_PASSWORD}",
-        register: false,
-        registerEmail: "bot@example.com",
-      },
-    },
-  },
-}
-```
-
-- Core key paths covered here: `channels.irc`, `channels.irc.dmPolicy`, `channels.irc.configWrites`, `channels.irc.nickserv.*`.
-- Optional `channels.irc.defaultAccount` overrides default account selection when it matches a configured account id.
-- Full IRC channel configuration (host/port/TLS/channels/allowlists/mention gating) is documented in [IRC](/channels/irc).
-
 ### Multi-account (all channels)
 
 Run multiple accounts per channel (each with its own `accountId`):
@@ -777,18 +395,16 @@ Run multiple accounts per channel (each with its own `accountId`):
 - Env tokens only apply to the **default** account.
 - Base channel settings apply to all accounts unless overridden per account.
 - Use `bindings[].match.accountId` to route each account to a different agent.
-- If you add a non-default account via `openclaw channels add` (or channel onboarding) while still on a single-account top-level channel config, OpenClaw promotes account-scoped top-level single-account values into the channel account map first so the original account keeps working. Most channels move them into `channels.<channel>.accounts.default`; Matrix can preserve an existing matching named/default target instead.
+- If you add a non-default account while still on a single-account top-level
+  channel config, OpenClaw promotes account-scoped top-level single-account
+  values into `channels.<channel>.accounts.default` first so the original
+  account keeps working.
 - Existing channel-only bindings (no `accountId`) keep matching the default account; account-scoped bindings remain optional.
-- `openclaw doctor --fix` also repairs mixed shapes by moving account-scoped top-level single-account values into the promoted account chosen for that channel. Most channels use `accounts.default`; Matrix can preserve an existing matching named/default target instead.
-
-### Other plugin channels
-
-Many plugin channels are configured as `channels.<id>` and documented in their dedicated channel pages (for example Feishu, Matrix, LINE, Nostr, Zalo, Nextcloud Talk, Synology Chat, and Twitch).
-See the full channel index: [Channels](/channels).
+- `openclaw doctor --fix` also repairs mixed shapes by moving account-scoped top-level single-account values into `accounts.default`.
 
 ### Group chat mention gating
 
-Group messages default to **require mention** (metadata mention or safe regex patterns). Applies to WhatsApp, Telegram, Discord, Google Chat, and iMessage group chats.
+Group messages default to **require mention** (metadata mention or safe regex patterns). Applies to WhatsApp, Telegram, and Discord group chats.
 
 Visible replies are controlled separately. Normal group, channel, and internal WebChat direct requests default to automatic final delivery: final assistant text posts through the legacy visible reply path. Opt into `messages.visibleReplies: "message_tool"` or `messages.groupChat.visibleReplies: "message_tool"` when visible output should only post after the agent calls `message(action=send)`. If the model returns final text without calling the message tool in an opted-in tool-only mode, that final text stays private and the gateway verbose log records suppressed payload metadata.
 
@@ -830,7 +446,7 @@ Fix: either pick a stronger tool-calling model, remove the explicit `"message_to
 
 `messages.groupChat.historyLimit` sets the global default. Channels can override with `channels.<channel>.historyLimit` (or per-account). Set `0` to disable.
 
-`messages.groupChat.unmentionedInbound: "room_event"` submits unmentioned always-on group/channel messages as quiet room context on supported channels. Mentioned messages, commands, and direct messages remain user requests. See [Ambient room events](/channels/ambient-room-events) for complete Discord, Slack, and Telegram examples.
+`messages.groupChat.unmentionedInbound: "room_event"` submits unmentioned always-on group/channel messages as quiet room context on supported channels. Mentioned messages, commands, and direct messages remain user requests. See [Ambient room events](/channels/ambient-room-events) for Discord and Telegram examples.
 
 `messages.visibleReplies` is the global source-event default; `messages.groupChat.visibleReplies` overrides it for group/channel source events. When `messages.visibleReplies` is unset, direct/source chats use the selected runtime or harness default, but internal WebChat direct turns use automatic final delivery for Pi/Codex prompt parity. Set `messages.visibleReplies: "message_tool"` to intentionally require `message(action=send)` for visible output. Channel allowlists and mention gating still decide whether an event is processed.
 
@@ -851,7 +467,7 @@ Fix: either pick a stronger tool-calling model, remove the explicit `"message_to
 
 Resolution: per-DM override → provider default → no limit (all retained).
 
-Supported: `telegram`, `whatsapp`, `discord`, `slack`, `signal`, `imessage`, `msteams`.
+Supported: `telegram`, `whatsapp`, `discord`.
 
 #### Self-chat mode
 
@@ -908,8 +524,8 @@ Include your own number in `allowFrom` to enable self-chat mode (ignores native 
 - This block configures command surfaces. For the current built-in + bundled command catalog, see [Slash Commands](/tools/slash-commands).
 - This page is a **config-key reference**, not the full command catalog. Channel/plugin-owned commands such as QQ Bot `/bot-ping` `/bot-help` `/bot-logs`, LINE `/card`, device-pair `/pair`, memory `/dreaming`, phone-control `/phone`, and Talk `/voice` are documented in their channel/plugin pages plus [Slash Commands](/tools/slash-commands).
 - Text commands must be **standalone** messages with leading `/`.
-- `native: "auto"` turns on native commands for Discord/Telegram, leaves Slack off.
-- `nativeSkills: "auto"` turns on native skill commands for Discord/Telegram, leaves Slack off.
+- `native: "auto"` turns on native commands for Discord and Telegram.
+- `nativeSkills: "auto"` turns on native skill commands for Discord and Telegram.
 - Override per channel: `channels.discord.commands.native` (bool or `"auto"`). For Discord, `false` skips native command registration and cleanup during startup.
 - Override native skill registration per channel with `channels.<provider>.commands.nativeSkills`.
 - `channels.telegram.customCommands` adds extra Telegram bot menu entries.

@@ -5,12 +5,7 @@ import type { SessionsListResult } from "./types.ts";
 const CHANNEL_LABELS: Record<string, string> = {
   telegram: "Telegram",
   discord: "Discord",
-  signal: "Signal",
-  slack: "Slack",
   whatsapp: "WhatsApp",
-  matrix: "Matrix",
-  email: "Email",
-  sms: "SMS",
 };
 
 const KNOWN_CHANNEL_KEYS = Object.keys(CHANNEL_LABELS);

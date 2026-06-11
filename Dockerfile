@@ -1,5 +1,5 @@
 # Opt-in plugin dependencies at build time (space- or comma-separated directory names).
-# Example: docker build --build-arg OPENCLAW_EXTENSIONS="diagnostics-otel,matrix" .
+# This slim fork bundles Telegram, WhatsApp, Discord, OpenAI, Anthropic, and memory-core.
 #
 # Multi-stage build produces a minimal runtime image without build tools,
 # source code, or Bun. Works with Docker, Buildx, and Podman.
@@ -75,27 +75,6 @@ RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/sto
       --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
       --config.supportedArchitectures.libc=glibc
 
-# pnpm v10+ may append peer-resolution hashes to virtual-store folder names; do not hardcode `.pnpm/...`
-# paths. Matrix's native downloader can hit transient release CDN errors while
-# still exiting successfully, so retry the package downloader before failing.
-# Skip the entire check when matrix is not a bundled extension (e.g. msteams-only builds).
-RUN set -eux; \
-    if ! printf '%s\n' "$OPENCLAW_EXTENSIONS" | tr ',' ' ' | tr ' ' '\n' | grep -qx 'matrix'; then \
-      echo "==> matrix not bundled, skipping matrix-sdk-crypto check"; \
-      exit 0; \
-    fi; \
-    echo "==> Verifying critical native addons..."; \
-    for attempt in 1 2 3 4 5; do \
-      if find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q .; then \
-        exit 0; \
-      fi; \
-      echo "matrix-sdk-crypto native addon missing; retrying download (${attempt}/5)"; \
-      node /app/node_modules/@matrix-org/matrix-sdk-crypto-nodejs/download-lib.js || true; \
-      sleep $((attempt * 2)); \
-    done; \
-    find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q . || \
-      (echo "ERROR: matrix-sdk-crypto native addon missing after retries" >&2 && exit 1)
-
 COPY . .
 
 # Normalize extension paths now so runtime COPY preserves safe modes
@@ -107,20 +86,10 @@ RUN for dir in /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} /app/.agent /app/.agents; do 
       fi; \
     done
 
-# A2UI bundle may fail under QEMU cross-compilation (e.g. building amd64
-# on Apple Silicon). CI builds natively per-arch so this is a no-op there.
-# Stub it so local cross-arch builds still succeed.
-RUN pnpm_config_verify_deps_before_run=false pnpm canvas:a2ui:bundle || \
-    (echo "A2UI bundle: creating stub (non-fatal)" && \
-     mkdir -p extensions/canvas/src/host/a2ui && \
-     echo "/* A2UI bundle unavailable in this build */" > extensions/canvas/src/host/a2ui/a2ui.bundle.js && \
-     echo "stub" > extensions/canvas/src/host/a2ui/.bundle.hash && \
-     rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI)
 RUN NODE_OPTIONS=--max-old-space-size=8192 pnpm_config_verify_deps_before_run=false pnpm build:docker
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm_config_verify_deps_before_run=false pnpm ui:build
-RUN pnpm_config_verify_deps_before_run=false pnpm qa:lab:build
 
 # Prune dev dependencies, omitted plugin runtime packages, and build-only
 # metadata before copying runtime assets into the final image.
@@ -188,7 +157,6 @@ COPY --from=runtime-assets --chown=node:node /app/src/agents/templates ./src/age
 COPY --from=runtime-assets --chown=node:node /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} ./${OPENCLAW_BUNDLED_PLUGIN_DIR}
 COPY --from=runtime-assets --chown=node:node /app/skills ./skills
 COPY --from=runtime-assets --chown=node:node /app/docs ./docs
-COPY --from=runtime-assets --chown=node:node /app/qa ./qa
 
 # Keep pnpm available in the runtime image for container-local workflows.
 # Use a shared Corepack home so the non-root `node` user does not need a

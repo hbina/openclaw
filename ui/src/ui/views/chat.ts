@@ -223,7 +223,6 @@ const TALK_SENSITIVITY_OPTIONS: TalkSelectOption[] = [
 const TALK_PROVIDER_OPTIONS: TalkSelectOption[] = [
   { label: "Auto", value: "" },
   { label: "OpenAI", value: "openai" },
-  { label: "Google", value: "google" },
 ];
 const TALK_TRANSPORT_OPTIONS: TalkSelectOption[] = [
   { label: "Auto", value: "" },

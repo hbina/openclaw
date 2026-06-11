@@ -27,7 +27,9 @@ docs before editing config. Use this page for task-oriented guidance and
 field map and defaults.
 
 <Tip>
-**New to configuration?** Start with `openclaw onboard` for interactive setup, or check out the [Configuration Examples](/gateway/configuration-examples) guide for complete copy-paste configs.
+**New to configuration?** Start with the [Docker guide](/install/docker), edit
+`openclaw.json`, keep credentials in the mounted state-dir `.env` or SecretRefs,
+and restart the container.
 </Tip>
 
 ## Minimal config
@@ -43,12 +45,6 @@ field map and defaults.
 ## Editing config
 
 <Tabs>
-  <Tab title="Interactive wizard">
-    ```bash
-    openclaw onboard       # full onboarding flow
-    openclaw configure     # config wizard
-    ```
-  </Tab>
   <Tab title="CLI (one-liners)">
     ```bash
     openclaw config get agents.defaults.workspace
@@ -100,19 +96,12 @@ candidate contains redacted secret placeholders such as `***`.
 ## Common tasks
 
 <AccordionGroup>
-  <Accordion title="Set up a channel (WhatsApp, Telegram, Discord, etc.)">
+  <Accordion title="Set up a channel (WhatsApp, Telegram, Discord)">
     Each channel has its own config section under `channels.<provider>`. See the dedicated channel page for setup steps:
 
     - [WhatsApp](/channels/whatsapp) - `channels.whatsapp`
     - [Telegram](/channels/telegram) - `channels.telegram`
     - [Discord](/channels/discord) - `channels.discord`
-    - [Feishu](/channels/feishu) - `channels.feishu`
-    - [Google Chat](/channels/googlechat) - `channels.googlechat`
-    - [Microsoft Teams](/channels/msteams) - `channels.msteams`
-    - [Slack](/channels/slack) - `channels.slack`
-    - [Signal](/channels/signal) - `channels.signal`
-    - [iMessage](/channels/imessage) - `channels.imessage`
-    - [Mattermost](/channels/mattermost) - `channels.mattermost`
 
     All channels share the same DM policy pattern:
 
