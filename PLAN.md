@@ -54,6 +54,26 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Treat the TypeScript slim runtime as the behavioral reference for the Go port. Do not start the Go rewrite by re-creating removed upstream surfaces.
 - Keep protocol, config, state, and Docker behavior explicit enough that Go components can replace TypeScript components incrementally.
 
+## Status (as of branch `slim/reminder-agent`)
+
+Progress so far, by phase:
+
+- **Phase 0 (Safety):** Done. `.dockerignore` excludes `.env`, secrets, auth profiles; no secret files tracked.
+- **Phase 1 (Keep/drop):** Done. Matrix recorded above; `extensions/` pruned to `openai`, `anthropic`, `telegram`, `whatsapp`, `discord`, `memory-core`.
+- **Phase 2 (Package pruning):** Partial. Mobile apps and unsupported plugins removed; lockfile re-integrated. Remaining: drop now-unused vendor SDKs (Bedrock/Google/etc.) — blocked until the dead provider/Windows runtime code is removed.
+- **Phase 3 (Runtime pruning):** Largely done for channels and providers (see Phases 5/6). Some dead provider quirk code in `src/agents` still pending (folds into Phase 2 dep-trim).
+- **Phase 4 (Docker-first):** Done and validated. Manual-SSH image builds, healthcheck added, SSH + Gateway `/healthz` verified, restart recovery confirmed.
+- **Phase 5 (Channels):** Code complete. Telegram/WhatsApp/Discord are the only channels (catalog, config types, zod schemas, SDK, metadata, docs, tests all trimmed). Live pairing/reply proofs still need real channel credentials.
+- **Phase 6 (Providers):** Code complete. OpenAI (+ OpenAI-compatible) and Anthropic only; the Anthropic provider plugin (incl. Claude CLI auth) was restored, external provider catalog trimmed. Live reply proofs need an endpoint/key.
+- **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Remaining: audit the dashboard/control UI for removed-feature references.
+- **Phase 8 (Tests):** Reset. The entire inherited `*.test.ts` suite (4,610 files) was removed for a clean-slate rebuild; vitest config + test helpers kept so focused tests can be re-added. The Phase 8 suite has not been written yet.
+- **Phases 9–10 (Release, Go port):** Not started.
+
+Cross-cutting decisions made during this work:
+
+- **Windows is not supported.** Windows/macOS/iOS/Android docs, Windows CI workflows, and app docs are removed. Removing the inert win32 code woven through core runtime (`src/**/windows-*.ts` + ~150 `process.platform === "win32"` branches) is in progress in small `tsgo`-verified batches: `windows-task-restart`, `windows-argv`, and `windows-port-pids` are done; `schtasks` (1.4k-line subsystem), `windows-acl`, `windows-command`/`windows-encoding`/`windows-spawn` (hot process-spawn path), and `windows-install-roots` remain.
+- **Verification constraint:** with the test suite removed, runtime changes are verified by `tsgo:prod`/`build` only (no behavioral net) until Phase 8 re-adds tests.
+
 ## Phase 0: Safety Cleanup
 
 Do this before any commit:
