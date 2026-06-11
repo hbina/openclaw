@@ -65,7 +65,7 @@ Progress so far, by phase:
 - **Phase 4 (Docker-first):** Done and validated. Manual-SSH image builds, healthcheck added, SSH + Gateway `/healthz` verified, restart recovery confirmed.
 - **Phase 5 (Channels):** Code complete. Telegram/WhatsApp/Discord are the only channels (catalog, config types, zod schemas, SDK, metadata, docs, tests all trimmed). Live pairing/reply proofs still need real channel credentials.
 - **Phase 6 (Providers):** Code complete. OpenAI (+ OpenAI-compatible) and Anthropic only; the Anthropic provider plugin (incl. Claude CLI auth) was restored, external provider catalog trimmed. Live reply proofs need an endpoint/key.
-- **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Remaining: audit the dashboard/control UI for removed-feature references.
+- **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Control UI channels, quick settings, and session labels are now pruned to the retained channel set. Remaining: audit the rest of the dashboard/control UI for removed-feature references.
 - **Phase 8 (Tests):** Reset. The entire inherited `*.test.ts` suite (4,610 files) was removed for a clean-slate rebuild; vitest config + test helpers kept so focused tests can be re-added. The Phase 8 suite has not been written yet.
 - **Phases 9–10 (Release, Go port):** Not started.
 

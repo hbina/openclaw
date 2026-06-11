@@ -3,7 +3,6 @@ import { normalizeLowercaseStringOrEmpty, normalizeOptionalString } from "./stri
 import type { SessionsListResult } from "./types.ts";
 
 const CHANNEL_LABELS: Record<string, string> = {
-  imessage: "iMessage",
   telegram: "Telegram",
   discord: "Discord",
   signal: "Signal",
@@ -67,7 +66,7 @@ export function parseSessionKey(key: string): SessionKeyInfo {
     return { prefix: "", fallbackName: `${channelLabel} Group` };
   }
 
-  // Channel-prefixed legacy keys, for example "imessage:g-...".
+  // Channel-prefixed legacy keys.
   for (const ch of KNOWN_CHANNEL_KEYS) {
     if (key === ch || key.startsWith(`${ch}:`)) {
       return { prefix: "", fallbackName: `${CHANNEL_LABELS[ch]} Session` };

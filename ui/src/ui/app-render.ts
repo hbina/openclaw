@@ -1056,13 +1056,10 @@ function buildAssistantAvatarRoute(basePathValue: string | null | undefined, age
 
 // ── Quick Settings data extraction helpers ──
 
-const KNOWN_CHANNEL_IDS = [
-  { id: "telegram", label: "Telegram" },
+const RETAINED_CHANNEL_IDS = [
   { id: "discord", label: "Discord" },
-  { id: "slack", label: "Slack" },
+  { id: "telegram", label: "Telegram" },
   { id: "whatsapp", label: "WhatsApp" },
-  { id: "signal", label: "Signal" },
-  { id: "imessage", label: "iMessage" },
 ] as const;
 
 function formatQuickSettingsLabel(id: string): string {
@@ -1086,13 +1083,16 @@ function extractQuickSettingsChannels(state: AppViewState): QuickSettingsChannel
     "channels" in config && config.channels && typeof config.channels === "object"
       ? (config.channels as Record<string, unknown>)
       : {};
-  const configuredIds = Object.keys(channelsConfig).filter((id) => id.trim().length > 0);
+  const configuredIds = Object.keys(channelsConfig).filter(
+    (id) =>
+      id.trim().length > 0 && RETAINED_CHANNEL_IDS.some(({ id: retainedId }) => retainedId === id),
+  );
   const channelIds =
     configuredIds.length > 0
       ? configuredIds.toSorted((a, b) => a.localeCompare(b))
-      : KNOWN_CHANNEL_IDS.map(({ id }) => id);
+      : RETAINED_CHANNEL_IDS.map(({ id }) => id);
   const knownLabels = new Map<string, string>(
-    KNOWN_CHANNEL_IDS.map(({ id, label }) => [id, label]),
+    RETAINED_CHANNEL_IDS.map(({ id, label }) => [id, label]),
   );
   const channels: QuickSettingsChannel[] = [];
   for (const id of channelIds) {
@@ -1902,8 +1902,6 @@ export function renderApp(state: AppViewState) {
             configUiHints: state.configUiHints,
             configSaving: state.configSaving,
             configFormDirty: state.configFormDirty,
-            nostrProfileFormState: state.nostrProfileFormState,
-            nostrProfileAccountId: state.nostrProfileAccountId,
             onRefresh: (probe) => void loadChannels(state, probe),
             onWhatsAppStart: (force) => void state.handleWhatsAppStart(force),
             onWhatsAppWait: () => void state.handleWhatsAppWait(),
@@ -1911,14 +1909,6 @@ export function renderApp(state: AppViewState) {
             onConfigPatch: (path, value) => updateConfigFormValue(state, path, value),
             onConfigSave: () => void state.handleChannelConfigSave(),
             onConfigReload: () => void state.handleChannelConfigReload(),
-            onNostrProfileEdit: (accountId, profile) =>
-              state.handleNostrProfileEdit(accountId, profile),
-            onNostrProfileCancel: () => state.handleNostrProfileCancel(),
-            onNostrProfileFieldChange: (field, value) =>
-              state.handleNostrProfileFieldChange(field, value),
-            onNostrProfileSave: () => void state.handleNostrProfileSave(),
-            onNostrProfileImport: () => void state.handleNostrProfileImport(),
-            onNostrProfileToggleAdvanced: () => state.handleNostrProfileToggleAdvanced(),
           }),
         );
       case "communications":
