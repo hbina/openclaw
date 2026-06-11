@@ -6,6 +6,8 @@ This branch is intended to become a much slimmer OpenClaw fork. The first goal i
 
 The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, unused runtime dependencies, or packaging paths that no longer match the fork's product shape.
 
+Native Windows support is not part of this fork's product surface. The supported operator path is the Docker-first runtime on Unix-like hosts.
+
 The final goal is to port the retained slim application from the current TypeScript/Node implementation to Go. The slim fork should define the durable product and protocol surface first, then replace runtime components with Go implementations behind the same documented Docker-first operator experience.
 
 ## Target Shape
@@ -22,6 +24,7 @@ Keep a small, explicit product surface:
 - Persistent runtime state under a Docker volume or a documented host mount.
 - A trimmed dependency graph containing only packages needed by the retained runtime, tests, docs, and Docker build.
 - A Go implementation of the retained runtime once the slim TypeScript surface is stable.
+- No native Windows distribution, installer, or runtime support.
 
 Remove or defer everything else unless a concrete reminder-agent requirement depends on it.
 
@@ -34,6 +37,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Supporting model providers other than OpenAI (and OpenAI-compatible endpoints) and Anthropic.
 - Keeping unused dependencies merely because upstream OpenClaw still needs them.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
+- Supporting native Windows, WSL2-specific packaging, or Windows-only installers in this fork.
 - Rewriting the whole upstream application in Go before the slim runtime surface is proven.
 
 ## Migration Principles
@@ -46,6 +50,7 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Remove dependencies when their last retained runtime, build, test, or docs use is deleted. Do not keep package graph weight for removed upstream surfaces.
 - Remove tests only when the covered feature is intentionally removed. Keep or rewrite tests for retained core behavior.
 - Validate each phase with the narrowest command that proves the retained product still works.
+- Treat Windows support as removed scope unless a retained Docker/runtime requirement explicitly depends on it.
 - Treat the TypeScript slim runtime as the behavioral reference for the Go port. Do not start the Go rewrite by re-creating removed upstream surfaces.
 - Keep protocol, config, state, and Docker behavior explicit enough that Go components can replace TypeScript components incrementally.
 
@@ -144,6 +149,7 @@ Make the manual Docker path the primary setup path:
 - Keep `/home/node` as persistent volume state.
 - Persist `memory-core` state under the same `/home/node` volume; never bake memory stores or recall indexes into the image.
 - Expose only required ports by default: SSH, Gateway, bridge, and any retained callback port.
+- Keep the Docker runtime supported on Unix-like hosts only; do not add native Windows packaging or setup paths.
 - Document first-run configuration: SSH into the container, configure an OpenAI-compatible provider, configure Telegram/WhatsApp/Discord credentials, restart.
 - Add a healthcheck once the Gateway can start reliably before first auth.
 
@@ -208,6 +214,7 @@ Keep only docs and UI that match the fork:
 Exit criteria:
 
 - No visible docs claim removed features are supported.
+- No docs claim native Windows support for the fork.
 - The first-run instructions work from a fresh Docker volume.
 - `git diff --check` passes for docs and scripts.
 
@@ -238,6 +245,7 @@ Define a release model for the fork:
 - Add a minimal release checklist: build image, scan for secrets, run Docker smoke, tag, push image.
 - Document backup/restore for the persistent volume.
 - Include memory state in backup/restore expectations because `memory-core` is retained and user-visible.
+- Do not produce Windows installers, Windows Hub packages, or Windows release lanes for this fork.
 
 Exit criteria:
 
