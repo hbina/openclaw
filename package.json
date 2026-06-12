@@ -97,8 +97,7 @@
     "scripts/lib/official-external-plugin-catalog.json",
     "scripts/lib/official-external-provider-catalog.json",
     "scripts/lib/package-dist-imports.mjs",
-    "scripts/postinstall-bundled-plugins.mjs",
-    "scripts/windows-cmd-helpers.mjs"
+    "scripts/postinstall-bundled-plugins.mjs"
   ],
   "type": "module",
   "main": "dist/index.js",
@@ -111,14 +110,6 @@
     "./plugin-sdk/core": {
       "types": "./dist/plugin-sdk/core.d.ts",
       "default": "./dist/plugin-sdk/core.js"
-    },
-    "./plugin-sdk/lmstudio": {
-      "types": "./dist/plugin-sdk/lmstudio.d.ts",
-      "default": "./dist/plugin-sdk/lmstudio.js"
-    },
-    "./plugin-sdk/lmstudio-runtime": {
-      "types": "./dist/plugin-sdk/lmstudio-runtime.d.ts",
-      "default": "./dist/plugin-sdk/lmstudio-runtime.js"
     },
     "./plugin-sdk/provider-setup": {
       "types": "./dist/plugin-sdk/provider-setup.d.ts",
@@ -712,10 +703,6 @@
       "types": "./dist/plugin-sdk/discord.d.ts",
       "default": "./dist/plugin-sdk/discord.js"
     },
-    "./plugin-sdk/mattermost": {
-      "types": "./dist/plugin-sdk/mattermost.d.ts",
-      "default": "./dist/plugin-sdk/mattermost.js"
-    },
     "./plugin-sdk/device-bootstrap": {
       "types": "./dist/plugin-sdk/device-bootstrap.d.ts",
       "default": "./dist/plugin-sdk/device-bootstrap.js"
@@ -1020,9 +1007,9 @@
       "types": "./dist/plugin-sdk/keyed-async-queue.d.ts",
       "default": "./dist/plugin-sdk/keyed-async-queue.js"
     },
-    "./plugin-sdk/qa-runner-runtime": {
-      "types": "./dist/plugin-sdk/qa-runner-runtime.d.ts",
-      "default": "./dist/plugin-sdk/qa-runner-runtime.js"
+    "./plugin-sdk/qa-live-transport-scenarios": {
+      "types": "./dist/plugin-sdk/qa-live-transport-scenarios.d.ts",
+      "default": "./dist/plugin-sdk/qa-live-transport-scenarios.js"
     },
     "./plugin-sdk/memory-core": {
       "types": "./dist/plugin-sdk/memory-core.d.ts",
@@ -1144,10 +1131,6 @@
       "types": "./dist/plugin-sdk/provider-auth-result.d.ts",
       "default": "./dist/plugin-sdk/provider-auth-result.js"
     },
-    "./plugin-sdk/provider-auth-login": {
-      "types": "./dist/plugin-sdk/provider-auth-login.d.ts",
-      "default": "./dist/plugin-sdk/provider-auth-login.js"
-    },
     "./plugin-sdk/provider-selection-runtime": {
       "types": "./dist/plugin-sdk/provider-selection-runtime.d.ts",
       "default": "./dist/plugin-sdk/provider-selection-runtime.js"
@@ -1183,6 +1166,10 @@
     "./plugin-sdk/provider-model-shared": {
       "types": "./dist/plugin-sdk/provider-model-shared.d.ts",
       "default": "./dist/plugin-sdk/provider-model-shared.js"
+    },
+    "./plugin-sdk/provider-onboard": {
+      "types": "./dist/plugin-sdk/provider-onboard.d.ts",
+      "default": "./dist/plugin-sdk/provider-onboard.js"
     },
     "./plugin-sdk/provider-stream-family": {
       "types": "./dist/plugin-sdk/provider-stream-family.d.ts",
@@ -1247,10 +1234,6 @@
     "./plugin-sdk/param-readers": {
       "types": "./dist/plugin-sdk/param-readers.d.ts",
       "default": "./dist/plugin-sdk/param-readers.js"
-    },
-    "./plugin-sdk/provider-zai-endpoint": {
-      "types": "./dist/plugin-sdk/provider-zai-endpoint.d.ts",
-      "default": "./dist/plugin-sdk/provider-zai-endpoint.js"
     },
     "./plugin-sdk/secret-input": {
       "types": "./dist/plugin-sdk/secret-input.d.ts",
@@ -1331,10 +1314,6 @@
     "./plugin-sdk/web-media": {
       "types": "./dist/plugin-sdk/web-media.d.ts",
       "default": "./dist/plugin-sdk/web-media.js"
-    },
-    "./plugin-sdk/zalouser": {
-      "types": "./dist/plugin-sdk/zalouser.d.ts",
-      "default": "./dist/plugin-sdk/zalouser.js"
     },
     "./plugin-sdk/zod": {
       "types": "./dist/plugin-sdk/zod.d.ts",
@@ -1756,7 +1735,6 @@
     "@grammyjs/transformer-throttler": "1.2.1",
     "@homebridge/ciao": "1.3.9",
     "@lydell/node-pty": "1.2.0-beta.12",
-    "@mistralai/mistralai": "2.2.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@mozilla/readability": "0.6.0",
     "@openclaw/fs-safe": "0.3.0",
@@ -1800,12 +1778,10 @@
     "web-tree-sitter": "0.26.9",
     "ws": "8.21.0",
     "yaml": "2.9.0",
-    "zod": "4.4.3",
-    "@google/genai": "2.7.0"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@a2ui/lit": "0.10.0",
-    "@copilotkit/aimock": "1.27.3",
     "@grammyjs/types": "3.27.3",
     "@lit-labs/signals": "0.3.0",
     "@lit/context": "1.1.6",

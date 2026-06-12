@@ -88,10 +88,7 @@ const resolvePackagedCompileCacheDirectory = () => {
   );
 };
 
-const respawnSignals =
-  process.platform === "win32"
-    ? ["SIGTERM", "SIGINT", "SIGBREAK"]
-    : ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"];
+const respawnSignals = ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"];
 const respawnSignalExitGraceMs = 1_000;
 const respawnSignalForceKillGraceMs = 1_000;
 const respawnSignalHardExitGraceMs = 1_000;
@@ -129,7 +126,7 @@ const runRespawnedChild = (command, args, env) => {
   };
   const forceKillChild = () => {
     try {
-      child.kill(process.platform === "win32" ? "SIGTERM" : "SIGKILL");
+      child.kill("SIGKILL");
     } catch {
       // Best-effort shutdown fallback.
     }
@@ -377,10 +374,7 @@ const normalizeLauncherHomeValue = (value) => {
   return trimmed && trimmed !== "undefined" && trimmed !== "null" ? trimmed : undefined;
 };
 
-const resolveLauncherOsHomeDir = () =>
-  normalizeLauncherHomeValue(process.env.HOME) ??
-  normalizeLauncherHomeValue(process.env.USERPROFILE) ??
-  os.homedir();
+const resolveLauncherOsHomeDir = () => normalizeLauncherHomeValue(process.env.HOME) ?? os.homedir();
 
 const resolveLauncherHomeDir = () => {
   const explicit = normalizeLauncherHomeValue(process.env.OPENCLAW_HOME);

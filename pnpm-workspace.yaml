@@ -24,9 +24,7 @@ minimumReleaseAgeExclude:
   - "@cloudflare/workers-types"
   - "@hono/node-server"
   - "@mariozechner/*"
-  - "@copilotkit/aimock@1.27.1"
   - "@earendil-works/pi-tui"
-  - "@google/genai@2.6.0"
   - "@pierre/diffs@1.2.3"
   - "@smithy/shared-ini-file-loader@4.5.4"
   - "@typescript/native-preview*"
@@ -75,7 +73,6 @@ overrides:
 
 allowBuilds:
   "@openclaw/fs-safe": true
-  "@google/genai": true
   "@lydell/node-pty": true
   "@tloncorp/api": true
   "@tloncorp/tlon-skill": true
