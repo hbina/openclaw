@@ -60,7 +60,7 @@ function restoreSharedTestHomeAfterEnvUnstub(testHomeRaw: string | undefined): v
   }
 
   process.env.HOME = testHome;
-  process.env.USERPROFILE = testHome;
+  process.env.HOME = testHome;
   process.env.OPENCLAW_TEST_HOME = testHome;
   delete process.env.OPENCLAW_CONFIG_PATH;
   delete process.env.OPENCLAW_STATE_DIR;

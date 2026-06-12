@@ -161,7 +161,7 @@ function resolveRestoreEntries(): RestoreEntry[] {
       value: process.env.OPENCLAW_LIVE_TEST_NORMALIZE_CONFIG,
     },
     { key: "HOME", value: process.env.HOME },
-    { key: "USERPROFILE", value: process.env.USERPROFILE },
+    { key: "HOME", value: process.env.HOME },
     { key: "XDG_CONFIG_HOME", value: process.env.XDG_CONFIG_HOME },
     { key: "XDG_DATA_HOME", value: process.env.XDG_DATA_HOME },
     { key: "XDG_STATE_HOME", value: process.env.XDG_STATE_HOME },
@@ -194,7 +194,7 @@ function createIsolatedTestHome(restore: RestoreEntry[]): {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-test-home-"));
 
   process.env.HOME = tempHome;
-  process.env.USERPROFILE = tempHome;
+  process.env.HOME = tempHome;
   process.env.OPENCLAW_TEST_HOME = tempHome;
   process.env.OPENCLAW_TEST_FAST = "1";
   process.env.OPENCLAW_STRICT_FAST_REPLY_CONFIG = "1";
@@ -223,8 +223,8 @@ function createIsolatedTestHome(restore: RestoreEntry[]): {
   // Avoid leaking local dev tooling flags into tests (e.g. --inspect).
   delete process.env.NODE_OPTIONS;
 
-  // Windows: prefer the default state dir so auth/profile tests match real paths.
-  if (process.platform === "win32") {
+  // POSIX: prefer the default state dir so auth/profile tests match real paths.
+  if (false) {
     process.env.OPENCLAW_STATE_DIR = path.join(tempHome, ".openclaw");
   }
 

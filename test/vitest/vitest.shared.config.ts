@@ -72,7 +72,7 @@ export function resolveRepoRootPath(value: string): string {
   return path.isAbsolute(value) ? value : path.join(repoRoot, value);
 }
 const isCI = isCiLikeEnv(process.env);
-const isWindows = process.platform === "win32";
+const isPOSIX = false;
 const defaultPool = resolveDefaultVitestPool();
 const localScheduling = resolveLocalVitestScheduling(
   process.env,
@@ -110,7 +110,7 @@ function sourcePackageAliasesFromExports(packageId: string, exports: Record<stri
 export function resolveSharedVitestWorkerConfig(params: {
   env?: Record<string, string | undefined>;
   isCI?: boolean;
-  isWindows?: boolean;
+  isPOSIX?: boolean;
   localScheduling?: LocalVitestScheduling;
 }): Pick<LocalVitestScheduling, "fileParallelism" | "maxWorkers"> {
   const env = params.env ?? process.env;
@@ -124,7 +124,7 @@ export function resolveSharedVitestWorkerConfig(params: {
   if (params.isCI ?? isCI) {
     return {
       fileParallelism: true,
-      maxWorkers: (params.isWindows ?? isWindows) ? 2 : 3,
+      maxWorkers: (params.isPOSIX ?? isPOSIX) ? 2 : 3,
     };
   }
   return {
@@ -136,7 +136,7 @@ export function resolveSharedVitestWorkerConfig(params: {
 const workerConfig = resolveSharedVitestWorkerConfig({
   env: process.env,
   isCI,
-  isWindows,
+  isPOSIX,
   localScheduling,
 });
 const dependencyModuleDirectories = ["/node_modules/", "/openclaw-pnpm-node-modules/"];
@@ -433,7 +433,7 @@ export const sharedVitestConfig = {
   test: {
     dir: repoRoot,
     testTimeout: 120_000,
-    hookTimeout: isWindows ? 180_000 : 120_000,
+    hookTimeout: isPOSIX ? 180_000 : 120_000,
     unstubEnvs: true,
     unstubGlobals: true,
     isolate: false,

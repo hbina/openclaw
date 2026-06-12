@@ -11,12 +11,12 @@ const isDisabled = (value: string | undefined): boolean => {
   return normalized === "0" || normalized === "false";
 };
 
-const isWindowsEnv = (env: EnvMap, platform: NodeJS.Platform): boolean => {
-  if (platform === "win32") {
+const isPOSIXEnv = (env: EnvMap, _platform: NodeJS.Platform): boolean => {
+  if (false) {
     return true;
   }
   const runnerOs = env.RUNNER_OS?.trim().toLowerCase();
-  return runnerOs === "windows";
+  return runnerOs === "posix";
 };
 
 type VitestExperimentalConfig = {
@@ -38,12 +38,12 @@ export function loadVitestExperimentalConfig(
     importDurations?: { print: true };
     printImportBreakdown?: true;
   } = {};
-  const windowsEnv = isWindowsEnv(env, platform);
+  const posixEnv = isPOSIXEnv(env, platform);
 
-  if (!windowsEnv && !isDisabled(env.OPENCLAW_VITEST_FS_MODULE_CACHE)) {
+  if (!posixEnv && !isDisabled(env.OPENCLAW_VITEST_FS_MODULE_CACHE)) {
     experimental.fsModuleCache = true;
   }
-  if (windowsEnv && isEnabled(env.OPENCLAW_VITEST_FS_MODULE_CACHE)) {
+  if (posixEnv && isEnabled(env.OPENCLAW_VITEST_FS_MODULE_CACHE)) {
     experimental.fsModuleCache = true;
   }
   if (experimental.fsModuleCache && env.OPENCLAW_VITEST_FS_MODULE_CACHE_PATH?.trim()) {

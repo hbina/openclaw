@@ -187,9 +187,6 @@ export const MAIN_SESSION_KEY = "agent:main:main";
 
 type TempHomeEnvSnapshot = {
   home: string | undefined;
-  userProfile: string | undefined;
-  homeDrive: string | undefined;
-  homePath: string | undefined;
   openclawHome: string | undefined;
   stateDir: string | undefined;
 };
@@ -200,9 +197,6 @@ let suiteTempHomeId = 0;
 function snapshotTempHomeEnv(): TempHomeEnvSnapshot {
   return {
     home: process.env.HOME,
-    userProfile: process.env.USERPROFILE,
-    homeDrive: process.env.HOMEDRIVE,
-    homePath: process.env.HOMEPATH,
     openclawHome: process.env.OPENCLAW_HOME,
     stateDir: process.env.OPENCLAW_STATE_DIR,
   };
@@ -218,28 +212,14 @@ function restoreTempHomeEnv(snapshot: TempHomeEnvSnapshot): void {
   };
 
   restoreKey("HOME", snapshot.home);
-  restoreKey("USERPROFILE", snapshot.userProfile);
-  restoreKey("HOMEDRIVE", snapshot.homeDrive);
-  restoreKey("HOMEPATH", snapshot.homePath);
   restoreKey("OPENCLAW_HOME", snapshot.openclawHome);
   restoreKey("OPENCLAW_STATE_DIR", snapshot.stateDir);
 }
 
 function setTempHomeEnv(home: string): void {
   process.env.HOME = home;
-  process.env.USERPROFILE = home;
   delete process.env.OPENCLAW_HOME;
   process.env.OPENCLAW_STATE_DIR = join(home, ".openclaw");
-
-  if (process.platform !== "win32") {
-    return;
-  }
-  const match = home.match(/^([A-Za-z]:)(.*)$/);
-  if (!match) {
-    return;
-  }
-  process.env.HOMEDRIVE = match[1];
-  process.env.HOMEPATH = match[2] || "\\";
 }
 
 beforeAll(async () => {

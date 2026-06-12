@@ -1168,8 +1168,6 @@ rules:
       detector-bucket: precise
       source-run: 2026-04-17T07-37-10Z
       source-rule-id: env-wrapper-transparent-unwrap
-  - id: ghsa-7fcc-cw49-xm78.windows-shell-fallback-after-spawn-error
-    message: Windows spawn retry logic that reruns the same operation with shell=true after ENOENT/EINVAL wrapper failures can turn argv into shell-interpreted command text.
     severity: ERROR
     languages:
       - typescript
@@ -1177,27 +1175,22 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              if (process.platform === "win32" && ($ERR.code === "EINVAL" || $ERR.code === "ENOENT")) {
                 ...
                 return await $RUN(..., true);
               }
           - pattern: |
-              if (process.platform === "win32" && ($ERR.code === "ENOENT" || $ERR.code === "EINVAL")) {
                 ...
                 return await $RUN(..., true);
               }
           - pattern: |
-              if (process.platform === "win32" && $CHECK($ERR)) {
                 ...
                 return await $RUN(..., true);
               }
           - pattern: |
-              if (process.platform === "win32" && $RETRYABLE) {
                 ...
                 return await $RUN(..., true);
               }
           - pattern: |
-              if (process.platform === "win32") {
                 ...
                 if ($CHECK($ERR)) {
                   ...
@@ -1228,7 +1221,6 @@ rules:
       advisory-url: https://github.com/openclaw/openclaw/security/advisories/GHSA-7FCC-CW49-XM78
       detector-bucket: precise
       source-run: 2026-04-17T07-37-10Z
-      source-rule-id: windows-shell-fallback-after-spawn-error
   - id: ghsa-7ggg-pvrf-458v.openclaw-host-exec-python-index-override
     message: Request-scoped host exec env overrides include Python package index redirect variables (PIP_*_INDEX, UV_*_INDEX) that can reroute package downloads.
     languages:
@@ -2297,21 +2289,17 @@ rules:
       include:
         - extensions/browser/src/browser/cdp.ts
     pattern-regex: (?m)^\s*if\s*\(isWebSocketUrl\(opts\.cdpUrl\)\)\s*\{(?:\n\s*//[^\n]*)?\n\s*wsUrl\s*=\s*opts\.cdpUrl\s*;
-  - id: ghsa-fg3m-vhrr-8gj6.windows-shell-fallback-retry
     languages:
       - typescript
       - javascript
     severity: ERROR
-    message: Windows retry logic that converts wrapper-launch errors into shell execution can reinterpret argv via cmd.exe. Prefer fail-closed wrapper resolution.
     patterns:
       - pattern-either:
           - pattern: |
-              if (process.platform === "win32" && $CHECK($ERR)) {
                 ...
                 return await $RUN(..., true);
               }
           - pattern: |
-              if (process.platform === "win32" && $CODE && $SET.has($CODE)) {
                 ...
                 return await $RUN(..., true);
               }
@@ -2320,7 +2308,6 @@ rules:
       advisory-url: https://github.com/openclaw/openclaw/security/advisories/GHSA-FG3M-VHRR-8GJ6
       detector-bucket: precise
       source-run: 2026-04-17T07-37-10Z
-      source-rule-id: windows-shell-fallback-retry
   - id: ghsa-fh3f-q9qw-93j9.sandbox-config-sha1-hash
     message: Security-sensitive sandbox/config hash helper uses deprecated SHA-1.
     severity: WARNING

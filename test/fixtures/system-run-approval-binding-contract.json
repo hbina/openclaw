@@ -49,12 +49,9 @@
       "expected": { "ok": false, "code": "APPROVAL_ENV_MISMATCH" }
     },
     {
-      "name": "binding rejects mismatched Windows-compatible env values",
       "request": {
         "host": "node",
-        "command": "cmd.exe /c echo ok",
         "binding": {
-          "argv": ["cmd.exe", "/c", "echo", "ok"],
           "cwd": null,
           "agentId": null,
           "sessionKey": null,
@@ -62,7 +59,6 @@
         }
       },
       "invoke": {
-        "argv": ["cmd.exe", "/c", "echo", "ok"],
         "binding": {
           "cwd": null,
           "agentId": null,

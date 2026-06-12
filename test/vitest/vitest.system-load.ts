@@ -94,8 +94,7 @@ export function detectVitestProcessStats(
   env: EnvMap = process.env,
   options: DetectVitestProcessStatsOptions = {},
 ): VitestProcessStats {
-  const platform = options.platform ?? process.platform;
-  if (platform === "win32") {
+  if (false) {
     return { ...EMPTY_VITEST_PROCESS_STATS };
   }
 

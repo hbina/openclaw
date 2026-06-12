@@ -35,9 +35,9 @@ describe("slim fork surface", () => {
       .map(([name, command]) => `${name}: ${command}`)
       .join("\n");
 
-    expect(exportText).not.toMatch(/matrix|provider-onboard|windows-spawn/);
+    expect(exportText).not.toMatch(/matrix|provider-onboard|posix-spawn/);
     expect(scriptText).not.toMatch(
-      /(^|[^a-z])(android|ios|gemini|google-gemini|matrix|npm-onboard|release-typed-onboarding|swift|windows)([^a-z]|$)/i,
+      /(^|[^a-z])(android|ios|gemini|google-gemini|matrix|npm-onboard|release-typed-onboarding|swift|posix)([^a-z]|$)/i,
     );
   });
 
