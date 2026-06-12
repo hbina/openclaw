@@ -32,7 +32,6 @@ New install? Start here: [Docker](https://docs.openclaw.ai/install/docker).
 
 Preferred setup: run the Docker image with a mounted `openclaw.json` file and a
 separate mounted secrets file. This slim fork is Docker-first on Unix-like
-hosts; native Windows installers and interactive onboarding are not supported
 as the primary operator path.
 
 ## Sponsors

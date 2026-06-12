@@ -29,7 +29,6 @@ Next priorities:
 - Performance and test infrastructure
 - Better computer-use and agent harness capabilities
 - Ergonomics across CLI and web frontend
-- Companion apps on macOS, iOS, Android, Windows, and Linux
 
 Contribution rules:
 

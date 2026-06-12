@@ -8,10 +8,10 @@ Setup should be simple and portable: one canonical JSON config file for non-secr
 
 The fork should be easier to install, easier to audit, and cheaper to operate than upstream OpenClaw. It should not carry unused mobile apps, unsupported channel plugins, broad provider catalogs, large QA harnesses, unused runtime dependencies, or packaging paths that no longer match the fork's product shape.
 
-Native Windows support is not part of this fork's product surface. The supported operator path is the Docker-first runtime on Unix-like hosts.
-
-Go porting is out of scope. The retained TypeScript/Node runtime is the final
-implementation target for this slim fork.
+The retained TypeScript/Node runtime is the reference implementation while the
+fork is being trimmed. After the retained surface is explicit and verified, the
+whole implementation should be ported to Go against that smaller reference
+surface.
 
 ## Target Shape
 
@@ -27,7 +27,7 @@ Keep a small, explicit product surface:
 - A single `openclaw.json` setup file plus a companion secret file for credentials, both stored outside the image.
 - Persistent runtime state under a Docker volume or a documented host mount.
 - A trimmed dependency graph containing only packages needed by the retained runtime, tests, docs, and Docker build.
-- No native Windows distribution, installer, or runtime support.
+- A future Go implementation of the retained runtime once the slim TypeScript reference is stable.
 
 Remove or defer everything else unless a concrete reminder-agent requirement depends on it.
 
@@ -40,8 +40,8 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Supporting model providers other than OpenAI (and OpenAI-compatible endpoints) and Anthropic.
 - Keeping unused dependencies merely because upstream OpenClaw still needs them.
 - Baking private credentials, bot tokens, or provider API keys into a shared image.
-- Supporting native Windows, WSL2-specific packaging, or Windows-only installers in this fork.
-- Rewriting the slim application in Go.
+- Rewriting the application in Go before the retained TypeScript reference has
+  been trimmed, documented, and verified.
 
 ## Migration Principles
 
@@ -54,9 +54,10 @@ Remove or defer everything else unless a concrete reminder-agent requirement dep
 - Remove dependencies when their last retained runtime, build, test, or docs use is deleted. Do not keep package graph weight for removed upstream surfaces.
 - Remove tests only when the covered feature is intentionally removed. Keep or rewrite tests for retained core behavior.
 - Validate each phase with the narrowest command that proves the retained product still works.
-- Treat Windows support as removed scope unless a retained Docker/runtime requirement explicitly depends on it.
-- Treat the TypeScript slim runtime as the product runtime. Do not start or
-  prepare a Go rewrite in this fork.
+- Treat the TypeScript slim runtime as the behavioral reference for the Go port.
+  Do not start the port by re-creating removed upstream surfaces.
+- Keep protocol, config, state, and Docker behavior explicit enough that Go
+  components can replace TypeScript components incrementally.
 
 ## Status (as of branch `slim/reminder-agent`)
 
@@ -64,18 +65,17 @@ Progress so far, by phase:
 
 - **Phase 0 (Safety):** Done. `.dockerignore` excludes `.env`, secrets, auth profiles; no secret files tracked.
 - **Phase 1 (Keep/drop):** Done. Matrix recorded above; `extensions/` pruned to `openai`, `anthropic`, `telegram`, `whatsapp`, `discord`, `memory-core`.
-- **Phase 2 (Package pruning):** Partial. Mobile apps and unsupported plugins removed; lockfile re-integrated. Remaining: drop now-unused vendor SDKs (Bedrock/Google/etc.) — blocked until the dead provider/Windows runtime code is removed.
-- **Phase 3 (Runtime pruning):** Largely done for channels and providers (see Phases 5/6). Some dead provider quirk code in `src/agents` still pending (folds into Phase 2 dep-trim).
 - **Phase 4 (Docker-first):** Done and validated. Manual-SSH image builds, healthcheck added, SSH + Gateway `/healthz` verified, restart recovery confirmed.
 - **Phase 5 (Channels):** Code complete. Telegram/WhatsApp/Discord are the only channels (catalog, config types, zod schemas, SDK, metadata, docs, tests all trimmed). Live pairing/reply proofs still need real channel credentials.
 - **Phase 6 (Providers):** Code complete. OpenAI (+ OpenAI-compatible) and Anthropic only; the Anthropic provider plugin (incl. Claude CLI auth) was restored, external provider catalog trimmed. Live reply proofs need an endpoint/key.
-- **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Control UI channels, quick settings, and session labels are now pruned to the retained channel set. Remaining: audit the rest of the dashboard/control UI for removed-feature references.
+- **Phase 7 (UI/Docs):** Largely done. README, provider docs, `model-providers` concept doc, platforms/channels indexes, plugin inventory/reference docs, memory embedding docs, and channel troubleshooting rewritten to the slim surface; `docs.json` nav cleaned. Control UI channels, quick settings, and session labels are now pruned to the retained channel set. Remaining: audit the rest of the dashboard/control UI for removed-feature references.
 - **Phase 8 (Tests):** Reset. The entire inherited `*.test.ts` suite (4,610 files) was removed for a clean-slate rebuild; vitest config + test helpers kept so focused tests can be re-added. The Phase 8 suite has not been written yet.
-- **Phase 9 (Release):** Not started. Go porting is intentionally out of scope.
+- **Phase 9 (Release):** Not started.
+- **Phase 10 (Go port):** Deferred until the trimmed TypeScript reference has
+  focused tests and Docker smoke proof.
 
 Cross-cutting decisions made during this work:
 
-- **Windows is not supported.** Windows/macOS/iOS/Android docs, Windows CI workflows, and app docs are removed. Removing the inert win32 code woven through core runtime (`src/**/windows-*.ts` + ~150 `process.platform === "win32"` branches) is in progress in small `tsgo`-verified batches: `windows-task-restart`, `windows-argv`, and `windows-port-pids` are done; `schtasks` (1.4k-line subsystem), `windows-acl`, `windows-command`/`windows-encoding`/`windows-spawn` (hot process-spawn path), and `windows-install-roots` remain.
 - **Verification constraint:** with the test suite removed, runtime changes are verified by `tsgo:prod`/`build` only (no behavioral net) until Phase 8 re-adds tests.
 
 ## Phase 0: Safety Cleanup
@@ -137,12 +137,39 @@ Prune the package graph deliberately:
 - Audit direct and transitive dependency weight after each pruning phase; remove root dependencies that are no longer imported by retained code or needed by retained scripts.
 - Keep Node and pnpm versions aligned with upstream until the slim fork has its own release policy.
 
+Remaining Phase 2 cleanup should happen after each matching Phase 3 runtime
+delete, not before:
+
+- **Provider SDK dependencies:** remove Bedrock/AWS, Google/Gemini, Vertex,
+  Matrix, Teams, Slack, mobile, QA lab, and other removed-provider packages only
+  after `rg` proves no retained runtime, setup, docs generator, or build script
+  imports them.
+- **Package exports and barrels:** continue removing SDK and package entry
+  points for removed channels/providers once callers are deleted. LM Studio,
+  Mattermost, Matrix, QA runner, Z.AI endpoint, Zalo, and provider-owned login
+  helper SDK subpaths are already gone. Keep only retained public SDK surfaces
+  needed by Telegram, WhatsApp, Discord, OpenAI, Anthropic, memory, Gateway,
+  and tools that survive the fork.
+- **Scripts:** delete package scripts whose only purpose is removed apps,
+  workflows. Keep narrow local build/test/docs scripts needed to validate the
+  slim reference before the Go port.
+- **Patches and overrides:** remove dependency patches, `allowBuilds`, and
+  `minimumReleaseAgeExclude` entries when their package is no longer present in
+  the retained lockfile. Do not keep patch policy for deleted packages.
+- **Generated metadata:** refresh remaining config baselines, plugin SDK
+  baselines, catalogs, and runtime dependency manifests after the runtime
+  surface is pruned so generated files describe only retained features. Plugin
+  inventory/reference docs have already been regenerated to the retained set.
+- **Lockfile proof:** after each pruning batch, run the narrowest install/build
+  proof that shows the lockfile still resolves for the slim checkout.
+
 Exit criteria:
 
 - `pnpm install` succeeds from a clean checkout.
 - The lockfile contains only retained workspace and runtime dependencies.
 - Root `dependencies`, `devDependencies`, package patches, and Docker image installs are justified by retained surfaces.
 - Removed package scripts no longer appear in `package.json`.
+- No dependency remains solely for a removed provider, removed channel, removed
 
 ## Phase 3: Runtime Pruning
 
@@ -157,12 +184,47 @@ Remove runtime code in dependency order:
 - Simplify startup metadata so it reports only retained capabilities.
 - Keep errors explicit when a removed feature is requested.
 
+Remaining Phase 3 cleanup should reduce the TypeScript reference to the exact
+surface the Go port will implement:
+
+- **Provider decision paths:** remove Bedrock, Gemini/Google, Vertex, and other
+  removed-provider selection, model-routing, env/auth, catalog, retry, usage,
+  and feature-quirk branches. Provider routing should become a closed
+  OpenAI-compatible/Anthropic decision tree.
+- **Agent runtime quirks:** audit `src/agents` for provider-name conditionals,
+  model-family sentinels, prompt/tool workarounds, media assumptions, and
+  fallback branches that exist only for removed providers. Delete them or move
+  retained behavior behind explicit OpenAI/Anthropic contracts.
+  helper subsystems. The fork targets Unix-like Docker hosts.
+- **Config/default surfaces:** delete config schema keys, defaults, validation,
+  doctor repairs, and setup prompts for removed channels,
+  read only the current slim config shape.
+- **Plugin/channel registries:** make retained plugin discovery explicit:
+  OpenAI, Anthropic, Telegram, WhatsApp, Discord, and memory-core. Removed
+  plugin IDs should not appear in catalogs, status output, startup capability
+  summaries, command registration, or generated docs.
+- **Setup and onboarding:** main onboarding/setup entrypoints no longer offer
+  broad unsupported provider/channel examples. Continue pruning smaller
+  command/help references outside the primary startup path. The durable setup
+  path is Docker plus mounted `openclaw.json` and a separate secret file.
+- **State and migration boundaries:** keep migrations only for states this fork
+  has shipped or intentionally supports. Do not preserve upstream-only legacy
+  state readers as steady-state runtime fallback.
+- **Go-port fixture boundary:** before deleting a TypeScript path that defines
+  retained behavior, capture or add a focused fixture/test if the Go port will
+  need to match it: provider request/response shape, channel envelopes, pairing,
+  memory persistence, health/startup, and config loading.
+
 Exit criteria:
 
 - Gateway starts with the slim config.
 - Removed plugins/providers cannot be loaded accidentally.
 - `dist/extensions` contains only retained bundled plugins plus shared runtime dependencies.
 - Startup logs and health output describe the slim runtime accurately.
+  describing removed scope, tests that assert removal, or migration code with a
+  named shipped-contract reason.
+- The remaining runtime has a small enough dependency and behavior surface to
+  serve as the Go-port reference.
 
 ## Phase 4: Docker-First Setup
 
@@ -173,7 +235,6 @@ Make the manual Docker path the primary setup path:
 - Keep `/home/node` as persistent volume state.
 - Persist `memory-core` state under the same `/home/node` volume; never bake memory stores or recall indexes into the image.
 - Expose only required ports by default: SSH, Gateway, bridge, and any retained callback port.
-- Keep the Docker runtime supported on Unix-like hosts only; do not add native Windows packaging or setup paths.
 - Document first-run configuration: SSH into the container, configure an OpenAI-compatible provider, configure Telegram/WhatsApp/Discord credentials, restart.
 - Document first-run configuration as editing or mounting `openclaw.json` plus the separate secret file, then restarting.
 - Add a healthcheck once the Gateway can start reliably before first auth.
@@ -239,7 +300,6 @@ Keep only docs and UI that match the fork:
 Exit criteria:
 
 - No visible docs claim removed features are supported.
-- No docs claim native Windows support for the fork.
 - The first-run instructions work from a fresh Docker volume.
 - `git diff --check` passes for docs and scripts.
 
@@ -270,13 +330,56 @@ Define a release model for the fork:
 - Add a minimal release checklist: build image, scan for secrets, run Docker smoke, tag, push image.
 - Document backup/restore for the persistent volume.
 - Include memory state in backup/restore expectations because `memory-core` is retained and user-visible.
-- Do not produce Windows installers, Windows Hub packages, or Windows release lanes for this fork.
 
 Exit criteria:
 
 - A clean clone can build the image.
 - A user can run the published image with documented commands.
 - No private instance state is included in the image.
+
+## Phase 10: Go Port
+
+Port the retained slim application to Go after the TypeScript reference surface
+is stable and verified.
+
+Retained Go target:
+
+- Gateway HTTP/WebSocket runtime.
+- Agent loop for one primary profile.
+- OpenAI Chat Completions client, including OpenAI-compatible endpoints.
+- Anthropic Messages client.
+- Telegram, WhatsApp, and Discord channel adapters.
+- `memory-core` equivalent: persisted recall/search and retained dreaming behavior.
+- Config loader for the slim config shape only.
+- SQLite/runtime state under `/home/node`.
+- Docker image that keeps the same first-run operator flow: SSH, Gateway,
+  volume state, health checks, and channel/provider setup.
+
+Porting sequence:
+
+1. Freeze the slim TypeScript behavior with focused tests and Docker smoke proof.
+2. Write protocol/config/state fixtures from the TypeScript runtime for Gateway,
+   channels, provider calls, pairing, and memory.
+3. Implement Go packages behind the retained boundaries: config, state, provider,
+   channel adapters, memory, Gateway, and Docker entrypoint.
+4. Run Go and TypeScript implementations side by side against the same fixture
+   corpus until behavior matches for retained surfaces.
+5. Switch the Docker image to the Go binary once provider reply, memory, channel
+   pairing/reply, restart, and health checks pass.
+6. Remove TypeScript runtime-only code after the Go image fully owns the retained
+   product surface.
+
+Exit criteria:
+
+- A clean clone builds a Go binary and Docker image without Node runtime
+  dependencies for production use.
+- The Go image supports the same documented slim first-run path.
+- OpenAI-compatible and Anthropic provider replies work through the Go Gateway.
+- Telegram, WhatsApp, and Discord pairing/reply work through the Go Gateway.
+- Memory recall/search persists across container restart.
+- Existing slim config and state either load directly or have a documented
+  one-time migration.
+- TypeScript runtime code is no longer required in the production image.
 
 ## Immediate Next Actions
 
@@ -287,7 +390,8 @@ Exit criteria:
 5. Verify `memory-core` is present in `dist/extensions` and memory tools register in the slim Gateway.
 6. Complete one OpenAI-compatible provider reply test.
 7. Complete Telegram, WhatsApp, and Discord pairing and reply tests.
-8. Reduce staged deletions into reviewable commits by phase.
+8. Capture protocol/config/state fixtures that will become the Go-port compatibility corpus.
+9. Reduce any remaining uncommitted trim work into reviewable commits by phase.
 
 ## Open Questions
 
@@ -300,6 +404,9 @@ Exit criteria:
 - Should browser/canvas/tools remain available for the reminder agent?
 - Should this fork keep upstream package names or rename package/image/docs surfaces?
 - Should Docker expose ports only on loopback by default, or support LAN by default for local network access?
+- Should the Go port preserve OpenClaw's existing Gateway API shape exactly, or define a smaller v1 protocol for the fork?
+- Which Go WhatsApp library/runtime should replace the current WhatsApp Web implementation, and what session migration is acceptable?
+- Should the Go port keep a small web dashboard, or make CLI/API operation the only supported operator surface?
 
 ## Validation Checklist
 
@@ -324,3 +431,11 @@ Before publishing an image:
 - Confirm no `.env`, channel token, provider API key, or OpenClaw credentials are present in image layers.
 - Run the documented first-run path with a fresh Docker volume.
 - Record exact image tag, commit SHA, and verification commands.
+
+Before replacing TypeScript with Go:
+
+- Go binary and Docker image build from a clean clone.
+- Go implementation passes the retained fixture corpus.
+- Go Docker smoke proves SSH, Gateway health, restart, provider reply, memory
+  persistence, and retained channel pairing/reply.
+- Migration behavior for existing `/home/node` state is documented and tested.
