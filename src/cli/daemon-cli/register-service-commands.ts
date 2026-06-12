@@ -82,7 +82,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
 
   parent
     .command("install")
-    .description("Install the Gateway service (launchd/systemd/schtasks)")
+    .description("Install the Gateway service (launchd/systemd)")
     .option("--port <port>", "Gateway port")
     .option("--runtime <runtime>", "Daemon runtime (node|bun). Default: node")
     .option("--token <token>", "Gateway token (token auth)")
@@ -96,7 +96,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
 
   parent
     .command("uninstall")
-    .description("Uninstall the Gateway service (launchd/systemd/schtasks)")
+    .description("Uninstall the Gateway service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (cmdOpts) => {
       const { runDaemonUninstall } = await loadDaemonLifecycleModule();
@@ -105,7 +105,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
 
   parent
     .command("start")
-    .description("Start the Gateway service (launchd/systemd/schtasks)")
+    .description("Start the Gateway service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (cmdOpts) => {
       const { runDaemonStart } = await loadDaemonLifecycleModule();
@@ -114,7 +114,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
 
   parent
     .command("stop")
-    .description("Stop the Gateway service (launchd/systemd/schtasks)")
+    .description("Stop the Gateway service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .option(
       "--disable",
@@ -128,7 +128,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
 
   parent
     .command("restart")
-    .description("Restart the Gateway service (launchd/systemd/schtasks)")
+    .description("Restart the Gateway service (launchd/systemd)")
     .option("--force", "Restart immediately without waiting for active gateway work", false)
     .option("--safe", "Request an OpenClaw-aware restart after active work drains", false)
     .option("--skip-deferral", "Bypass the safe-restart deferral gate; requires --safe", false)

@@ -19,7 +19,7 @@ import { formatDateTimeMs } from "../format.ts";
 import { icons } from "../icons.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { pathForTab } from "../navigation.ts";
-import { collectQuotaWindowsFromAuthStatus, formatQuotaReset } from "../provider-quota-summary.ts";
+import { collectQuotaPeriodsFromAuthStatus, formatQuotaReset } from "../provider-quota-summary.ts";
 import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
 import { isCronSessionKey, resolveSessionDisplayName } from "../session-display.ts";
 import {
@@ -740,15 +740,15 @@ function renderChatSessionPickerPopover(
 }
 
 function renderChatQuotaPill(state: AppViewState) {
-  const windows = collectQuotaWindowsFromAuthStatus(
+  const periods = collectQuotaPeriodsFromAuthStatus(
     state.modelAuthStatusResult,
     isMonitoredAuthProvider,
   );
-  const primary = windows[0];
+  const primary = periods[0];
   if (!primary) {
     return "";
   }
-  const secondary = windows.find(
+  const secondary = periods.find(
     (entry) => entry.displayName !== primary.displayName || entry.label !== primary.label,
   );
   const reset = formatQuotaReset(primary.resetAt);

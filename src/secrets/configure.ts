@@ -55,15 +55,9 @@ export type SecretsConfigureResult = {
 };
 
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
-const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
 
 function isAbsolutePathValue(value: string): boolean {
-  return (
-    path.isAbsolute(value) ||
-    WINDOWS_ABS_PATH_PATTERN.test(value) ||
-    WINDOWS_UNC_PATH_PATTERN.test(value)
-  );
+  return path.isAbsolute(value);
 }
 
 function parseCsv(value: string): string[] {

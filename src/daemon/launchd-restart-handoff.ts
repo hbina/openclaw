@@ -30,7 +30,6 @@ const START_AFTER_EXIT_PRINT_RETRY_DELAY_SECONDS = 0.2;
 
 type LaunchdRestartLogEnv = {
   HOME?: string;
-  USERPROFILE?: string;
   OPENCLAW_STATE_DIR?: string;
   OPENCLAW_PROFILE?: string;
 };
@@ -65,7 +64,6 @@ function collectRestartLogEnv(env?: Record<string, string | undefined>): Launchd
   const source = { ...process.env, ...env };
   return {
     HOME: source.HOME,
-    USERPROFILE: source.USERPROFILE,
     OPENCLAW_STATE_DIR: source.OPENCLAW_STATE_DIR,
     OPENCLAW_PROFILE: source.OPENCLAW_PROFILE,
   };

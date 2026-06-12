@@ -142,17 +142,9 @@ export function createTempHomeHarness(options: { prefix: string; beforeEachCase?
     await fs.mkdir(path.join(home, ".openclaw", "agents", "main", "sessions"), { recursive: true });
     const env: Record<string, string | undefined> = {
       HOME: home,
-      USERPROFILE: home,
       OPENCLAW_STATE_DIR: path.join(home, ".openclaw"),
       OPENCLAW_AGENT_DIR: path.join(home, ".openclaw", "agent"),
     };
-    if (process.platform === "win32") {
-      const match = home.match(/^([A-Za-z]:)(.*)$/);
-      if (match) {
-        env.HOMEDRIVE = match[1];
-        env.HOMEPATH = match[2] || "\\";
-      }
-    }
 
     return await withEnvAsync(env, async () => {
       options.beforeEachCase?.();

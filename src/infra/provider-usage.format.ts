@@ -45,7 +45,7 @@ function formatWindowShort(window: UsageWindow, now?: number): string {
 /** Formats one provider snapshot into a short usage-window summary. */
 export function formatUsageWindowSummary(
   snapshot: ProviderUsageSnapshot,
-  opts?: { now?: number; maxWindows?: number; includeResets?: boolean },
+  opts?: { now?: number; maxPeriods?: number; includeResets?: boolean },
 ): string | null {
   if (snapshot.error) {
     return null;
@@ -54,12 +54,12 @@ export function formatUsageWindowSummary(
     return snapshot.summary?.trim() || null;
   }
   const now = opts?.now ?? Date.now();
-  const maxWindows =
-    typeof opts?.maxWindows === "number" && opts.maxWindows > 0
-      ? Math.min(opts.maxWindows, snapshot.windows.length)
+  const maxPeriods =
+    typeof opts?.maxPeriods === "number" && opts.maxPeriods > 0
+      ? Math.min(opts.maxPeriods, snapshot.windows.length)
       : snapshot.windows.length;
   const includeResets = opts?.includeResets ?? false;
-  const windows = snapshot.windows.slice(0, maxWindows);
+  const windows = snapshot.windows.slice(0, maxPeriods);
   const parts = windows.map((window) => {
     const remaining = clampPercent(100 - window.usedPercent);
     const reset = includeResets ? formatResetRemaining(window.resetAt, now) : null;

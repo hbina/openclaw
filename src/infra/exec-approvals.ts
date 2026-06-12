@@ -352,9 +352,7 @@ function ensureDir(filePath: string) {
   try {
     fs.chmodSync(dir, 0o700);
   } catch (err) {
-    if (process.platform !== "win32") {
-      throw err;
-    }
+    throw err;
   }
   return dir;
 }
@@ -564,7 +562,7 @@ function renameExecApprovalsWithFallback(tempPath: string, filePath: string): vo
     fs.renameSync(tempPath, filePath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    // Windows can reject rename-overwrite when another process has a transient
+    // Rename-overwrite can fail when another process has a transient
     // handle on the target approvals file.
     if (code !== "EPERM" && code !== "EEXIST") {
       throw err;

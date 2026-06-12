@@ -99,9 +99,6 @@ function currentUid(overrideUid?: number | null): number | null {
   if (overrideUid !== undefined) {
     return overrideUid;
   }
-  if (process.platform === "win32") {
-    return null;
-  }
   if (typeof process.getuid !== "function") {
     return null;
   }
@@ -155,9 +152,6 @@ function checkPathStatAndPermissions(params: {
   origin: PluginOrigin;
   uid: number | null;
 }): CandidateBlockIssue | null {
-  if (process.platform === "win32") {
-    return null;
-  }
   const pathsToCheck = [params.rootDir, params.source];
   const seen = new Set<string>();
   for (const targetPath of pathsToCheck) {

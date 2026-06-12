@@ -581,8 +581,7 @@ function maybeRedactPathString(value: string, redaction: TrajectoryExportRedacti
     workspaceRedacted !== value ||
     path.isAbsolute(workspaceRedacted) ||
     workspaceRedacted.includes(redaction.stateDir) ||
-    (redaction.env.HOME ? workspaceRedacted.includes(redaction.env.HOME) : false) ||
-    (redaction.env.USERPROFILE ? workspaceRedacted.includes(redaction.env.USERPROFILE) : false)
+    (redaction.env.HOME ? workspaceRedacted.includes(redaction.env.HOME) : false)
   ) {
     return redactSupportString(workspaceRedacted, redaction);
   }

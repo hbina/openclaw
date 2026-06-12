@@ -5,14 +5,10 @@ import type { AssistantMessageDiagnostic } from "./utils/diagnostics.js";
 /** Provider API families with first-class request/stream adapters in OpenClaw. */
 export type KnownApi =
   | "openai-completions"
-  | "mistral-conversations"
   | "openai-responses"
   | "azure-openai-responses"
   | "openai-chatgpt-responses"
-  | "anthropic-messages"
-  | "bedrock-converse-stream"
-  | "google-generative-ai"
-  | "google-vertex";
+  | "anthropic-messages";
 
 /** Provider API id; custom providers can use ids outside the built-in set. */
 export type Api = KnownApi | (string & {});
@@ -109,7 +105,7 @@ export interface StreamOptions {
   /**
    * Optional custom HTTP headers to include in API requests.
    * Merged with provider defaults; can override default headers.
-   * Not supported by all providers (e.g., AWS Bedrock uses SDK auth).
+   * Not supported by all providers.
    */
   headers?: Record<string, string>;
   /**

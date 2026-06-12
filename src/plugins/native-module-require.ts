@@ -61,15 +61,11 @@ function isSourceTransformFallbackError(error: unknown, modulePath: string): boo
 export function tryNativeRequireJavaScriptModule(
   modulePath: string,
   options: {
-    allowWindows?: boolean;
     aliasMap?: Record<string, string>;
     fallbackOnMissingDependency?: boolean;
     fallbackOnNativeError?: boolean;
   } = {},
 ): { ok: true; moduleExport: unknown } | { ok: false } {
-  if (process.platform === "win32" && options.allowWindows !== true) {
-    return { ok: false };
-  }
   if (!isJavaScriptModulePath(modulePath)) {
     return { ok: false };
   }

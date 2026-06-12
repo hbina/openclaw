@@ -15,7 +15,6 @@ const AGENT_RUNTIME_LABELS: Readonly<Record<string, string>> = {
   codex: "OpenAI Codex",
   "codex-cli": "OpenAI Codex",
   "claude-cli": "Claude CLI",
-  "google-gemini-cli": "Gemini CLI",
 };
 
 export function resolveAgentRuntimeLabel(args: {

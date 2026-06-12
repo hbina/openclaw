@@ -144,7 +144,6 @@ async function createAcpClient(opts: AcpClientOptions = {}): Promise<AcpClientHa
     cwd,
     env: spawnEnv,
     shell: spawnInvocation.shell,
-    windowsHide: spawnInvocation.windowsHide,
   });
 
   if (!agent.stdin || !agent.stdout) {

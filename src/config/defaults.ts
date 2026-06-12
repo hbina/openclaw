@@ -39,11 +39,6 @@ const DEFAULT_MODEL_ALIASES: Readonly<Record<string, string>> = {
   gpt: "openai/gpt-5.4",
   "gpt-mini": "openai/gpt-5.4-mini",
   "gpt-nano": "openai/gpt-5.4-nano",
-
-  // Google Gemini (3.x — flash-lite is GA; pro and flash are still preview)
-  gemini: "google/gemini-3.1-pro-preview",
-  "gemini-flash": "google/gemini-3-flash-preview",
-  "gemini-flash-lite": "google/gemini-3.1-flash-lite",
 };
 
 const DEFAULT_MODEL_COST: ModelDefinitionConfig["cost"] = {
@@ -54,14 +49,6 @@ const DEFAULT_MODEL_COST: ModelDefinitionConfig["cost"] = {
 };
 const DEFAULT_MODEL_INPUT: ModelDefinitionConfig["input"] = ["text"];
 const DEFAULT_MODEL_MAX_TOKENS = 8192;
-const MISTRAL_SAFE_MAX_TOKENS_BY_MODEL = {
-  "devstral-medium-latest": 32_768,
-  "magistral-small": 40_000,
-  "mistral-large-latest": 16_384,
-  "mistral-medium-2508": 8_192,
-  "mistral-small-latest": 16_384,
-  "pixtral-large-latest": 32_768,
-} as const;
 
 type ModelDefinitionLike = Partial<ModelDefinitionConfig> &
   Pick<ModelDefinitionConfig, "id" | "name">;
@@ -89,16 +76,7 @@ export function resolveNormalizedProviderModelMaxTokens(params: {
   contextWindow: number;
   rawMaxTokens: number;
 }): number {
-  const clamped = Math.min(params.rawMaxTokens, params.contextWindow);
-  if (normalizeProviderId(params.providerId) !== "mistral" || clamped < params.contextWindow) {
-    return clamped;
-  }
-
-  const safeMaxTokens =
-    MISTRAL_SAFE_MAX_TOKENS_BY_MODEL[
-      params.modelId as keyof typeof MISTRAL_SAFE_MAX_TOKENS_BY_MODEL
-    ] ?? DEFAULT_MODEL_MAX_TOKENS;
-  return Math.min(safeMaxTokens, params.contextWindow);
+  return Math.min(params.rawMaxTokens, params.contextWindow);
 }
 
 type SessionDefaultsOptions = {

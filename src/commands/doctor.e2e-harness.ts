@@ -70,7 +70,6 @@ export const runGatewayUpdate = vi
   .fn()
   .mockResolvedValue(createGatewayUpdateResult()) as unknown as MockFn;
 export const collectRelevantDoctorPluginIds = vi.fn(() => []) as unknown as MockFn;
-export const listPluginDoctorLegacyConfigRules = vi.fn(() => []) as unknown as MockFn;
 export const runDoctorHealthContributions = vi.fn(
   defaultRunDoctorHealthContributions,
 ) as unknown as MockFn;
@@ -79,11 +78,6 @@ export const maybeRepairMemoryRecallHealth = vi
   .mockResolvedValue(undefined) as unknown as MockFn;
 export const noteMemorySearchHealth = vi.fn().mockResolvedValue(undefined) as unknown as MockFn;
 export const noteMemoryRecallHealth = vi.fn().mockResolvedValue(undefined) as unknown as MockFn;
-export const migrateLegacyConfig = vi.fn((raw: unknown) => ({
-  config: raw as Record<string, unknown>,
-  changes: ["Moved routing.allowFrom → channels.whatsapp.allowFrom."],
-})) as unknown as MockFn;
-
 export const runExec = vi.fn().mockResolvedValue({
   stdout: "",
   stderr: "",
@@ -293,7 +287,6 @@ vi.mock("../config/config.js", async () => {
     createConfigIO,
     readConfigFileSnapshot,
     writeConfigFile,
-    migrateLegacyConfig,
   };
 });
 
@@ -400,7 +393,6 @@ vi.mock("../plugins/doctor-contract-registry.js", () => ({
     changes: [],
   }),
   collectRelevantDoctorPluginIds,
-  listPluginDoctorLegacyConfigRules,
 }));
 
 vi.mock("../channels/plugins/doctor-contract-api.js", () => ({
@@ -567,7 +559,6 @@ beforeEach(() => {
   writeConfigFile.mockReset().mockResolvedValue(undefined);
   resolveOpenClawPackageRoot.mockReset().mockResolvedValue(null);
   runGatewayUpdate.mockReset().mockResolvedValue(createGatewayUpdateResult());
-  listPluginDoctorLegacyConfigRules.mockReset().mockReturnValue([]);
   runDoctorHealthContributions.mockReset().mockImplementation(defaultRunDoctorHealthContributions);
   maybeRepairMemoryRecallHealth.mockReset().mockResolvedValue(undefined);
   noteMemorySearchHealth.mockReset().mockResolvedValue(undefined);
@@ -579,10 +570,6 @@ beforeEach(() => {
   runExec.mockReset().mockResolvedValue({ stdout: "", stderr: "" });
   runCommandWithTimeout.mockReset().mockResolvedValue(createCommandWithTimeoutResult());
   ensureAuthProfileStore.mockReset().mockReturnValue({ version: 1, profiles: {} });
-  migrateLegacyConfig.mockReset().mockImplementation((raw: unknown) => ({
-    config: raw as Record<string, unknown>,
-    changes: ["Moved routing.allowFrom → channels.whatsapp.allowFrom."],
-  }));
   findLegacyGatewayServices.mockReset().mockResolvedValue([]);
   uninstallLegacyGatewayServices.mockReset().mockResolvedValue([]);
   findExtraGatewayServices.mockReset().mockResolvedValue([]);

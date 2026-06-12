@@ -1,17 +1,11 @@
 // Parses execution allowlist patterns for approval policy checks.
-import fs from "node:fs";
 import path from "node:path";
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { expandHomePrefix } from "./home-dir.js";
 
 const GLOB_REGEX_CACHE_LIMIT = 512;
 const globRegexCache = new Map<string, RegExp>();
 
 function normalizeMatchTarget(value: string): string {
-  if (process.platform === "win32") {
-    const stripped = value.replace(/^\\\\[?.]\\/, "");
-    return normalizeLowercaseStringOrEmpty(stripped.replace(/\\/g, "/"));
-  }
   const normalized = value.replace(/\\\\/g, "/");
   if (process.platform === "darwin") {
     if (normalized === "/private/var") {
@@ -24,14 +18,6 @@ function normalizeMatchTarget(value: string): string {
   return normalized;
 }
 
-function tryRealpath(value: string): string | null {
-  try {
-    return fs.realpathSync(value);
-  } catch {
-    return null;
-  }
-}
-
 function hasDotPathSegment(value: string): boolean {
   return value
     .replace(/\\/g, "/")
@@ -40,9 +26,7 @@ function hasDotPathSegment(value: string): boolean {
 }
 
 function normalizeDotPathSegments(value: string): string {
-  const normalized =
-    process.platform === "win32" ? path.win32.normalize(value) : path.posix.normalize(value);
-  return normalizeMatchTarget(normalized);
+  return normalizeMatchTarget(path.posix.normalize(value));
 }
 
 function escapeRegExpLiteral(input: string): string {
@@ -81,7 +65,7 @@ function compileGlobRegex(pattern: string): RegExp {
   }
   regex += "$";
 
-  const compiled = new RegExp(regex, process.platform === "win32" ? "i" : "");
+  const compiled = new RegExp(regex);
   if (globRegexCache.size >= GLOB_REGEX_CACHE_LIMIT) {
     globRegexCache.clear();
   }
@@ -99,10 +83,6 @@ export function matchesExecAllowlistPattern(pattern: string, target: string): bo
   const hasWildcard = /[*?]/.test(expanded);
   let normalizedPattern = expanded;
   let normalizedTarget = target;
-  if (process.platform === "win32" && !hasWildcard) {
-    normalizedPattern = tryRealpath(expanded) ?? expanded;
-    normalizedTarget = tryRealpath(target) ?? target;
-  }
   normalizedPattern = normalizeMatchTarget(normalizedPattern);
   normalizedTarget = normalizeMatchTarget(normalizedTarget);
   // Normalize only the target. Glob patterns are operator-authored strings, and

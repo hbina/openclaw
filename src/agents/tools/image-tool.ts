@@ -919,7 +919,6 @@ export function createImageTool(options?: {
             !isFileUrl &&
             !isHttpUrl &&
             !isMediaStoreUrl &&
-            !refInfo.looksLikeWindowsDrivePath &&
             !isAbsolute(normalizedRef) &&
             options?.workspaceDir
           ) {

@@ -2,7 +2,6 @@
 import path from "node:path";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import {
-  lowercasePreservingWhitespace,
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalLowercaseString,
   normalizeStringifiedOptionalString,
@@ -324,8 +323,7 @@ function resolveExecutionConfig(
 }
 
 function normalizePathForComparison(input: string): string {
-  const normalized = path.resolve(input);
-  return process.platform === "win32" ? lowercasePreservingWhitespace(normalized) : normalized;
+  return path.resolve(input);
 }
 
 function formatLocalIsoDay(epochMs: number): string {

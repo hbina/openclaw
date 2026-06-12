@@ -37,9 +37,6 @@ export function listFlatRootArchiveEntries(pkgDir: string): string[] {
 }
 
 function listFindFlatRootArchiveEntries(pkgDir: string): string[] | null {
-  if (process.platform === "win32") {
-    return null;
-  }
   const result = spawnSync("find", [pkgDir, "-mindepth", "1", "-maxdepth", "1"], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
@@ -48,7 +45,7 @@ function listFindFlatRootArchiveEntries(pkgDir: string): string[] | null {
   if (result.status !== 0) {
     return null;
   }
-  // Prefer find output on Unix so fixture archives preserve symlink names without stat-following.
+  // Prefer find output so fixture archives preserve symlink names without stat-following.
   return result.stdout
     .split("\n")
     .map((line) => line.trim())

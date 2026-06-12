@@ -8,27 +8,10 @@ export const DEFAULT_TIMEOUT_MS = 5000;
 
 export const PROVIDER_LABELS: Record<UsageProviderId, string> = {
   anthropic: "Claude",
-  deepseek: "DeepSeek",
-  "github-copilot": "Copilot",
-  "google-gemini-cli": "Gemini",
-  minimax: "MiniMax",
   openai: "OpenAI",
-  xiaomi: "Xiaomi",
-  "xiaomi-token-plan": "Xiaomi Token Plan",
-  zai: "z.ai",
 };
 
-export const usageProviders: UsageProviderId[] = [
-  "anthropic",
-  "deepseek",
-  "github-copilot",
-  "google-gemini-cli",
-  "minimax",
-  "openai",
-  "xiaomi",
-  "xiaomi-token-plan",
-  "zai",
-];
+export const usageProviders: UsageProviderId[] = ["anthropic", "openai"];
 
 /** Returns true for providers whose usage endpoint is only meaningful with OAuth/token auth. */
 export function isOAuthOnlyUsageProvider(provider: UsageProviderId): boolean {
@@ -52,13 +35,6 @@ export function resolveUsageProviderId(
   }
   if (normalized === "openai") {
     return undefined;
-  }
-  if (
-    normalized === "minimax-portal" ||
-    normalized === "minimax-cn" ||
-    normalized === "minimax-portal-cn"
-  ) {
-    return "minimax";
   }
   return usageProviders.includes(normalized as UsageProviderId)
     ? (normalized as UsageProviderId)

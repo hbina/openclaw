@@ -6,12 +6,7 @@ import {
   unwrapDispatchWrappersForResolution,
   unwrapKnownShellMultiplexerInvocation,
 } from "./exec-wrapper-resolution.js";
-import {
-  POSIX_INLINE_COMMAND_FLAGS,
-  isPowerShellInlineRestCommandFlag,
-  resolveInlineCommandMatch,
-  resolvePowerShellInlineCommandMatch,
-} from "./shell-inline-command.js";
+import { POSIX_INLINE_COMMAND_FLAGS, resolveInlineCommandMatch } from "./shell-inline-command.js";
 
 // System-run command helpers keep argv authoritative while still exposing a
 // human-readable shell preview when the wrapper shape is unambiguous.
@@ -69,17 +64,7 @@ type SystemRunCommandDisplay = {
   previewText: string | null;
 };
 
-const POSIX_OR_POWERSHELL_INLINE_WRAPPER_NAMES = new Set([
-  "ash",
-  "bash",
-  "dash",
-  "fish",
-  "ksh",
-  "powershell",
-  "pwsh",
-  "sh",
-  "zsh",
-]);
+const POSIX_INLINE_WRAPPER_NAMES = new Set(["ash", "bash", "dash", "fish", "ksh", "sh", "zsh"]);
 
 function unwrapShellWrapperArgv(argv: string[]): string[] {
   const dispatchUnwrapped = unwrapDispatchWrappersForResolution(argv);
@@ -95,23 +80,14 @@ function hasTrailingPositionalArgvAfterInlineCommand(argv: string[]): boolean {
   }
 
   const wrapper = normalizeExecutableToken(token0);
-  if (!POSIX_OR_POWERSHELL_INLINE_WRAPPER_NAMES.has(wrapper)) {
+  if (!POSIX_INLINE_WRAPPER_NAMES.has(wrapper)) {
     return false;
   }
 
-  const inlineCommandIndex =
-    wrapper === "powershell" || wrapper === "pwsh"
-      ? resolvePowerShellInlineCommandMatch(wrapperArgv).valueTokenIndex
-      : resolveInlineCommandMatch(wrapperArgv, POSIX_INLINE_COMMAND_FLAGS, {
-          allowCombinedC: true,
-        }).valueTokenIndex;
+  const inlineCommandIndex = resolveInlineCommandMatch(wrapperArgv, POSIX_INLINE_COMMAND_FLAGS, {
+    allowCombinedC: true,
+  }).valueTokenIndex;
   if (inlineCommandIndex === null) {
-    return false;
-  }
-  if (
-    (wrapper === "powershell" || wrapper === "pwsh") &&
-    isPowerShellInlineRestCommandFlag(wrapperArgv[inlineCommandIndex - 1] ?? "")
-  ) {
     return false;
   }
   return wrapperArgv.slice(inlineCommandIndex + 1).some((entry) => entry.trim().length > 0);

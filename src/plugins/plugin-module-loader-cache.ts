@@ -1,7 +1,5 @@
 /** Caches plugin module loaders and native-load stats for runtime/source module imports. */
 import { createRequire } from "node:module";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import type { createJiti } from "jiti";
 import { toSafeImportPath } from "../shared/import-specifier.js";
 import { tryNativeRequireJavaScriptModule } from "./native-module-require.js";
@@ -125,9 +123,6 @@ export function createPluginModuleLoaderCache(
 }
 
 function toSourceTransformImportPath(specifier: string): string {
-  if (process.platform === "win32" && path.isAbsolute(specifier)) {
-    return pathToFileURL(specifier).href;
-  }
   return toSafeImportPath(specifier);
 }
 
@@ -271,7 +266,6 @@ function createPluginModuleLoader(params: {
     return loadCachedTarget(target, rest, () => {
       pluginModuleLoaderStats.calls += 1;
       const native = tryNativeRequireJavaScriptModule(target, {
-        allowWindows: true,
         aliasMap: params.aliasMap,
         fallbackOnMissingDependency: true,
         fallbackOnNativeError: true,

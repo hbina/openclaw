@@ -14,7 +14,7 @@ import {
 import { resolveModelRuntimePolicy } from "./model-runtime-policy.js";
 import { resolveProviderIdForAuth } from "./provider-auth-aliases.js";
 
-/** True for CLI runtime provider ids such as `claude-cli` and `google-gemini-cli`. */
+/** True for CLI runtime provider ids such as `claude-cli`. */
 export function isCliRuntimeProvider(
   provider: string,
   params: { config?: OpenClawConfig; env?: NodeJS.ProcessEnv; includeSetupRegistry?: boolean } = {},

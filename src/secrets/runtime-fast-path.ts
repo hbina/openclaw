@@ -29,9 +29,6 @@ import type { RuntimeWebToolsMetadata } from "./runtime-web-tools.types.js";
 
 const RUNTIME_PATH_ENV_KEYS = [
   "HOME",
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
   "OPENCLAW_HOME",
   "OPENCLAW_STATE_DIR",
   "OPENCLAW_CONFIG_PATH",

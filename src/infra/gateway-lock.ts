@@ -14,7 +14,7 @@ import { z } from "zod";
 import { resolveConfigPath, resolveGatewayLockDir, resolveStateDir } from "../config/paths.js";
 import { isPidAlive } from "../shared/pid-alive.js";
 import { safeParseJsonWithSchema } from "../utils/zod-parse.js";
-import { isGatewayArgv, parseProcCmdline, parseWindowsCmdline } from "./gateway-process-argv.js";
+import { isGatewayArgv, parseProcCmdline } from "./gateway-process-argv.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -78,34 +78,6 @@ function readLinuxCmdline(pid: number): string[] | null {
 }
 
 const CMDLINE_EXEC_TIMEOUT_MS = 1000;
-
-/**
- * Read the command line of a Windows process via `wmic`.
- * Returns an argv-style array, or null when the lookup fails (process gone,
- * `wmic` missing/deprecated, timeout, etc.).
- */
-function readWindowsCmdline(pid: number): string[] | null {
-  try {
-    // Omit `encoding` so execFileSync returns a Buffer — wmic emits UTF-16LE
-    // (with BOM) on most Windows 10/11 builds, which would be garbled as UTF-8.
-    const buf = execFileSync(
-      "wmic",
-      ["process", "where", `processid=${pid}`, "get", "CommandLine", "/value"],
-      { timeout: CMDLINE_EXEC_TIMEOUT_MS, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] },
-    ) as Buffer;
-    const raw =
-      buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe
-        ? buf.toString("utf16le")
-        : buf.toString("utf8");
-    const match = raw.match(/CommandLine=(.+)/);
-    if (!match) {
-      return null;
-    }
-    return parseWindowsCmdline(match[1].trim());
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Read the command line of a macOS/BSD process via `ps`.
@@ -180,9 +152,6 @@ function defaultReadProcessCmdline(pid: number, platform: NodeJS.Platform): stri
   if (platform === "linux") {
     return readLinuxCmdline(pid);
   }
-  if (platform === "win32") {
-    return readWindowsCmdline(pid);
-  }
   if (platform === "darwin") {
     return readDarwinCmdline(pid);
   }
@@ -225,8 +194,8 @@ async function resolveGatewayOwnerStatus(
   if (!args) {
     // Cmdline reader unavailable or failed. On Linux legacy locks (no
     // start-time), "unknown" lets the stale-lock heuristic eventually reclaim
-    // very old locks. On win32/darwin/other, conservatively assume "alive" to
-    // preserve single-instance guarantees when wmic/ps is unavailable.
+    // very old locks. On darwin/other, conservatively assume "alive" to
+    // preserve single-instance guarantees when ps is unavailable.
     return platform === "linux" ? "unknown" : "alive";
   }
   return isGatewayArgv(args) ? "alive" : "dead";
@@ -335,7 +304,7 @@ export async function acquireGatewayLock(
             const st = await fs.stat(lockPath);
             stale = now() - st.mtimeMs > staleMs;
           } catch {
-            // On Windows or locked filesystems we may be unable to stat the
+            // On locked filesystems we may be unable to stat the
             // lock file even though the existing gateway is still healthy.
             // Treat the lock as non-stale so we keep waiting instead of
             // forcefully removing another gateway's lock.

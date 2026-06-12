@@ -6,9 +6,7 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { getApiProvider } from "../llm/api-registry.js";
 import type { Api, Model } from "../llm/types.js";
-import { createAnthropicVertexStreamFnForModel } from "./anthropic-vertex-stream.js";
 import { ensureCustomApiRegistered } from "./custom-api-registry.js";
-import { prepareGoogleSimpleCompletionModel } from "./google-simple-completion-stream.js";
 import { registerProviderStreamForModel } from "./provider-stream.js";
 import {
   buildTransportAwareSimpleStreamFn,
@@ -16,11 +14,6 @@ import {
   prepareTransportAwareSimpleModel,
   resolveTransportAwareSimpleApi,
 } from "./provider-transport-stream.js";
-
-function resolveAnthropicVertexSimpleApi(baseUrl?: string): Api {
-  const suffix = baseUrl?.trim() ? encodeURIComponent(baseUrl.trim()) : "default";
-  return `openclaw-anthropic-vertex-simple:${suffix}`;
-}
 
 function normalizeCodexResponsesBaseUrlForOpenAISdk(baseUrl?: string): string {
   const normalized = baseUrl?.trim().replace(/\/+$/u, "") || "https://chatgpt.com/backend-api";
@@ -103,16 +96,6 @@ export function prepareModelForSimpleCompletion<TApi extends Api>(params: {
       ensureCustomApiRegistered(transportAwareModel.api, streamFn);
       return transportAwareModel;
     }
-  }
-
-  if (model.api === "google-generative-ai") {
-    return prepareGoogleSimpleCompletionModel(model);
-  }
-
-  if (model.provider === "anthropic-vertex") {
-    const api = resolveAnthropicVertexSimpleApi(model.baseUrl);
-    ensureCustomApiRegistered(api, createAnthropicVertexStreamFnForModel(model));
-    return { ...model, api };
   }
 
   return model;

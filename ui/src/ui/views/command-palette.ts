@@ -192,7 +192,7 @@ function closePalette(props: CommandPaletteProps) {
 
 function scrollActiveIntoView() {
   requestAnimationFrame(() => {
-    const el = document.querySelector(".cmd-palette__item--active");
+    const el = document.querySelector("-palette__item--active");
     el?.scrollIntoView({ block: "nearest" });
   });
 }

@@ -71,9 +71,6 @@ function withNodeCommandTrustedDir(command: string, pluginRoot: string): string[
 }
 
 function isSecurePosixPathStat(stat: fs.Stats): boolean {
-  if (process.platform === "win32") {
-    return true;
-  }
   if ((stat.mode & 0o022) !== 0) {
     return false;
   }
@@ -102,7 +99,7 @@ function isSecurePluginEntrypointPath(params: {
   entrypointRealpath: string;
   allowInsecurePath: boolean;
 }): boolean {
-  if (params.allowInsecurePath || process.platform === "win32") {
+  if (params.allowInsecurePath) {
     return true;
   }
   const originalSegments = pathSegmentsBetween(

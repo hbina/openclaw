@@ -7,7 +7,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { URL } from "node:url";
 import { detectMime } from "@openclaw/media-core/mime";
-import { isWindowsDrivePath } from "../infra/archive-path.js";
 import {
   canonicalPathFromExistingAncestor,
   root as fsRoot,
@@ -466,7 +465,7 @@ function resolveContainerPathCandidate(filePath: string): string | null {
     if (localFilePath) {
       candidate = localFilePath;
     } else {
-      // Windows rejects posix-style file:///workspace/... in fileURLToPath; map via URL pathname
+      // Map file URLs through URL pathname
       // when it clearly refers to the container workdir (same idea as sandbox-paths).
       let parsed: URL;
       try {
@@ -541,9 +540,6 @@ export function resolveToolPathAgainstWorkspaceRoot(params: {
 }): string {
   const mapped = mapContainerPathToWorkspaceRoot(params);
   const candidate = mapped.startsWith("@") ? mapped.slice(1) : mapped;
-  if (isWindowsDrivePath(candidate)) {
-    return path.win32.normalize(candidate);
-  }
   if (path.isAbsolute(candidate)) {
     return path.resolve(candidate);
   }

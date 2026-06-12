@@ -32,7 +32,7 @@ let manifestMetadataCache:
 
 function resolveUserPath(value: string, env: NodeJS.ProcessEnv): string {
   if (value === "~" || value.startsWith("~/")) {
-    const home = env.OPENCLAW_HOME ?? env.HOME ?? env.USERPROFILE ?? os.homedir();
+    const home = env.OPENCLAW_HOME ?? env.HOME ?? os.homedir();
     return path.join(home, value.slice(2));
   }
   return path.resolve(value);
@@ -43,7 +43,7 @@ function resolveStateDir(env: NodeJS.ProcessEnv): string {
   if (override) {
     return resolveUserPath(override, env);
   }
-  const home = env.OPENCLAW_HOME ?? env.HOME ?? env.USERPROFILE ?? os.homedir();
+  const home = env.OPENCLAW_HOME ?? env.HOME ?? os.homedir();
   return path.join(home, ".openclaw");
 }
 

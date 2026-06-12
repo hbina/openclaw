@@ -12,12 +12,6 @@ export function formatApprovalDisplayPath(value: string): string {
     return compactHomeSuffix(unixHomeMatch[2] ?? "");
   }
 
-  const windowsHomeMatch = normalized.match(/^[A-Za-z]:[\\/]Users[\\/]([^\\/]+)(.*)$/i);
-  if (windowsHomeMatch && isSafeHomeSegment(windowsHomeMatch[1])) {
-    // Normalize slashes only after proving this is a plain Windows user-home path.
-    return compactHomeSuffix(windowsHomeMatch[2] ?? "");
-  }
-
   return normalized;
 }
 

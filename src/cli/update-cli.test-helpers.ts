@@ -14,6 +14,6 @@ export function isOwningNpmCommand(value: unknown, owningPrefix: string): boolea
   return (
     normalized !== path.normalize("npm") &&
     isPathInsideRoot(normalized, owningPrefix) &&
-    /npm(?:\.cmd)?$/i.test(normalized)
+    /npm$/i.test(normalized)
   );
 }

@@ -27,7 +27,6 @@ import { defaultRuntime } from "../runtime.js";
 import { resolveUserPath } from "../utils.js";
 import { t } from "./i18n/index.js";
 import { WizardCancelledError, type WizardPrompter } from "./prompts.js";
-import { detectSetupMigrationSources, runSetupMigrationImport } from "./setup.migration-import.js";
 import { resolveSetupSecretInputString } from "./setup.secret-input.js";
 import {
   getSecurityConfirmMessage,
@@ -36,7 +35,7 @@ import {
 } from "./setup.security-note.js";
 import type { QuickstartGatewayDefaults, WizardFlow } from "./setup.types.js";
 
-type SetupFlowChoice = WizardFlow | "import";
+type SetupFlowChoice = WizardFlow;
 
 type AuthChoiceModule = typeof import("../commands/auth-choice.js");
 type ConfigLoggingModule = typeof import("../config/logging.js");
@@ -303,33 +302,21 @@ export async function runSetupWizard(
     command: formatCliCommand("openclaw configure"),
   });
   const manualHint = t("wizard.setup.flowAdvancedHint");
-  const migrationDetections = await detectSetupMigrationSources({ config: baseConfig, runtime });
-  const firstMigrationDetection = migrationDetections[0];
-  const importOption = firstMigrationDetection
-    ? {
-        value: "import" as const,
-        label: `Import from ${firstMigrationDetection.label}`,
-        ...(firstMigrationDetection.source ? { hint: firstMigrationDetection.source } : {}),
-      }
-    : undefined;
   const explicitFlowRaw = opts.flow?.trim();
   const normalizedExplicitFlow = explicitFlowRaw === "manual" ? "advanced" : explicitFlowRaw;
   if (
     normalizedExplicitFlow &&
     normalizedExplicitFlow !== "quickstart" &&
-    normalizedExplicitFlow !== "advanced" &&
-    normalizedExplicitFlow !== "import"
+    normalizedExplicitFlow !== "advanced"
   ) {
     runtime.error(
-      "Invalid --flow. Use quickstart, manual, advanced, or import. Example: openclaw onboard --flow quickstart",
+      "Invalid --flow. Use quickstart, manual, or advanced. Example: openclaw onboard --flow quickstart",
     );
     runtime.exit(1);
     return;
   }
   const explicitFlow: SetupFlowChoice | undefined =
-    normalizedExplicitFlow === "quickstart" ||
-    normalizedExplicitFlow === "advanced" ||
-    normalizedExplicitFlow === "import"
+    normalizedExplicitFlow === "quickstart" || normalizedExplicitFlow === "advanced"
       ? normalizedExplicitFlow
       : undefined;
   let flow: SetupFlowChoice =
@@ -339,7 +326,6 @@ export async function runSetupWizard(
       options: [
         { value: "quickstart", label: t("wizard.setup.flowQuickstart"), hint: quickstartHint },
         { value: "advanced", label: t("wizard.setup.flowAdvanced"), hint: manualHint },
-        ...(importOption ? [importOption] : []),
       ],
       initialValue: "quickstart",
     }));
@@ -388,17 +374,6 @@ export async function runSetupWizard(
     }
   }
 
-  if (opts.importFrom || flow === "import") {
-    await runSetupMigrationImport({
-      opts,
-      baseConfig,
-      detections: migrationDetections,
-      prompter,
-      runtime,
-      commitConfigFile: (cfg) => writeWizardConfigFile(cfg, { allowConfigSizeDrop: true }),
-    });
-    return;
-  }
   const wizardFlow: WizardFlow = flow;
 
   const quickstartGateway: QuickstartGatewayDefaults = (() => {
@@ -802,7 +777,7 @@ export async function runSetupWizard(
             .map((plugin) => plugin.id)
         : [];
     nextConfig = await setupChannels(nextConfig, runtime, prompter, {
-      allowSignalInstall: true,
+      allowSignalInstall: false,
       deferStatusUntilSelection: flow === "quickstart",
       forceAllowFromChannels: quickstartAllowFromChannels,
       skipDmPolicyPrompt: flow === "quickstart",

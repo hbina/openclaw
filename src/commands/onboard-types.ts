@@ -41,7 +41,7 @@ type OnboardDynamicProviderOptions = {
 export type OnboardOptions = OnboardDynamicProviderOptions & {
   mode?: OnboardMode;
   /** "manual" is an alias for "advanced". */
-  flow?: "quickstart" | "advanced" | "manual" | "import";
+  flow?: "quickstart" | "advanced" | "manual";
   workspace?: string;
   nonInteractive?: boolean;
   /** Required for non-interactive setup; skips the interactive risk prompt when true. */
@@ -60,8 +60,6 @@ export type OnboardOptions = OnboardDynamicProviderOptions & {
   /** API key persistence mode for setup flows (default: plaintext). */
   secretInputMode?: SecretInputMode;
   arceeaiApiKey?: string;
-  cloudflareAiGatewayAccountId?: string;
-  cloudflareAiGatewayGatewayId?: string;
   customBaseUrl?: string;
   customApiKey?: string;
   lmstudioApiKey?: string;
@@ -92,8 +90,5 @@ export type OnboardOptions = OnboardDynamicProviderOptions & {
   nodeManager?: NodeManagerChoice;
   remoteUrl?: string;
   remoteToken?: string;
-  importFrom?: string;
-  importSource?: string;
-  importSecrets?: boolean;
   json?: boolean;
 };

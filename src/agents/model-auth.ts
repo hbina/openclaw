@@ -373,24 +373,6 @@ function resolveProviderAuthOverride(
   return undefined;
 }
 
-function shouldUseImplicitAwsSdkAuth(params: {
-  cfg: OpenClawConfig | undefined;
-  provider: string;
-  modelApi: string | undefined;
-}): boolean {
-  if (params.modelApi !== "bedrock-converse-stream") {
-    return false;
-  }
-  if (normalizeProviderId(params.provider) !== "amazon-bedrock") {
-    return false;
-  }
-  const providerConfig = resolveProviderConfig(params.cfg, params.provider);
-  return (
-    resolveProviderAuthOverride(params.cfg, params.provider) === undefined &&
-    (providerConfig === undefined || !hasExplicitProviderApiKeyConfig(providerConfig))
-  );
-}
-
 function profileTypeToAuthMode(type: AuthProfileCredential["type"]): ResolvedProviderAuth["mode"] {
   return type === "oauth" ? "oauth" : type === "token" ? "token" : "api-key";
 }
@@ -1047,9 +1029,6 @@ export async function resolveApiKeyForProvider(params: {
   if (authOverride === "aws-sdk") {
     return resolveAwsSdkAuthInfo();
   }
-  if (shouldUseImplicitAwsSdkAuth({ cfg, provider, modelApi: params.modelApi })) {
-    return resolveAwsSdkAuthInfo();
-  }
 
   if (params.credentialPrecedence === "env-first") {
     const envResolved = resolveConfigAwareEnvApiKey(cfg, provider, params.workspaceDir);
@@ -1495,8 +1474,8 @@ export function applyLocalNoAuthHeaderOverride<T extends Model>(
 /**
  * When the provider config sets `authHeader: true`, inject an explicit
  * `Authorization: Bearer <apiKey>` header into the model so downstream SDKs
- * (e.g. `@google/genai`) send credentials via the standard HTTP Authorization
- * header instead of vendor-specific headers like `x-goog-api-key`.
+ * send credentials via the standard HTTP Authorization header instead of
+ * provider-specific headers.
  *
  * This is a no-op when `authHeader` is not `true`, when no API key is
  * available, or when the API key is a synthetic marker (e.g. local-server

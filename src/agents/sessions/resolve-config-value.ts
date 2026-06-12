@@ -33,7 +33,6 @@ function executeWithConfiguredShell(command: string): {
       timeout: 10000,
       stdio: ["ignore", "pipe", "ignore"],
       shell: false,
-      windowsHide: true,
     });
 
     if (result.error) {
@@ -70,14 +69,8 @@ function executeWithDefaultShell(command: string): string | undefined {
 
 function executeCommandUncached(commandConfig: string): string | undefined {
   const command = commandConfig.slice(1);
-  return process.platform === "win32"
-    ? (() => {
-        const configuredResult = executeWithConfiguredShell(command);
-        return configuredResult.executed
-          ? configuredResult.value
-          : executeWithDefaultShell(command);
-      })()
-    : executeWithDefaultShell(command);
+  const configuredResult = executeWithConfiguredShell(command);
+  return configuredResult.executed ? configuredResult.value : executeWithDefaultShell(command);
 }
 
 function executeCommand(commandConfig: string): string | undefined {

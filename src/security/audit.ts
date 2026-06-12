@@ -51,7 +51,6 @@ import type {
 } from "./audit.types.js";
 import { collectEnabledInsecureOrDangerousFlags } from "./dangerous-config-flags.js";
 import { collectExecFilesystemPolicyDriftHits } from "./exec-filesystem-policy.js";
-import type { ExecFn } from "./windows-acl.js";
 
 type ExecDockerRawFn = typeof import("../agents/sandbox/docker.js").execDockerRaw;
 type ProbeGatewayFn = typeof import("../gateway/probe.js").probeGateway;
@@ -90,8 +89,6 @@ export type SecurityAuditOptions = {
   plugins?: ChannelPlugin[];
   /** Whether to import plugin modules to discover plugin security audit collectors. */
   loadPluginSecurityCollectors?: boolean;
-  /** Dependency injection for tests (Windows ACL checks). */
-  execIcacls?: ExecFn;
   /** Dependency injection for tests (Docker label checks). */
   execDockerRawFn?: ExecDockerRawFn;
   /** Optional preloaded config snapshot to skip audit-time config file reads. */
@@ -119,7 +116,6 @@ export type AuditExecutionContext = {
   deepTimeoutMs: number;
   stateDir: string;
   configPath: string;
-  execIcacls?: ExecFn;
   execDockerRawFn?: ExecDockerRawFn;
   probeGatewayFn?: ProbeGatewayFn;
   plugins?: ChannelPlugin[];
@@ -325,14 +321,12 @@ export async function collectFilesystemFindings(params: {
   configPath: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
-  execIcacls?: ExecFn;
 }): Promise<SecurityAuditFinding[]> {
   const findings: SecurityAuditFinding[] = [];
 
   const stateDirPerms = await inspectPathPermissions(params.stateDir, {
     env: params.env,
     platform: params.platform,
-    exec: params.execIcacls,
   });
   if (stateDirPerms.ok) {
     if (stateDirPerms.isSymlink) {
@@ -391,7 +385,6 @@ export async function collectFilesystemFindings(params: {
   const configPerms = await inspectPathPermissions(params.configPath, {
     env: params.env,
     platform: params.platform,
-    exec: params.execIcacls,
   });
   if (configPerms.ok) {
     const skipReadablePermWarnings = configPerms.isSymlink;
@@ -1212,7 +1205,6 @@ async function createAuditExecutionContext(
     deepTimeoutMs,
     stateDir,
     configPath,
-    execIcacls: opts.execIcacls,
     execDockerRawFn: opts.execDockerRawFn,
     probeGatewayFn: opts.probeGatewayFn,
     plugins: opts.plugins,
@@ -1278,7 +1270,6 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
         configPath,
         env,
         platform,
-        execIcacls: context.execIcacls,
       })),
     );
     if (context.configSnapshot) {
@@ -1287,7 +1278,6 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
           configSnapshot: context.configSnapshot,
           env,
           platform,
-          execIcacls: context.execIcacls,
         })),
       );
     }
@@ -1297,7 +1287,6 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
         env,
         stateDir,
         platform,
-        execIcacls: context.execIcacls,
       })),
     );
     findings.push(...(await auditNonDeep.collectWorkspaceSkillSymlinkEscapeFindings({ cfg })));

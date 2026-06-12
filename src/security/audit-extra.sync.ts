@@ -242,17 +242,6 @@ function listKnownNodeCommands(cfg: OpenClawConfig): Set<string> {
       deviceFamily: "Linux",
       approvedCommands: ["system.run", "system.run.prepare", "system.which", "browser.proxy"],
     },
-    {
-      platform: "windows",
-      deviceFamily: "Windows",
-      approvedCommands: [
-        "system.run",
-        "system.run.prepare",
-        "system.which",
-        "browser.proxy",
-        "screen.snapshot",
-      ],
-    },
     { platform: "unknown" },
   ];
   for (const node of platformNodes) {

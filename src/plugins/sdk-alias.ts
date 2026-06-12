@@ -81,7 +81,7 @@ function shouldUseJitiFsCache(): boolean {
 }
 
 export function normalizeJitiAliasTargetPath(targetPath: string): string {
-  return process.platform === "win32" ? targetPath.replace(/\\/g, "/") : targetPath;
+  return targetPath;
 }
 
 function resolveLoaderModulePath(params: LoaderModuleResolveParams = {}): string {

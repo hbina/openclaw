@@ -364,8 +364,6 @@ function spawnGogServe(cfg: GmailHookRuntimeConfig) {
   const invocation = resolveGogServeInvocation(args);
   return spawn(invocation.command, invocation.args, {
     stdio: "inherit",
-    windowsHide: invocation.windowsHide,
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
 }
 

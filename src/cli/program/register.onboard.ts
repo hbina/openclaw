@@ -112,7 +112,7 @@ export function registerOnboardCommand(program: Command): void {
       "Acknowledge that agents are powerful and full system access is risky (required for --non-interactive)",
       false,
     )
-    .option("--flow <flow>", "Onboard flow: quickstart|advanced|manual|import")
+    .option("--flow <flow>", "Onboard flow: quickstart|advanced|manual")
     .option("--mode <mode>", "Onboard mode: local|remote")
     .option("--auth-choice <choice>", `Auth: ${AUTH_CHOICE_HELP}`)
     .option(
@@ -128,9 +128,7 @@ export function registerOnboardCommand(program: Command): void {
     .option(
       "--secret-input-mode <mode>",
       "API key persistence mode: plaintext|ref (default: plaintext)",
-    )
-    .option("--cloudflare-ai-gateway-account-id <id>", "Cloudflare Account ID")
-    .option("--cloudflare-ai-gateway-gateway-id <id>", "Cloudflare AI Gateway ID");
+    );
 
   for (const providerFlag of ONBOARD_AUTH_FLAGS) {
     command.option(providerFlag.cliOption, providerFlag.description);
@@ -173,9 +171,6 @@ export function registerOnboardCommand(program: Command): void {
     .option("--suppress-gateway-token-output", "Suppress token-bearing Gateway/UI output")
     .option("--skip-hooks", "Skip hook setup")
     .option("--node-manager <name>", "Node manager for skills: npm|pnpm|bun")
-    .option("--import-from <provider>", "Migration provider to run during onboarding")
-    .option("--import-source <path>", "Source agent home for --import-from")
-    .option("--import-secrets", "Import supported secrets during onboarding migration", false)
     .option("--json", "Output JSON summary", false);
 
   command.action(async (opts, commandRuntime) => {
@@ -204,7 +199,7 @@ export function registerOnboardCommand(program: Command): void {
           workspace: opts.workspace as string | undefined,
           nonInteractive: Boolean(opts.nonInteractive),
           acceptRisk: Boolean(opts.acceptRisk),
-          flow: opts.flow as "quickstart" | "advanced" | "manual" | "import" | undefined,
+          flow: opts.flow as "quickstart" | "advanced" | "manual" | undefined,
           mode: opts.mode as "local" | "remote" | undefined,
           authChoice: opts.authChoice as AuthChoice | undefined,
           tokenProvider: opts.tokenProvider as string | undefined,
@@ -213,8 +208,6 @@ export function registerOnboardCommand(program: Command): void {
           tokenExpiresIn: opts.tokenExpiresIn as string | undefined,
           secretInputMode: opts.secretInputMode as SecretInputMode | undefined,
           ...providerAuthOptionValues,
-          cloudflareAiGatewayAccountId: opts.cloudflareAiGatewayAccountId as string | undefined,
-          cloudflareAiGatewayGatewayId: opts.cloudflareAiGatewayGatewayId as string | undefined,
           customBaseUrl: opts.customBaseUrl as string | undefined,
           customApiKey: opts.customApiKey as string | undefined,
           customModelId: opts.customModelId as string | undefined,
@@ -253,9 +246,6 @@ export function registerOnboardCommand(program: Command): void {
           suppressGatewayTokenOutput: Boolean(opts.suppressGatewayTokenOutput),
           skipHooks: Boolean(opts.skipHooks),
           nodeManager: opts.nodeManager as NodeManagerChoice | undefined,
-          importFrom: opts.importFrom as string | undefined,
-          importSource: opts.importSource as string | undefined,
-          importSecrets: Boolean(opts.importSecrets),
           json: Boolean(opts.json),
         },
         defaultRuntime,

@@ -2,7 +2,6 @@
 import { parse as partialParse } from "partial-json";
 
 const VALID_JSON_ESCAPES = new Set(['"', "\\", "/", "b", "f", "n", "r", "t", "u"]);
-const JSON_CONTROL_ESCAPES = new Set(["b", "f", "n", "r", "t"]);
 
 function isControlCharacter(char: string): boolean {
   const codePoint = char.codePointAt(0);
@@ -79,12 +78,6 @@ export function repairJson(json: string): string {
         continue;
       }
 
-      if (JSON_CONTROL_ESCAPES.has(nextChar) && looksLikeWindowsPathPrefix(stringValuePrefix)) {
-        repaired += "\\\\";
-        stringValuePrefix += "\\";
-        continue;
-      }
-
       if (VALID_JSON_ESCAPES.has(nextChar)) {
         repaired += `\\${nextChar}`;
         stringValuePrefix += nextChar === "\\" ? "\\" : `\\${nextChar}`;
@@ -110,11 +103,6 @@ export function parseJsonWithRepair(json: string): unknown {
     return JSON.parse(repairedJson) as unknown;
   }
   return JSON.parse(json) as unknown;
-}
-
-function looksLikeWindowsPathPrefix(prefix: string): boolean {
-  const tail = prefix.slice(-160);
-  return /(?:^|[^A-Za-z0-9])[A-Za-z]:(?:[\\/][^"\\/:*?<>|\r\n]*)*$/.test(tail);
 }
 
 function asStreamingJsonRecord(value: unknown): Record<string, unknown> {

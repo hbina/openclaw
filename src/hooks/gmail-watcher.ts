@@ -75,8 +75,6 @@ function spawnGogServe(cfg: GmailHookRuntimeConfig): ChildProcess {
   const child = spawn(invocation.command, invocation.args, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
-    windowsHide: invocation.windowsHide,
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
 
   child.stdout?.on("data", (data: Buffer) => {

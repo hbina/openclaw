@@ -6,10 +6,7 @@ export const MODEL_CATALOG_APIS = [
   "openai-responses",
   "openai-chatgpt-responses",
   "anthropic-messages",
-  "google-generative-ai",
-  "google-vertex",
   "github-copilot",
-  "bedrock-converse-stream",
   "ollama",
   "azure-openai-responses",
 ] as const;

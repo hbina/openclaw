@@ -111,7 +111,7 @@ import {
   type RuntimeConfigWriteNotification,
 } from "./runtime-snapshot.js";
 import { resolveShellEnvExpectedKeys } from "./shell-env-expected-keys.js";
-import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
+import type { OpenClawConfig, ConfigFileSnapshot } from "./types.js";
 import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
@@ -302,9 +302,6 @@ async function tightenStateDirPermissionsIfNeeded(params: {
   homedir: () => string;
   fsModule: typeof fs;
 }): Promise<void> {
-  if (process.platform === "win32") {
-    return;
-  }
   const stateDir = resolveStateDir(params.env, params.homedir);
   const configDir = path.dirname(params.configPath);
   if (path.resolve(configDir) !== path.resolve(stateDir)) {
@@ -1315,7 +1312,7 @@ function createConfigFileSnapshot(params: {
   hash?: string;
   issues: ConfigFileSnapshot["issues"];
   warnings: ConfigFileSnapshot["warnings"];
-  legacyIssues: LegacyConfigIssue[];
+  legacyIssues: ConfigFileSnapshot["legacyIssues"];
 }): ConfigFileSnapshot {
   const sourceConfig = asResolvedSourceConfig(params.sourceConfig);
   const runtimeConfig = asRuntimeConfig(params.runtimeConfig);
@@ -1344,18 +1341,6 @@ async function finalizeReadConfigSnapshotInternalResult(
     await observeConfigSnapshot(deps, result.snapshot);
   }
   return result;
-}
-
-async function collectInvalidConfigLegacyIssues(
-  raw: unknown,
-  sourceRaw: unknown,
-): Promise<LegacyConfigIssue[]> {
-  if (!raw || typeof raw !== "object") {
-    return [];
-  }
-  const { findDoctorLegacyConfigIssues } =
-    await import("../commands/doctor/shared/legacy-config-issues.js");
-  return findDoctorLegacyConfigIssues(raw, sourceRaw);
 }
 
 export function createConfigIO(
@@ -1818,7 +1803,7 @@ export function createConfigIO(
     if (!exists) {
       const hash = hashConfigRaw(null);
       const config = {};
-      const legacyIssues: LegacyConfigIssue[] = [];
+      const legacyIssues: ConfigFileSnapshot["legacyIssues"] = [];
       return await finalizeReadConfigSnapshotInternalResult(deps, {
         snapshot: createConfigFileSnapshot({
           path: configPath,
@@ -1967,9 +1952,6 @@ export function createConfigIO(
         }),
       );
       if (!validated.ok) {
-        const legacyIssues = await deps.measure("config.snapshot.read.legacy-issues", () =>
-          collectInvalidConfigLegacyIssues(effectiveConfigRaw, effectiveParsed),
-        );
         return await finalizeReadConfigSnapshotInternalResult(deps, {
           snapshot: createConfigFileSnapshot({
             path: configPath,
@@ -1982,7 +1964,7 @@ export function createConfigIO(
             hash: snapshotHash,
             issues: validated.issues,
             warnings: [...validated.warnings, ...envVarWarnings],
-            legacyIssues,
+            legacyIssues: [],
           }),
         });
       }

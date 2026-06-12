@@ -2,10 +2,8 @@
 import {
   NODE_SERVICE_KIND,
   NODE_SERVICE_MARKER,
-  NODE_WINDOWS_TASK_SCRIPT_NAME,
   resolveNodeLaunchAgentLabel,
   resolveNodeSystemdServiceName,
-  resolveNodeWindowsTaskName,
 } from "./constants.js";
 import type { GatewayService, GatewayServiceInstallArgs } from "./service.js";
 import { resolveGatewayService } from "./service.js";
@@ -20,9 +18,6 @@ function withNodeServiceEnv(
     ...env,
     OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
     OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-    OPENCLAW_WINDOWS_TASK_HIDDEN_LAUNCHER: "1",
-    OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
     OPENCLAW_LOG_PREFIX: "node",
     OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
     OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
@@ -37,9 +32,6 @@ function withNodeInstallEnv(args: GatewayServiceInstallArgs): GatewayServiceInst
       ...args.environment,
       OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
       OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-      OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-      OPENCLAW_WINDOWS_TASK_HIDDEN_LAUNCHER: "1",
-      OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
       OPENCLAW_LOG_PREFIX: "node",
       OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
       OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,

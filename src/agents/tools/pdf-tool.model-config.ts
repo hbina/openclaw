@@ -215,14 +215,6 @@ export function resolvePdfModelConfigForTool(params: {
   }
 
   const primary = resolveDefaultModelRef(params.cfg);
-  const googleOk = hasProviderAuthForTool({
-    provider: "google",
-    cfg: params.cfg,
-    workspaceDir: params.workspaceDir,
-    agentDir: params.agentDir,
-    authStore: params.authStore,
-  });
-
   const fallbacks: string[] = [];
   const addFallback = (ref: string) => {
     const trimmed = ref.trim();
@@ -334,10 +326,7 @@ export function resolvePdfModelConfigForTool(params: {
     ? [...nativePdfCandidates, ...textExtractionCandidates, ...genericImageCandidates]
     : [...nativePdfCandidates, ...genericImageCandidates, ...textExtractionCandidates];
 
-  if (primary.provider === "google" && googleOk && providerVision && primarySupportsNativePdf) {
-    // Google native PDF handling is preferred when auth and a configured vision model are present.
-    preferred = providerVision;
-  } else if (providerOk && primarySupportsNativePdf && (providerVision || providerDefault)) {
+  if (providerOk && primarySupportsNativePdf && (providerVision || providerDefault)) {
     preferred = providerVision ?? `${primary.provider}/${providerDefault}`;
   } else {
     preferred = fallbackCandidates[0] ?? null;

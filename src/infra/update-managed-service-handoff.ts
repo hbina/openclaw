@@ -5,10 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { resolveRestartSentinelPath } from "./restart-sentinel.js";
-import {
-  SUPERVISOR_HINT_ENV_VARS,
-  type RespawnSupervisor,
-} from "./supervisor-markers.js";
+import { SUPERVISOR_HINT_ENV_VARS, type RespawnSupervisor } from "./supervisor-markers.js";
 import {
   CONTROL_PLANE_UPDATE_SENTINEL_META_ENV,
   type ControlPlaneUpdateSentinelMetaFile,
@@ -21,7 +18,6 @@ const SYSTEMD_RUN_CANDIDATE_PATHS = ["/usr/bin/systemd-run", "/bin/systemd-run"]
 const SERVICE_IDENTITY_ENV_VARS = new Set<string>([
   "OPENCLAW_LAUNCHD_LABEL",
   "OPENCLAW_SYSTEMD_UNIT",
-  "OPENCLAW_WINDOWS_TASK_NAME",
 ] as const);
 
 const HANDOFF_SCRIPT = String.raw`
@@ -264,7 +260,7 @@ function isNodeLikeRuntime(execPath: string | undefined): boolean {
     return false;
   }
   const base = path.basename(execPath).toLowerCase();
-  return base === "node" || base === "node.exe" || base === "bun" || base === "bun.exe";
+  return base === "node" || base === "bun";
 }
 
 function resolveUpdateCliArgv(params: {

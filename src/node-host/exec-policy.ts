@@ -7,7 +7,6 @@ type SystemRunPolicyDecision = {
   analysisOk: boolean;
   allowlistSatisfied: boolean;
   shellWrapperBlocked: boolean;
-  windowsShellWrapperBlocked: boolean;
   requiresAsk: boolean;
   approvalDecision: ExecApprovalDecision;
   approvedByAsk: boolean;
@@ -32,15 +31,7 @@ export function resolveExecApprovalDecision(value: unknown): ExecApprovalDecisio
 
 export function formatSystemRunAllowlistMissMessage(params?: {
   shellWrapperBlocked?: boolean;
-  windowsShellWrapperBlocked?: boolean;
 }): string {
-  if (params?.windowsShellWrapperBlocked) {
-    return (
-      "SYSTEM_RUN_DENIED: allowlist miss " +
-      "(Windows shell wrappers like cmd.exe /c require approval; " +
-      "approve once/always or run with --ask on-miss|always)"
-    );
-  }
   if (params?.shellWrapperBlocked) {
     return (
       "SYSTEM_RUN_DENIED: allowlist miss " +
@@ -60,20 +51,11 @@ export function evaluateSystemRunPolicy(params: {
   durableApprovalSatisfied?: boolean;
   approvalDecision: ExecApprovalDecision;
   approved?: boolean;
-  isWindows: boolean;
-  cmdInvocation: boolean;
   shellWrapperInvocation: boolean;
 }): SystemRunPolicyDecision {
   // POSIX node execution intentionally uses `/bin/sh -lc` as a transport wrapper.
   // Keep allowlist decisions based on the analyzed inner shell payload there.
-  // Windows `cmd.exe /c` wrappers still require explicit approval because they
-  // change execution semantics for builtins and quoting/parsing behavior.
-  const windowsShellWrapperBlocked =
-    params.security === "allowlist" &&
-    params.shellWrapperInvocation &&
-    params.isWindows &&
-    params.cmdInvocation;
-  const shellWrapperBlocked = windowsShellWrapperBlocked;
+  const shellWrapperBlocked = false;
   const analysisOk = shellWrapperBlocked ? false : params.analysisOk;
   const allowlistSatisfied = shellWrapperBlocked ? false : params.allowlistSatisfied;
   const approvedByAsk = params.approvalDecision !== null || params.approved === true;
@@ -86,7 +68,6 @@ export function evaluateSystemRunPolicy(params: {
       analysisOk,
       allowlistSatisfied,
       shellWrapperBlocked,
-      windowsShellWrapperBlocked,
       requiresAsk: false,
       approvalDecision: params.approvalDecision,
       approvedByAsk,
@@ -108,7 +89,6 @@ export function evaluateSystemRunPolicy(params: {
       analysisOk,
       allowlistSatisfied,
       shellWrapperBlocked,
-      windowsShellWrapperBlocked,
       requiresAsk,
       approvalDecision: params.approvalDecision,
       approvedByAsk,
@@ -122,7 +102,6 @@ export function evaluateSystemRunPolicy(params: {
         analysisOk,
         allowlistSatisfied,
         shellWrapperBlocked,
-        windowsShellWrapperBlocked,
         requiresAsk,
         approvalDecision: params.approvalDecision,
         approvedByAsk,
@@ -133,12 +112,10 @@ export function evaluateSystemRunPolicy(params: {
       eventReason: "allowlist-miss",
       errorMessage: formatSystemRunAllowlistMissMessage({
         shellWrapperBlocked,
-        windowsShellWrapperBlocked,
       }),
       analysisOk,
       allowlistSatisfied,
       shellWrapperBlocked,
-      windowsShellWrapperBlocked,
       requiresAsk,
       approvalDecision: params.approvalDecision,
       approvedByAsk,
@@ -150,7 +127,6 @@ export function evaluateSystemRunPolicy(params: {
     analysisOk,
     allowlistSatisfied,
     shellWrapperBlocked,
-    windowsShellWrapperBlocked,
     requiresAsk,
     approvalDecision: params.approvalDecision,
     approvedByAsk,

@@ -173,7 +173,6 @@ export async function ensureConfigReady(params: {
     const runDoctorConfigPreflight = async () =>
       (await import("../../commands/doctor-config-preflight.js")).runDoctorConfigPreflight({
         migrateState: true,
-        migrateLegacyConfig: false,
         invalidConfigNote: false,
       });
     return !params.suppressDoctorStdout

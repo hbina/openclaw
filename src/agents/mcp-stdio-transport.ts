@@ -2,7 +2,6 @@
  * OpenClaw stdio transport wrapper for MCP server subprocesses.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import process from "node:process";
 import { PassThrough } from "node:stream";
 import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
@@ -62,11 +61,10 @@ export class OpenClawStdioClientTransport implements Transport {
       );
       const child = spawn(preparedSpawn.command, preparedSpawn.args, {
         cwd: this.serverParams.cwd,
-        detached: process.platform !== "win32",
+        detached: true,
         env: preparedSpawn.env,
         shell: false,
         stdio: ["pipe", "pipe", this.serverParams.stderr ?? "inherit"],
-        windowsHide: process.platform === "win32",
       });
       this.process = child;
 

@@ -53,12 +53,7 @@ function resolveMediaSubdir(subdir: string, caller: string): string {
   if (!subdir || subdir === ".") {
     return "";
   }
-  if (
-    subdir.includes("\0") ||
-    path.isAbsolute(subdir) ||
-    path.posix.isAbsolute(subdir) ||
-    path.win32.isAbsolute(subdir)
-  ) {
+  if (subdir.includes("\0") || path.isAbsolute(subdir) || path.posix.isAbsolute(subdir)) {
     throw new Error(`${caller}: unsafe media subdir: ${JSON.stringify(subdir)}`);
   }
   const segments = subdir.split(/[\\/]+/u);
@@ -110,11 +105,7 @@ export function setMediaStoreNetworkDepsForTest(deps?: {
   resolvePinnedHostnameImpl = deps?.resolvePinnedHostname ?? defaultResolvePinnedHostnameImpl;
 }
 
-/**
- * Sanitize a filename for cross-platform safety.
- * Removes chars unsafe on Windows/SharePoint/all platforms.
- * Keeps: alphanumeric, dots, hyphens, underscores, Unicode letters/numbers.
- */
+/** Sanitize a filename for local filesystem safety. */
 function sanitizeFilename(name: string): string {
   const base = sanitizeUntrustedFileName(name, "");
   if (!base) {

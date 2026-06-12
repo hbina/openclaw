@@ -105,12 +105,7 @@ function isBuiltArtifactMissingDependency(error: unknown): boolean {
 function isBareMissingModuleSpecifier(text: string): boolean {
   const match = text.match(/Cannot find (?:module|package) ['"]([^'"]+)['"]/u);
   const specifier = match?.[1];
-  return Boolean(
-    specifier &&
-    !specifier.startsWith(".") &&
-    !specifier.startsWith("/") &&
-    !path.win32.isAbsolute(specifier),
-  );
+  return Boolean(specifier && !specifier.startsWith(".") && !specifier.startsWith("/"));
 }
 
 function hasExternalDistArtifactPath(text: string): boolean {

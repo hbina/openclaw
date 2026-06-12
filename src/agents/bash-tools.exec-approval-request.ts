@@ -285,9 +285,6 @@ function hasUnsupportedShellArgv(argv: readonly string[] | undefined): boolean {
 }
 
 function shouldSkipGeneratedCommandSpans(params: HostExecApprovalParams): boolean {
-  if (params.host === "gateway" && process.platform === "win32") {
-    return true;
-  }
   const argv = params.commandArgv?.length ? params.commandArgv : params.systemRunPlan?.argv;
   return hasUnsupportedShellArgv(argv);
 }

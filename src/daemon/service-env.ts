@@ -14,13 +14,10 @@ import {
   GATEWAY_SERVICE_MARKER,
   resolveGatewayLaunchAgentLabel,
   resolveGatewaySystemdServiceName,
-  resolveGatewayWindowsTaskName,
   NODE_SERVICE_KIND,
   NODE_SERVICE_MARKER,
-  NODE_WINDOWS_TASK_SCRIPT_NAME,
   resolveNodeLaunchAgentLabel,
   resolveNodeSystemdServiceName,
-  resolveNodeWindowsTaskName,
 } from "./constants.js";
 import { resolveGatewayStateDir } from "./paths.js";
 
@@ -75,7 +72,7 @@ function readServiceProxyEnvironment(
 function normalizeServicePathDir(dir: string | undefined): string | undefined {
   const trimmed = dir?.trim();
   // Service PATH snapshots are only emitted for macOS/Linux; keep POSIX semantics
-  // even when tests or helper callers run on Windows.
+  // even when tests or helper callers pass mocked paths.
   if (!trimmed || !path.posix.isAbsolute(trimmed)) {
     return undefined;
   }
@@ -337,12 +334,6 @@ function resolveLinuxUserBinDirs(
 
 export function getMinimalServicePathParts(options: MinimalServicePathOptions = {}): string[] {
   const platform = options.platform ?? process.platform;
-  if (platform === "win32") {
-    // Windows scheduled tasks inherit PATH from the task host; generated cmd
-    // launchers should not freeze install-time PATH snapshots.
-    return [];
-  }
-
   const parts: string[] = [];
   const extraDirs = options.extraDirs ?? [];
   const systemDirs = resolveSystemPathDirs(platform);
@@ -390,11 +381,6 @@ export function getMinimalServicePathPartsFromEnv(options: BuildServicePathOptio
 
 export function buildMinimalServicePath(options: BuildServicePathOptions = {}): string {
   const env = options.env ?? process.env;
-  const platform = options.platform ?? process.platform;
-  if (platform === "win32") {
-    return env.PATH ?? "";
-  }
-
   return getMinimalServicePathPartsFromEnv({ ...options, env }).join(path.posix.delimiter);
 }
 
@@ -434,7 +420,6 @@ export function buildServiceEnvironment(params: {
     OPENCLAW_GATEWAY_PORT: String(port),
     OPENCLAW_LAUNCHD_LABEL: resolvedLaunchdLabel,
     OPENCLAW_SYSTEMD_UNIT: systemdUnit,
-    OPENCLAW_WINDOWS_TASK_NAME: resolveGatewayWindowsTaskName(profile),
     OPENCLAW_SERVICE_MARKER: GATEWAY_SERVICE_MARKER,
     OPENCLAW_SERVICE_KIND: GATEWAY_SERVICE_KIND,
     OPENCLAW_SERVICE_VERSION: VERSION,
@@ -463,9 +448,6 @@ export function buildNodeServiceEnvironment(params: {
     OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: allowInsecurePrivateWs,
     OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
     OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
-    OPENCLAW_WINDOWS_TASK_HIDDEN_LAUNCHER: "1",
-    OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
     OPENCLAW_LOG_PREFIX: "node",
     OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
     OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
@@ -528,12 +510,7 @@ function resolveSharedServiceEnvironmentFields(
     stateDir,
     configPath,
     tmpDir,
-    // On Windows, Scheduled Tasks should inherit the current task PATH instead of
-    // freezing the install-time snapshot into gateway.cmd/node-host.cmd.
-    minimalPath:
-      platform === "win32"
-        ? undefined
-        : buildMinimalServicePath({ env, platform, extraDirs: extraPathDirs }),
+    minimalPath: buildMinimalServicePath({ env, platform, extraDirs: extraPathDirs }),
     proxyEnv: readServiceProxyEnvironment(env),
     nodeCaCerts: startupTlsEnv.NODE_EXTRA_CA_CERTS,
     nodeUseSystemCa: startupTlsEnv.NODE_USE_SYSTEM_CA,

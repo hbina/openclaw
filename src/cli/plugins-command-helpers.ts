@@ -193,7 +193,7 @@ export function formatPluginInstallWithHookFallbackError(
 }
 
 const MISSING_GIT_FOR_NPM_DEPENDENCY_HINT =
-  "Git is required because one of this plugin's npm dependencies is fetched from a git URL, but `git` was not found on PATH. Install Git and rerun the install. On Windows, use `winget install --id Git.Git -e` or add a portable Git `bin` directory to PATH.";
+  "Git is required because one of this plugin's npm dependencies is fetched from a git URL, but `git` was not found on PATH. Install Git and rerun the install.";
 
 function formatPluginInstallAttemptError(error: string): string {
   if (!isMissingGitForNpmDependencyError(error)) {

@@ -1,7 +1,6 @@
 // Resolves trusted system binaries from platform-managed directories.
 import fs from "node:fs";
 import path from "node:path";
-import { getWindowsInstallRoots, getWindowsProgramFilesRoots } from "./windows-install-roots.js";
 
 /**
  * Trust level for system binary resolution.
@@ -26,76 +25,19 @@ const UNIX_BASE_TRUSTED_DIRS = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] as con
 const DARWIN_STANDARD_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"] as const;
 const LINUX_STANDARD_DIRS = ["/usr/local/bin"] as const;
 
-// Windows extensions to probe when searching for executables.
-const WIN_PATHEXT = [".exe", ".cmd", ".bat", ".com"] as const;
-const WINDOWS_PROGRAM_FILES_TOOL_DIR_PREFIXES = ["ImageMagick-", "GraphicsMagick-"] as const;
-const WINDOWS_PROGRAM_FILES_TOOL_DIRS = ["ImageMagick", "GraphicsMagick"] as const;
-
 const resolvedCacheStrict = new Map<string, string>();
 const resolvedCacheStandard = new Map<string, string>();
 
 function defaultIsExecutable(filePath: string): boolean {
   try {
-    if (process.platform === "win32") {
-      fs.accessSync(filePath, fs.constants.R_OK);
-    } else {
-      fs.accessSync(filePath, fs.constants.X_OK);
-    }
+    fs.accessSync(filePath, fs.constants.X_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-function collectWindowsProgramFilesToolDirs(programFilesRoot: string): string[] {
-  const dirs = WINDOWS_PROGRAM_FILES_TOOL_DIRS.map((dir) => path.win32.join(programFilesRoot, dir));
-  try {
-    for (const entry of fs.readdirSync(programFilesRoot, { withFileTypes: true })) {
-      if (
-        entry.isDirectory() &&
-        WINDOWS_PROGRAM_FILES_TOOL_DIR_PREFIXES.some((prefix) => entry.name.startsWith(prefix))
-      ) {
-        dirs.push(path.win32.join(programFilesRoot, entry.name));
-      }
-    }
-  } catch {
-    // Program Files can be unreadable in constrained contexts; static candidates still cover common installs.
-  }
-  return dirs;
-}
-
 let isExecutableFn: (filePath: string) => boolean = defaultIsExecutable;
-
-/**
- * Build the trusted-dir list for Windows. Only system-managed directories
- * are included; user-profile paths like %LOCALAPPDATA% are excluded.
- */
-function buildWindowsTrustedDirs(): readonly string[] {
-  const dirs: string[] = [];
-  const { systemRoot } = getWindowsInstallRoots();
-  dirs.push(path.win32.join(systemRoot, "System32"));
-  dirs.push(path.win32.join(systemRoot, "SysWOW64"));
-  dirs.push(path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0"));
-
-  for (const programFilesRoot of getWindowsProgramFilesRoots()) {
-    // Trust the machine's validated Program Files roots rather than assuming C:.
-    dirs.push(path.win32.join(programFilesRoot, "OpenSSL-Win64", "bin"));
-    dirs.push(path.win32.join(programFilesRoot, "OpenSSL", "bin"));
-    dirs.push(path.win32.join(programFilesRoot, "ffmpeg", "bin"));
-  }
-
-  return dirs;
-}
-
-function buildWindowsStandardDirs(): readonly string[] {
-  const { systemRoot } = getWindowsInstallRoots();
-  const systemDriveRoot = path.win32.parse(systemRoot).root;
-  const dirs = [path.win32.join(systemDriveRoot, "ProgramData", "chocolatey", "bin")];
-  for (const programFilesRoot of getWindowsProgramFilesRoots()) {
-    dirs.push(...collectWindowsProgramFilesToolDirs(programFilesRoot));
-  }
-  return dirs;
-}
 
 /**
  * Build the trusted-dir list for Unix (macOS, Linux, etc.), extending
@@ -136,14 +78,6 @@ let trustedDirsStrict: readonly string[] | null = null;
 let trustedDirsStandard: readonly string[] | null = null;
 
 function getTrustedDirs(trust: SystemBinTrust): readonly string[] {
-  if (process.platform === "win32") {
-    trustedDirsStrict ??= buildWindowsTrustedDirs();
-    if (trust === "standard") {
-      trustedDirsStandard ??= [...trustedDirsStrict, ...buildWindowsStandardDirs()];
-      return trustedDirsStandard;
-    }
-    return trustedDirsStrict;
-  }
   if (trust === "standard") {
     trustedDirsStandard ??= buildUnixTrustedDirs("standard");
     return trustedDirsStandard;
@@ -177,28 +111,14 @@ export function resolveSystemBin(
   }
 
   const dirs = [...getTrustedDirs(trust), ...(opts?.extraDirs ?? [])];
-  const isWin = process.platform === "win32";
-  const hasExt = isWin && path.win32.extname(name).length > 0;
 
   for (const dir of dirs) {
-    if (isWin && !hasExt) {
-      for (const ext of WIN_PATHEXT) {
-        const candidate = path.win32.join(dir, name + ext);
-        if (isExecutableFn(candidate)) {
-          if (!hasExtra) {
-            cache.set(name, candidate);
-          }
-          return candidate;
-        }
+    const candidate = path.join(dir, name);
+    if (isExecutableFn(candidate)) {
+      if (!hasExtra) {
+        cache.set(name, candidate);
       }
-    } else {
-      const candidate = path.join(dir, name);
-      if (isExecutableFn(candidate)) {
-        if (!hasExtra) {
-          cache.set(name, candidate);
-        }
-        return candidate;
-      }
+      return candidate;
     }
   }
 

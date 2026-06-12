@@ -2,11 +2,7 @@
 import os from "node:os";
 import path from "node:path";
 import { resolveCliName } from "../cli/cli-name.js";
-import {
-  formatCompletionReloadCommand,
-  installCompletion,
-  resolveCompletionProfilePath,
-} from "../cli/completion-runtime.js";
+import { installCompletion } from "../cli/completion-runtime.js";
 import type { ShellCompletionStatus } from "../commands/doctor-completion.js";
 import {
   checkShellCompletionStatus,
@@ -36,15 +32,10 @@ async function resolveProfileHint(shell: ShellCompletionStatus["shell"]): Promis
   if (shell === "fish") {
     return "~/.config/fish/config.fish";
   }
-  return resolveCompletionProfilePath("powershell");
+  return "~/.zshrc";
 }
 
-function formatReloadHint(shell: ShellCompletionStatus["shell"], profileHint: string): string {
-  if (shell === "powershell") {
-    return t("wizard.completion.reloadPowerShell", {
-      command: formatCompletionReloadCommand("powershell", profileHint),
-    });
-  }
+function formatReloadHint(_shell: ShellCompletionStatus["shell"], profileHint: string): string {
   return t("wizard.completion.reloadShell", { profile: profileHint });
 }
 

@@ -1,5 +1,4 @@
 // Unwraps shell wrappers so approval policy can inspect inline commands.
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import {
   MAX_DISPATCH_WRAPPER_DEPTH,
   hasDispatchEnvManipulation,
@@ -13,40 +12,21 @@ import {
   hasPosixLoginStartupBeforeInlineCommand,
   POSIX_INLINE_COMMAND_FLAGS,
   resolveInlineCommandMatch,
-  resolvePowerShellInlineCommandMatch,
 } from "./shell-inline-command.js";
 
 // Shell wrapper resolution unwraps dispatch wrappers and shell multiplexers so
 // approval policy can reason about the actual inline command being run.
 const POSIX_SHELL_WRAPPER_NAMES = ["ash", "bash", "dash", "fish", "ksh", "sh", "zsh"] as const;
-const WINDOWS_CMD_WRAPPER_NAMES = ["cmd"] as const;
-const POWERSHELL_WRAPPER_NAMES = ["powershell", "pwsh"] as const;
 const SHELL_MULTIPLEXER_WRAPPER_NAMES = ["busybox", "toybox"] as const;
 
-function withWindowsExeAliases(names: readonly string[]): string[] {
-  const expanded = new Set<string>();
-  for (const name of names) {
-    expanded.add(name);
-    expanded.add(`${name}.exe`);
-  }
-  return Array.from(expanded);
-}
-
 export const POSIX_SHELL_WRAPPERS = new Set(POSIX_SHELL_WRAPPER_NAMES);
-export const POWERSHELL_WRAPPERS = new Set(withWindowsExeAliases(POWERSHELL_WRAPPER_NAMES));
 
 const POSIX_SHELL_WRAPPER_CANONICAL = new Set<string>(POSIX_SHELL_WRAPPER_NAMES);
-const WINDOWS_CMD_WRAPPER_CANONICAL = new Set<string>(WINDOWS_CMD_WRAPPER_NAMES);
-const POWERSHELL_WRAPPER_CANONICAL = new Set<string>(POWERSHELL_WRAPPER_NAMES);
 const SHELL_MULTIPLEXER_WRAPPER_CANONICAL = new Set<string>(SHELL_MULTIPLEXER_WRAPPER_NAMES);
-const SHELL_WRAPPER_CANONICAL = new Set<string>([
-  ...POSIX_SHELL_WRAPPER_NAMES,
-  ...WINDOWS_CMD_WRAPPER_NAMES,
-  ...POWERSHELL_WRAPPER_NAMES,
-]);
+const SHELL_WRAPPER_CANONICAL = new Set<string>(POSIX_SHELL_WRAPPER_NAMES);
 const LOGIN_STARTUP_SHELL_WRAPPER_CANONICAL = new Set<string>(POSIX_SHELL_WRAPPER_NAMES);
 
-type ShellWrapperKind = "posix" | "cmd" | "powershell";
+type ShellWrapperKind = "posix";
 
 type ShellWrapperSpec = {
   kind: ShellWrapperKind;
@@ -55,8 +35,6 @@ type ShellWrapperSpec = {
 
 const SHELL_WRAPPER_SPECS: ReadonlyArray<ShellWrapperSpec> = [
   { kind: "posix", names: POSIX_SHELL_WRAPPER_CANONICAL },
-  { kind: "cmd", names: WINDOWS_CMD_WRAPPER_CANONICAL },
-  { kind: "powershell", names: POWERSHELL_WRAPPER_CANONICAL },
 ];
 
 type ShellWrapperCommand = {
@@ -206,26 +184,6 @@ function extractPosixShellInlineCommand(argv: string[]): string | null {
   return extractInlineCommandByFlags(argv, POSIX_INLINE_COMMAND_FLAGS, { allowCombinedC: true });
 }
 
-function extractCmdInlineCommand(argv: string[]): string | null {
-  const idx = argv.findIndex((item) => {
-    const token = normalizeLowercaseStringOrEmpty(item);
-    return token === "/c" || token === "/k" || token === "-c" || token === "-k";
-  });
-  if (idx === -1) {
-    return null;
-  }
-  const tail = argv.slice(idx + 1);
-  if (tail.length === 0) {
-    return null;
-  }
-  const cmd = tail.join(" ").trim();
-  return cmd.length > 0 ? cmd : null;
-}
-
-function extractPowerShellInlineCommand(argv: string[]): string | null {
-  return resolvePowerShellInlineCommandMatch(argv).command;
-}
-
 function extractInlineCommandByFlags(
   argv: string[],
   flags: ReadonlySet<string>,
@@ -238,10 +196,6 @@ function extractShellWrapperPayload(argv: string[], spec: ShellWrapperSpec): str
   switch (spec.kind) {
     case "posix":
       return extractPosixShellInlineCommand(argv);
-    case "cmd":
-      return extractCmdInlineCommand(argv);
-    case "powershell":
-      return extractPowerShellInlineCommand(argv);
   }
   throw new Error("Unsupported shell wrapper kind");
 }

@@ -145,7 +145,7 @@ export async function uninstallCommand(runtime: RuntimeEnv, opts: UninstallOptio
         {
           value: "service",
           label: "Gateway service",
-          hint: "launchd / systemd / schtasks",
+          hint: "launchd / systemd",
         },
         { value: "state", label: "State + config", hint: "~/.openclaw" },
         { value: "workspace", label: "Workspace", hint: "agent files" },

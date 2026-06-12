@@ -26,8 +26,8 @@ export class DuplicateAgentDirError extends Error {
 
 function canonicalizeAgentDir(agentDir: string): string {
   const resolved = path.resolve(agentDir);
-  if (process.platform === "darwin" || process.platform === "win32") {
-    // Agent dirs collide case-insensitively on the common macOS/Windows filesystems.
+  if (process.platform === "darwin") {
+    // Agent dirs collide case-insensitively on common macOS filesystems.
     return normalizeLowercaseStringOrEmpty(resolved);
   }
   return resolved;

@@ -32,9 +32,6 @@ export function registerSetupCommand(program: Command): void {
       false,
     )
     .option("--mode <mode>", "Onboard mode: local|remote")
-    .option("--import-from <provider>", "Migration provider to run during onboarding")
-    .option("--import-source <path>", "Source agent home for --import-from")
-    .option("--import-secrets", "Import supported secrets during onboarding migration", false)
     .option("--remote-url <url>", "Remote Gateway WebSocket URL")
     .option("--remote-token <token>", "Remote Gateway token (optional)")
     .action(async (opts, command) => {
@@ -45,9 +42,6 @@ export function registerSetupCommand(program: Command): void {
           "nonInteractive",
           "acceptRisk",
           "mode",
-          "importFrom",
-          "importSource",
-          "importSecrets",
           "remoteUrl",
           "remoteToken",
         ]);
@@ -60,9 +54,6 @@ export function registerSetupCommand(program: Command): void {
               nonInteractive: Boolean(opts.nonInteractive),
               acceptRisk: Boolean(opts.acceptRisk),
               mode: opts.mode as "local" | "remote" | undefined,
-              importFrom: opts.importFrom as string | undefined,
-              importSource: opts.importSource as string | undefined,
-              importSecrets: Boolean(opts.importSecrets),
               remoteUrl: opts.remoteUrl as string | undefined,
               remoteToken: opts.remoteToken as string | undefined,
             },

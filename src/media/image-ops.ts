@@ -63,8 +63,7 @@ export function createImageProcessor() {
       rootDir: resolvePreferredOpenClawTmpDir(),
       prefix: "openclaw-img-",
     },
-    commandResolver: (command) =>
-      resolveSystemBin(command, { trust: command === "powershell" ? "strict" : "standard" }),
+    commandResolver: (command) => resolveSystemBin(command, { trust: "standard" }),
   });
 }
 

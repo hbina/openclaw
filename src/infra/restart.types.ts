@@ -2,7 +2,7 @@
 // restart paths.
 export type RestartAttempt = {
   ok: boolean;
-  method: "launchctl" | "systemd" | "schtasks" | "supervisor";
+  method: "launchctl" | "systemd" | "supervisor";
   detail?: string;
   tried?: string[];
 };

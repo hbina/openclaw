@@ -2383,7 +2383,7 @@ export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
   if (opts?.persist !== false) {
     persistTaskRegistry();
   }
-  // Always close the sqlite handle so Windows temp-dir cleanup can remove the
+  // Always close the sqlite handle so temp-dir cleanup can remove the
   // state directory even when a test intentionally skips persisting the reset.
   getTaskRegistryStore().close?.();
 }

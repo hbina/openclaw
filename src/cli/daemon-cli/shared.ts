@@ -4,7 +4,6 @@ import { resolveIsNixMode } from "../../config/paths.js";
 import {
   resolveGatewayLaunchAgentLabel,
   resolveGatewaySystemdServiceName,
-  resolveGatewayWindowsTaskName,
 } from "../../daemon/constants.js";
 import { resolveDaemonContainerContext } from "../../daemon/container-context.js";
 import { formatRuntimeStatus } from "../../daemon/runtime-format.js";
@@ -190,7 +189,6 @@ export function renderRuntimeHints(
       ...buildPlatformRuntimeLogHints({
         env,
         systemdServiceName: resolveGatewaySystemdServiceName(env.OPENCLAW_PROFILE),
-        windowsTaskName: resolveGatewayWindowsTaskName(env.OPENCLAW_PROFILE),
       }),
     );
   }
@@ -206,7 +204,6 @@ export function renderGatewayServiceStartHints(env: NodeJS.ProcessEnv = process.
     startCommand: formatCliCommand("openclaw gateway", env),
     launchAgentPlistPath: `~/Library/LaunchAgents/${resolveGatewayLaunchAgentLabel(profile)}.plist`,
     systemdServiceName: resolveGatewaySystemdServiceName(profile),
-    windowsTaskName: resolveGatewayWindowsTaskName(profile),
   });
   if (!container) {
     return hints;

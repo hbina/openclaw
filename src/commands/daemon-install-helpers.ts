@@ -8,7 +8,7 @@ import { collectDurableServiceEnvVarSources } from "../config/state-dir-dotenv.j
 import type { OpenClawConfig } from "../config/types.js";
 import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.js";
 import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
-import { resolveGatewayStateDir, resolveGatewayTaskScriptPath } from "../daemon/paths.js";
+import { resolveGatewayStateDir } from "../daemon/paths.js";
 import {
   OPENCLAW_WRAPPER_ENV_KEY,
   resolveGatewayProgramArguments,
@@ -625,23 +625,10 @@ export async function buildGatewayInstallPlan(params: {
     nodePath: params.nodePath,
   });
   const wrapperInput = params.wrapperPath ?? params.env[OPENCLAW_WRAPPER_ENV_KEY];
-  const wrapperPointsAtWindowsTaskScript =
-    Boolean(wrapperInput?.trim()) &&
-    platform === "win32" &&
-    isSameServicePath(wrapperInput, resolveGatewayTaskScriptPath(params.env), platform);
-  if (wrapperPointsAtWindowsTaskScript) {
-    params.warn?.(
-      `Ignoring ${OPENCLAW_WRAPPER_ENV_KEY} because it points to the Windows task script; using the OpenClaw gateway entrypoint directly to avoid a recursive gateway.cmd wrapper.`,
-    );
-  }
-  const wrapperPath = wrapperPointsAtWindowsTaskScript
-    ? undefined
-    : await resolveOpenClawWrapperPath(wrapperInput);
+  const wrapperPath = await resolveOpenClawWrapperPath(wrapperInput);
   const serviceInputEnv: Record<string, string | undefined> = wrapperPath
     ? { ...params.env, [OPENCLAW_WRAPPER_ENV_KEY]: wrapperPath }
-    : wrapperPointsAtWindowsTaskScript
-      ? omitEnvKey(params.env, OPENCLAW_WRAPPER_ENV_KEY)
-      : params.env;
+    : params.env;
   const { programArguments, workingDirectory } = await resolveGatewayProgramArguments({
     port: params.port,
     dev: devMode,
@@ -695,39 +682,8 @@ export async function buildGatewayInstallPlan(params: {
   };
 }
 
-function normalizeServicePathForCompare(
-  value: string | undefined,
-  platform: NodeJS.Platform,
-): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  return platform === "win32" ? path.win32.resolve(trimmed).toLowerCase() : path.resolve(trimmed);
-}
-
-function isSameServicePath(
-  left: string | undefined,
-  right: string | undefined,
-  platform: NodeJS.Platform,
-): boolean {
-  const normalizedLeft = normalizeServicePathForCompare(left, platform);
-  const normalizedRight = normalizeServicePathForCompare(right, platform);
-  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
-}
-
-function omitEnvKey(
-  env: Record<string, string | undefined>,
-  key: string,
-): Record<string, string | undefined> {
-  const next = { ...env };
-  delete next[key];
-  return next;
-}
-
 /** Return the user-facing recovery hint for failed Gateway service installation. */
 export function gatewayInstallErrorHint(platform = process.platform): string {
-  return platform === "win32"
-    ? "Tip: native Windows now falls back to a per-user Startup-folder login item when Scheduled Task creation is denied; if install still fails, rerun from an elevated PowerShell or skip service install."
-    : `Tip: rerun \`${formatCliCommand("openclaw gateway install")}\` after fixing the error.`;
+  void platform;
+  return `Tip: rerun \`${formatCliCommand("openclaw gateway install")}\` after fixing the error.`;
 }

@@ -1,5 +1,4 @@
 // Provider stream helpers expose shared wrapper families and payload transforms for provider plugins.
-import { createGoogleThinkingPayloadWrapper } from "../llm/providers/stream-wrappers/google.js";
 import { createMinimaxFastModeWrapper } from "../llm/providers/stream-wrappers/minimax.js";
 import { resolveMoonshotThinkingKeep } from "../llm/providers/stream-wrappers/moonshot-thinking.js";
 import {
@@ -48,8 +47,6 @@ export {
 
 /** Named stream-wrapper bundles that provider plugins can opt into without duplicating policy. */
 export type ProviderStreamFamily =
-  /** Applies Google thinking-level payload normalization. */
-  | "google-thinking"
   /** Applies Kilocode proxy reasoning payload normalization. */
   | "kilocode-thinking"
   /** Applies Moonshot thinking type/keep normalization. */
@@ -73,11 +70,6 @@ export function buildProviderStreamFamilyHooks(
   family: ProviderStreamFamily,
 ): ProviderStreamFamilyHooks {
   switch (family) {
-    case "google-thinking":
-      return {
-        wrapStreamFn: (ctx: ProviderWrapStreamFnContext) =>
-          createGoogleThinkingPayloadWrapper(ctx.streamFn, ctx.thinkingLevel),
-      };
     case "moonshot-thinking":
       return {
         wrapStreamFn: (ctx: ProviderWrapStreamFnContext) => {
@@ -159,8 +151,6 @@ export function buildProviderStreamFamilyHooks(
   throw new Error("Unsupported provider stream family");
 }
 
-/** @deprecated Google provider-owned stream hook shortcut; use local provider hooks instead. */
-export const GOOGLE_THINKING_STREAM_HOOKS = buildProviderStreamFamilyHooks("google-thinking");
 /** @deprecated Kilocode provider-owned stream hook shortcut; use local provider hooks instead. */
 export const KILOCODE_THINKING_STREAM_HOOKS = buildProviderStreamFamilyHooks("kilocode-thinking");
 /** @deprecated Moonshot provider-owned stream hook shortcut; use local provider hooks instead. */
@@ -184,10 +174,6 @@ export {
   createAnthropicToolPayloadCompatibilityWrapper,
   createOpenAIAnthropicToolPayloadCompatibilityWrapper,
 } from "../llm/providers/stream-wrappers/anthropic-family-tool-payload-compat.js";
-export {
-  createGoogleThinkingPayloadWrapper,
-  sanitizeGoogleThinkingPayload,
-} from "../llm/providers/stream-wrappers/google.js";
 export {
   createKilocodeWrapper,
   createOpenRouterSystemCacheWrapper,

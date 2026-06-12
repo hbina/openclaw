@@ -290,10 +290,7 @@ function buildLaunchAgentPlist({
 async function execLaunchctl(
   args: string[],
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  const isWindows = process.platform === "win32";
-  const file = isWindows ? (process.env.ComSpec ?? "cmd.exe") : "launchctl";
-  const fileArgs = isWindows ? ["/d", "/s", "/c", "launchctl", ...args] : args;
-  return await execFileUtf8(file, fileArgs, isWindows ? { windowsHide: true } : {});
+  return await execFileUtf8("launchctl", args);
 }
 
 export function parseLaunchctlListOpenClawUpdateJobs(

@@ -4,7 +4,7 @@
 import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { formatErrorMessage } from "../../../infra/errors.js";
-import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../../infra/local-file-access.js";
+import { safeFileURLToPath } from "../../../infra/local-file-access.js";
 import type { ImageContent } from "../../../llm/types.js";
 import { resolveMediaReferenceLocalPath } from "../../../media/media-reference.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
@@ -101,7 +101,7 @@ function isImageExtension(filePath: string): boolean {
 }
 
 function normalizeRefForDedupe(raw: string): string {
-  return process.platform === "win32" ? normalizeLowercaseStringOrEmpty(raw) : raw;
+  return raw;
 }
 
 function isOpenClawCliImageCachePath(filePath: string): boolean {
@@ -350,11 +350,6 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
     if (!isImageExtension(trimmed)) {
       return;
     }
-    try {
-      assertNoWindowsNetworkPath(trimmed, "Image path");
-    } catch {
-      return;
-    }
     const resolved = trimmed.startsWith("~") ? resolveUserPath(trimmed) : trimmed;
     if (isOpenClawCliImageCachePath(resolved)) {
       return;
@@ -434,7 +429,7 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
     }
   }
 
-  // Pattern for Windows drive paths.
+  // Pattern for unsupported drive paths.
   while ((match = WINDOWS_DRIVE_PATH_PATTERN.exec(prompt)) !== null) {
     if (match[1]) {
       addPathRef(match[1]);

@@ -142,8 +142,7 @@ export async function createPtyAdapter(params: {
     end: () => {
       try {
         stdinEnded = true;
-        const eof = process.platform === "win32" ? "\x1a" : "\x04";
-        pty.write(eof);
+        pty.write("\x04");
       } catch {
         // ignore EOF errors
       }
@@ -192,8 +191,6 @@ export async function createPtyAdapter(params: {
         pty.pid > 0
       ) {
         signalProcessTree(pty.pid, signal);
-      } else if (process.platform === "win32") {
-        pty.kill();
       } else {
         pty.kill(signal);
       }

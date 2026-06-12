@@ -9,9 +9,6 @@ import { repairToolUseResultPairing } from "./session-transcript-repair.js";
 const SYNTHETIC_TOOL_RESULT_APIS = new Set<string>([
   "anthropic-messages",
   "openclaw-anthropic-messages-transport",
-  "bedrock-converse-stream",
-  "google-generative-ai",
-  "openclaw-google-generative-ai-transport",
   "openai-responses",
   "openai-chatgpt-responses",
   "azure-openai-responses",
@@ -20,9 +17,7 @@ const SYNTHETIC_TOOL_RESULT_APIS = new Set<string>([
 ]);
 
 // "aborted" is an OpenAI Responses-family convention from upstream Codex
-// history normalization. Gemini/Anthropic transports use their own text while
-// still needing synthetic results to satisfy provider turn-shape contracts;
-// tool-replay-repair.live.test.ts exercises both paths against real models.
+// history normalization.
 const CODEX_STYLE_ABORTED_OUTPUT_APIS = new Set<string>([
   "openai-responses",
   "openai-chatgpt-responses",

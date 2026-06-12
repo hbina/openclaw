@@ -49,7 +49,7 @@ import { TUI_SESSION_LOOKUP_LIMIT } from "./tui-session-list-policy.js";
 import {
   createEditorSubmitHandler,
   createSubmitBurstCoalescer,
-  shouldEnableWindowsGitBashPasteFallback,
+  shouldEnablePasteBurstCoalescing,
 } from "./tui-submit.js";
 import type {
   AgentSummary,
@@ -66,7 +66,7 @@ export type { TuiOptions } from "./tui-types.js";
 export {
   createEditorSubmitHandler,
   createSubmitBurstCoalescer,
-  shouldEnableWindowsGitBashPasteFallback,
+  shouldEnablePasteBurstCoalescing,
 } from "./tui-submit.js";
 
 const OPENCLAW_CLI_WRAPPER_PATH = fileURLToPath(new URL("../../openclaw.mjs", import.meta.url));
@@ -89,9 +89,7 @@ type RunTuiOptions = TuiOptions & {
 /** Resolve the absolute path to the `codex` CLI binary, or `null` if not installed. */
 export function resolveCodexCliBin(): string | null {
   try {
-    const lookupCmd = process.platform === "win32" ? "where" : "which";
-    // `where` on Windows can return multiple lines; take the first match.
-    const raw = execFileSync(lookupCmd, ["codex"], { encoding: "utf8" }).trim();
+    const raw = execFileSync("which", ["codex"], { encoding: "utf8" }).trim();
     return raw.split(/\r?\n/)[0] || null;
   } catch {
     return null;
@@ -124,10 +122,8 @@ export function resolveLocalAuthSpawnOptions(params: {
   command: string;
   platform?: NodeJS.Platform;
 }): { shell?: true } {
-  const platform = params.platform ?? process.platform;
-  return platform === "win32" && /\.(cmd|bat)$/iu.test(params.command.trim())
-    ? { shell: true }
-    : {};
+  void params;
+  return {};
 }
 
 export function resolveLocalAuthSpawnCwd(params: { args: string[]; defaultCwd?: string }): string {
@@ -1397,7 +1393,7 @@ export async function runTui(opts: RunTuiOptions): Promise<TuiResult> {
   });
   editor.onSubmit = createSubmitBurstCoalescer({
     submit: submitHandler,
-    enabled: shouldEnableWindowsGitBashPasteFallback(),
+    enabled: shouldEnablePasteBurstCoalescing(),
   });
 
   editor.onEscape = () => {

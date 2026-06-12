@@ -10,7 +10,6 @@ import {
   isAnthropicModelRef,
 } from "../../llm/providers/stream-wrappers/anthropic-family-cache-semantics.js";
 import { resolveProviderCacheTtlEligibility } from "../../plugins/provider-runtime.js";
-import { isGooglePromptCacheEligible } from "./prompt-cache-retention.js";
 
 type CustomEntryLike = { type?: unknown; customType?: unknown; data?: unknown };
 
@@ -52,8 +51,7 @@ export function isCacheTtlEligibleProvider(
       modelId: normalizedModelId,
       modelApi,
     }) ||
-    (normalizedProvider === "kilocode" && isAnthropicModelRef(normalizedModelId)) ||
-    isGooglePromptCacheEligible({ modelApi, modelId: normalizedModelId })
+    (normalizedProvider === "kilocode" && isAnthropicModelRef(normalizedModelId))
   );
 }
 

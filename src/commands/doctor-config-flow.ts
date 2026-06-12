@@ -11,14 +11,10 @@ import {
   noteOpencodeProviderOverrides,
 } from "./doctor-config-analysis.js";
 import { runDoctorConfigPreflight } from "./doctor-config-preflight.js";
-import { normalizeCompatibilityConfigValues } from "./doctor-legacy-config.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
 import { emitDoctorNotes, sanitizeDoctorNote } from "./doctor/emit-notes.js";
 import { finalizeDoctorConfigFlow } from "./doctor/finalize-config-flow.js";
-import {
-  applyLegacyCompatibilityStep,
-  applyUnknownConfigKeyStep,
-} from "./doctor/shared/config-flow-steps.js";
+import { applyUnknownConfigKeyStep } from "./doctor/shared/config-flow-steps.js";
 import { applyDoctorConfigMutation } from "./doctor/shared/config-mutation-state.js";
 import {
   collectMissingDefaultAccountBindingWarnings,
@@ -132,50 +128,6 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   const sourceLastTouchedVersion =
     typeof sourceMeta?.lastTouchedVersion === "string" ? sourceMeta.lastTouchedVersion : undefined;
 
-  const legacyStep = applyLegacyCompatibilityStep({
-    snapshot,
-    state: { cfg, candidate, pendingChanges, fixHints },
-    shouldRepair,
-    doctorFixCommand,
-  });
-  cfg = legacyStep.state.cfg;
-  candidate = legacyStep.state.candidate;
-  pendingChanges = pendingChanges || legacyStep.state.pendingChanges;
-  fixHints = legacyStep.state.fixHints;
-  const legacyMigrationPartiallyValid = legacyStep.partiallyValid === true;
-  const pluginLegacyIssues = await (async () => {
-    if (snapshot.parsed === snapshot.sourceConfig) {
-      return [];
-    }
-    const { findDoctorLegacyConfigIssues } =
-      await import("./doctor/shared/legacy-config-issues.js");
-    return findDoctorLegacyConfigIssues(snapshot.parsed, snapshot.parsed);
-  })();
-  const seenLegacyIssues = new Set(
-    snapshot.legacyIssues.map((issue) => `${issue.path}:${issue.message}`),
-  );
-  const pluginIssueLines = pluginLegacyIssues
-    .filter((issue) => {
-      const key = `${issue.path}:${issue.message}`;
-      if (seenLegacyIssues.has(key)) {
-        return false;
-      }
-      seenLegacyIssues.add(key);
-      return true;
-    })
-    .map((issue) => `- ${issue.path}: ${issue.message}`);
-  const legacyIssueLines = [...legacyStep.issueLines, ...pluginIssueLines];
-  if (
-    pluginIssueLines.length > 0 &&
-    !shouldRepair &&
-    !fixHints.includes(`Run "${doctorFixCommand}" to migrate legacy config keys.`)
-  ) {
-    fixHints.push(`Run "${doctorFixCommand}" to migrate legacy config keys.`);
-  }
-  if (legacyIssueLines.length > 0) {
-    note(legacyIssueLines.join("\n"), "Legacy config keys detected");
-  }
-  emitDoctorChangesPanel(legacyStep.changeLines, shouldRepair);
   if (hasLegacyInternalHookHandlers(snapshot.parsed)) {
     note(
       [
@@ -189,17 +141,6 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   const hookTransformsDirWarnings = collectInvalidHookTransformsDirWarnings(cfg, snapshot.path);
   if (hookTransformsDirWarnings.length > 0) {
     note(sanitizeDoctorNote(hookTransformsDirWarnings.join("\n")), "Doctor warnings");
-  }
-
-  const normalized = normalizeCompatibilityConfigValues(candidate);
-  if (normalized.changes.length > 0) {
-    emitDoctorChangesPanel(normalized.changes, shouldRepair);
-    ({ cfg, candidate, pendingChanges, fixHints } = applyDoctorConfigMutation({
-      state: { cfg, candidate, pendingChanges, fixHints },
-      mutation: normalized,
-      shouldRepair,
-      fixHint: `Run "${doctorFixCommand}" to apply these changes.`,
-    }));
   }
 
   const { applyPluginAutoEnable } = await import("../config/plugin-auto-enable.js");
@@ -358,6 +299,5 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
     sourceConfigValid: snapshot.valid,
     preservedLegacyRootKeys: ["defaultModel"],
     ...(sourceLastTouchedVersion ? { sourceLastTouchedVersion } : {}),
-    ...(legacyMigrationPartiallyValid ? { skipPluginValidationOnWrite: true } : {}),
   };
 }

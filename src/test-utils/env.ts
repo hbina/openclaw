@@ -33,29 +33,11 @@ function applyEnvValues(env: Record<string, string | undefined>): void {
 
 const PATH_RESOLUTION_ENV_KEYS = [
   "HOME",
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
   "OPENCLAW_HOME",
   "OPENCLAW_STATE_DIR",
   "OPENCLAW_BUNDLED_PLUGINS_DIR",
   "OPENCLAW_DISABLE_BUNDLED_PLUGINS",
 ] as const;
-
-// Windows home resolution depends on split drive/path env vars, not only HOME.
-function resolveWindowsHomeParts(homeDir: string): { homeDrive?: string; homePath?: string } {
-  if (process.platform !== "win32") {
-    return {};
-  }
-  const match = homeDir.match(/^([A-Za-z]:)(.*)$/);
-  if (!match) {
-    return {};
-  }
-  return {
-    homeDrive: match[1],
-    homePath: match[2] || "\\",
-  };
-}
 
 export function createPathResolutionEnv(
   homeDir: string,
@@ -65,16 +47,11 @@ export function createPathResolutionEnv(
   const nextEnv: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: resolvedHome,
-    USERPROFILE: resolvedHome,
     OPENCLAW_HOME: undefined,
     OPENCLAW_STATE_DIR: undefined,
     OPENCLAW_BUNDLED_PLUGINS_DIR: undefined,
     OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
   };
-
-  const windowsHome = resolveWindowsHomeParts(resolvedHome);
-  nextEnv.HOMEDRIVE = windowsHome.homeDrive;
-  nextEnv.HOMEPATH = windowsHome.homePath;
 
   for (const [key, value] of Object.entries(env)) {
     nextEnv[key] = value;

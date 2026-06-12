@@ -165,9 +165,8 @@ async function resolveNodePath(): Promise<string> {
 }
 
 async function resolveBinaryPath(binary: string): Promise<string> {
-  const cmd = process.platform === "win32" ? "where" : "which";
   try {
-    const output = execFileSync(cmd, [binary], { encoding: "utf8" }).trim();
+    const output = execFileSync("which", [binary], { encoding: "utf8" }).trim();
     const resolved = output.split(/\r?\n/)[0]?.trim();
     if (!resolved) {
       throw new Error("empty");

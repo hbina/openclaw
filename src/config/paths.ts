@@ -109,7 +109,7 @@ function resolveUserPath(
 /**
  * Optional allowlist of directories that `$include` directives may resolve
  * outside the config directory. Set via `OPENCLAW_INCLUDE_ROOTS` as a
- * platform-delimited path list (`:` on POSIX, `;` on Windows).
+ * colon-delimited path list.
  *
  * Each entry is tilde-expanded and resolved to an absolute path. Entries that
  * cannot be resolved or that are not absolute after expansion are dropped.

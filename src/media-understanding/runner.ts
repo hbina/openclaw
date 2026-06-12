@@ -1,6 +1,5 @@
 // Media-understanding runner resolves providers/models, local roots, auth, and
 // per-capability execution decisions for message attachments.
-import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,10 +10,7 @@ import {
   normalizeNullableString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
-import {
-  normalizeStringEntries,
-  uniqueStrings,
-} from "@openclaw/normalization-core/string-normalization";
+import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { isMinimaxVlmModel, isMinimaxVlmProvider } from "../agents/minimax-vlm.js";
 import {
   buildModelAliasIndex,
@@ -356,17 +352,7 @@ function hasPathSeparator(value: string): boolean {
 }
 
 function candidateBinaryNames(name: string): string[] {
-  if (process.platform !== "win32") {
-    return [name];
-  }
-  const ext = path.extname(name);
-  if (ext) {
-    return [name];
-  }
-  const pathext = normalizeStringEntries(
-    (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";"),
-  ).map((item) => (item.startsWith(".") ? item : `.${item}`));
-  return [name, ...uniqueStrings(pathext).map((item) => `${name}${item}`)];
+  return [name];
 }
 
 async function isExecutable(filePath: string): Promise<boolean> {
@@ -375,10 +361,7 @@ async function isExecutable(filePath: string): Promise<boolean> {
     if (!stat.isFile()) {
       return false;
     }
-    if (process.platform === "win32") {
-      return true;
-    }
-    await fs.access(filePath, fsConstants.X_OK);
+    await fs.access(filePath, fs.constants.X_OK);
     return true;
   } catch {
     return false;

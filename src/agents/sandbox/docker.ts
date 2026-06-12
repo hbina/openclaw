@@ -6,10 +6,6 @@
 import { spawn } from "node:child_process";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
-  materializeWindowsSpawnProgram,
-  resolveWindowsSpawnProgram,
-} from "../../plugin-sdk/windows-spawn.js";
-import {
   sanitizeEnvVars,
   sanitizeExplicitSandboxEnvVars,
   type EnvSanitizationOptions,
@@ -53,22 +49,11 @@ const DEFAULT_DOCKER_SPAWN_RUNTIME: DockerSpawnRuntime = {
 
 export function resolveDockerSpawnInvocation(
   args: string[],
-  runtime: DockerSpawnRuntime = DEFAULT_DOCKER_SPAWN_RUNTIME,
-): { command: string; args: string[]; shell?: boolean; windowsHide?: boolean } {
-  const program = resolveWindowsSpawnProgram({
-    command: "docker",
-    platform: runtime.platform,
-    env: runtime.env,
-    execPath: runtime.execPath,
-    packageName: "docker",
-    allowShellFallback: false,
-  });
-  const resolved = materializeWindowsSpawnProgram(program, args);
+  _runtime: DockerSpawnRuntime = DEFAULT_DOCKER_SPAWN_RUNTIME,
+): { command: string; args: string[]; shell?: boolean } {
   return {
-    command: resolved.command,
-    args: resolved.argv,
-    shell: resolved.shell,
-    windowsHide: resolved.windowsHide,
+    command: "docker",
+    args,
   };
 }
 
@@ -81,7 +66,6 @@ export function execDockerRaw(
     const child = spawn(spawnInvocation.command, spawnInvocation.args, {
       stdio: ["pipe", "pipe", "pipe"],
       shell: spawnInvocation.shell,
-      windowsHide: spawnInvocation.windowsHide,
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];

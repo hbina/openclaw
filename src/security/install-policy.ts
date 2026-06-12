@@ -16,8 +16,6 @@ const DEFAULT_MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_REASON_CHARS = 1000;
 const MAX_FINDINGS = 100;
 const MAX_FINDING_TEXT_CHARS = 1000;
-const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
 const POLICY_INTERPRETER_NAMES = new Set([
   "bash",
   "bun",
@@ -26,15 +24,13 @@ const POLICY_INTERPRETER_NAMES = new Set([
   "fish",
   "node",
   "perl",
-  "powershell",
-  "pwsh",
   "python",
   "python3",
   "ruby",
   "sh",
   "zsh",
 ]);
-const POLICY_SCRIPT_ARG_PATTERN = /\.(?:bash|cjs|cts|js|mjs|mts|pl|ps1|py|rb|sh|ts|zsh)$/i;
+const POLICY_SCRIPT_ARG_PATTERN = /\.(?:bash|cjs|cts|js|mjs|mts|pl|py|rb|sh|ts|zsh)$/i;
 
 export type InstallPolicyTarget = "skill" | "plugin";
 export type InstallPolicyRequestKind =
@@ -148,13 +144,7 @@ export type InstallPolicyStaticValidation = {
 };
 
 function isAbsolutePathname(value: string): boolean {
-  if (path.isAbsolute(value)) {
-    return true;
-  }
-  return (
-    process.platform === "win32" &&
-    (WINDOWS_ABS_PATH_PATTERN.test(value) || WINDOWS_UNC_PATH_PATTERN.test(value))
-  );
+  return path.isAbsolute(value);
 }
 
 function executableName(commandPath: string): string {
@@ -251,7 +241,7 @@ async function assertSecureCommandAncestorDirs(params: {
       throw new Error(`${params.label} parent directory permissions could not be verified: ${dir}`);
     }
     let sticky = false;
-    if (process.platform !== "win32" && (perms.worldWritable || perms.groupWritable)) {
+    if (perms.worldWritable || perms.groupWritable) {
       try {
         sticky = ((await fs.stat(dir)).mode & 0o1000) !== 0;
       } catch {
@@ -261,7 +251,7 @@ async function assertSecureCommandAncestorDirs(params: {
     if ((perms.worldWritable || perms.groupWritable) && !sticky) {
       throw new Error(`${params.label} parent directory permissions are too open: ${dir}`);
     }
-    if (process.platform !== "win32" && currentUid !== undefined) {
+    if (currentUid !== undefined) {
       let stat: Awaited<ReturnType<typeof fs.stat>>;
       try {
         stat = await fs.stat(dir);
@@ -271,11 +261,6 @@ async function assertSecureCommandAncestorDirs(params: {
       if (stat.uid !== 0 && stat.uid !== currentUid) {
         throw new Error(`${params.label} parent directory owner is not trusted: ${dir}`);
       }
-    }
-    if (process.platform === "win32" && perms.source === "unknown") {
-      throw new Error(
-        `${params.label} parent directory ACL verification unavailable on Windows for ${dir}. Set allowInsecurePath=true for this policy to bypass this check when the path is trusted.`,
-      );
     }
   }
 }
@@ -331,13 +316,7 @@ async function assertSecureCommandPath(params: {
   }
   await assertSecureCommandAncestorDirs({ targetPath: effectivePath, label: params.label });
 
-  if (process.platform === "win32" && perms.source === "unknown") {
-    throw new Error(
-      `${params.label} ACL verification unavailable on Windows for ${effectivePath}. Set allowInsecurePath=true for this policy to bypass this check when the path is trusted.`,
-    );
-  }
-
-  if (process.platform !== "win32" && typeof process.getuid === "function" && stat.uid != null) {
+  if (typeof process.getuid === "function" && stat.uid != null) {
     const uid = process.getuid();
     if (stat.uid !== uid && stat.uid !== 0) {
       throw new Error(
@@ -383,13 +362,7 @@ function createPolicyChildEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function readPassEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
-  const exact = env[key];
-  if (exact !== undefined || process.platform !== "win32") {
-    return exact;
-  }
-  const lowerKey = key.toLowerCase();
-  const matchedKey = Object.keys(env).find((candidate) => candidate.toLowerCase() === lowerKey);
-  return matchedKey ? env[matchedKey] : undefined;
+  return env[key];
 }
 
 function blockedByFailure(message: string): InstallPolicyResult {
@@ -533,7 +506,6 @@ async function runPolicyCommand(params: {
       env: params.env,
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
-      windowsHide: true,
     });
 
     let settled = false;

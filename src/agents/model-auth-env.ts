@@ -35,11 +35,7 @@ function expandAuthEvidencePath(rawPath: string, env: NodeJS.ProcessEnv): string
     return undefined;
   }
   const homeDir = normalizeOptionalPathInput(env.HOME) ?? os.homedir();
-  const appDataDir = normalizeOptionalPathInput(env.APPDATA);
-  if (trimmed.includes("${APPDATA}") && !appDataDir) {
-    return undefined;
-  }
-  return trimmed.replaceAll("${HOME}", homeDir).replaceAll("${APPDATA}", appDataDir ?? "");
+  return trimmed.replaceAll("${HOME}", homeDir);
 }
 
 function hasRequiredAuthEvidenceEnv(

@@ -1,5 +1,4 @@
 // MCP CLI for configured servers, OAuth auth, diagnostics, and channel MCP serving.
-import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -238,7 +237,7 @@ async function directoryExists(filePath: string): Promise<boolean> {
 
 async function isExecutable(filePath: string): Promise<boolean> {
   try {
-    await fs.access(filePath, process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK);
+    await fs.access(filePath, fs.constants.X_OK);
     return true;
   } catch {
     return false;
@@ -246,17 +245,7 @@ async function isExecutable(filePath: string): Promise<boolean> {
 }
 
 function executableCandidates(command: string): string[] {
-  if (process.platform !== "win32") {
-    return [command];
-  }
-  const extensions = (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (path.extname(command)) {
-    return [command];
-  }
-  return [command, ...extensions.map((extension) => `${command}${extension.toLowerCase()}`)];
+  return [command];
 }
 
 function resolveEffectivePath(env: Record<string, string> | undefined): string {
@@ -265,9 +254,6 @@ function resolveEffectivePath(env: Record<string, string> | undefined): string {
   }
   if (typeof env.PATH === "string") {
     return env.PATH;
-  }
-  if (process.platform === "win32" && typeof env.Path === "string") {
-    return env.Path;
   }
   return process.env.PATH ?? "";
 }

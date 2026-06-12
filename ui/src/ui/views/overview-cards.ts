@@ -8,9 +8,9 @@ import { formatCost, formatTokens, formatRelativeTimestamp } from "../format.ts"
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { formatNextRun } from "../presenter.ts";
 import {
-  collectQuotaWindows,
+  collectQuotaPeriods,
   formatQuotaReset,
-  type QuotaWindowSummary,
+  type QuotaPeriodSummary,
 } from "../provider-quota-summary.ts";
 import { resolveSessionDisplayName } from "../session-display.ts";
 import type {
@@ -59,8 +59,8 @@ function renderStatCard(card: StatCard, onNavigate: (tab: string) => void) {
   `;
 }
 
-function renderProviderQuotaCard(windows: QuotaWindowSummary[]): StatCard | null {
-  const primary = windows[0];
+function renderProviderQuotaCard(periods: QuotaPeriodSummary[]): StatCard | null {
+  const primary = periods[0];
   if (!primary) {
     return null;
   }
@@ -68,7 +68,7 @@ function renderProviderQuotaCard(windows: QuotaWindowSummary[]): StatCard | null
   const primaryHint = [primary.displayName, primary.label, reset ? `reset ${reset}` : null].filter(
     Boolean,
   );
-  const secondary = windows.find(
+  const secondary = periods.find(
     (entry) => entry.displayName !== primary.displayName || entry.label !== primary.label,
   );
   const secondaryHint = secondary
@@ -140,7 +140,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
   const authLoading = props.modelAuthStatus === null;
   const authProviders = props.modelAuthStatus?.providers ?? [];
   const monitoredProviders = authProviders.filter(isMonitoredAuthProvider);
-  const quotaCard = renderProviderQuotaCard(collectQuotaWindows(monitoredProviders));
+  const quotaCard = renderProviderQuotaCard(collectQuotaPeriods(monitoredProviders));
 
   const cronValue =
     cronEnabled == null
@@ -223,7 +223,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
           : t("overview.cards.modelAuthOk", { count: String(monitoredProviders.length) });
 
     // Format a window reset time compactly (e.g. "2:43 PM", "Apr 16").
-    // Hidden for windows with plenty of headroom to keep the hint readable;
+    // Hidden for posix with plenty of headroom to keep the hint readable;
     // shown when a window is below 25% to signal urgency.
     const formatReset = (resetAt: number | undefined, pctLeft: number): string | null => {
       const timestampMs = asDateTimestampMs(resetAt);

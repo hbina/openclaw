@@ -238,7 +238,7 @@ function pathComponentsFromRootSync(targetPath: string): string[] {
 }
 
 function isOwnedByCurrentProcessSync(candidate: string): boolean {
-  if (process.platform === "win32" || typeof process.getuid !== "function") {
+  if (typeof process.getuid !== "function") {
     return false;
   }
   try {

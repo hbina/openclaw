@@ -5,7 +5,6 @@ import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import { hasSessionAutoModelFallbackProvenance } from "../config/sessions/model-override-provenance.js";
 export { hasSessionAutoModelFallbackProvenance } from "../config/sessions/model-override-provenance.js";
 import {
-  lowercasePreservingWhitespace,
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
   resolvePrimaryStringValue,
@@ -581,9 +580,6 @@ function normalizePathForComparison(input: string): string {
     normalized = fs.realpathSync.native(resolved);
   } catch {
     // Keep lexical path for non-existent directories.
-  }
-  if (process.platform === "win32") {
-    return lowercasePreservingWhitespace(normalized);
   }
   return normalized;
 }

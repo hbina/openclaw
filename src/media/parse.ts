@@ -45,7 +45,6 @@ function cleanCandidate(raw: string) {
   return jsonSuffixMatch?.[1] ?? stripped;
 }
 
-const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const HAS_FILE_EXT = /\.\w{1,10}$/;
 
@@ -73,8 +72,6 @@ function looksLikeLocalFilePath(candidate: string): boolean {
     candidate.startsWith("./") ||
     candidate.startsWith("../") ||
     candidate.startsWith("~") ||
-    WINDOWS_DRIVE_RE.test(candidate) ||
-    candidate.startsWith("\\\\") ||
     (!SCHEME_RE.test(candidate) && (candidate.includes("/") || candidate.includes("\\")))
   );
 }
@@ -89,8 +86,6 @@ function isLikelyLocalPath(candidate: string): boolean {
     candidate.startsWith("/") ||
     candidate.startsWith("./") ||
     isSupportedHomeRelativePath(candidate) ||
-    WINDOWS_DRIVE_RE.test(candidate) ||
-    candidate.startsWith("\\\\") ||
     (!SCHEME_RE.test(candidate) && (candidate.includes("/") || candidate.includes("\\")))
   );
 }

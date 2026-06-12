@@ -2,7 +2,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isInboundPathAllowed } from "@openclaw/media-core/inbound-path-policy";
-import { assertNoWindowsNetworkPath } from "../infra/local-file-access.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { getDefaultMediaLocalRoots } from "./local-roots.js";
 import { resolveInboundMediaReference } from "./media-reference.js";
@@ -12,7 +11,6 @@ export type LocalMediaAccessErrorCode =
   | "path-not-allowed"
   | "invalid-root"
   | "invalid-file-url"
-  | "network-path-not-allowed"
   | "unsafe-bypass"
   | "not-found"
   | "invalid-path"
@@ -46,13 +44,6 @@ export async function assertLocalMediaAllowed(
   const inboundReference = await resolveInboundMediaReference(mediaPath).catch(() => null);
   if (inboundReference) {
     return;
-  }
-  try {
-    assertNoWindowsNetworkPath(mediaPath, "Local media path");
-  } catch (err) {
-    throw new LocalMediaAccessError("network-path-not-allowed", (err as Error).message, {
-      cause: err,
-    });
   }
   if (
     options?.inboundRoots?.length &&

@@ -1,65 +1,22 @@
-/**
- * Host path normalization for sandbox mount policy.
- *
- * Handles POSIX, Windows drive, and namespace-prefixed paths before policy-key comparison.
- */
+/** Host path normalization for sandbox mount policy. */
 import { posix } from "node:path";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 
-function stripWindowsNamespacePrefix(input: string): string {
-  if (input.startsWith("\\\\?\\")) {
-    const withoutPrefix = input.slice(4);
-    if (withoutPrefix.toUpperCase().startsWith("UNC\\")) {
-      return `\\\\${withoutPrefix.slice(4)}`;
-    }
-    return withoutPrefix;
-  }
-  if (input.startsWith("//?/")) {
-    const withoutPrefix = input.slice(4);
-    if (withoutPrefix.toUpperCase().startsWith("UNC/")) {
-      return `//${withoutPrefix.slice(4)}`;
-    }
-    return withoutPrefix;
-  }
-  return input;
-}
-
-export function isWindowsDriveAbsolutePath(raw: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(stripWindowsNamespacePrefix(raw.trim()));
-}
-
 export function isSandboxHostPathAbsolute(raw: string): boolean {
-  const trimmed = stripWindowsNamespacePrefix(raw.trim());
-  return trimmed.startsWith("/") || isWindowsDriveAbsolutePath(trimmed);
+  return raw.trim().startsWith("/");
 }
 
-/**
- * Normalize a host path: resolve `.`, `..`, collapse `//`, strip trailing `/`.
- * Windows drive-letter paths preserve the drive root and uppercase the drive letter.
- */
+/** Normalize a host path: resolve `.`, `..`, collapse `//`, strip trailing `/`. */
 export function normalizeSandboxHostPath(raw: string): string {
-  const trimmed = stripWindowsNamespacePrefix(raw.trim());
+  const trimmed = raw.trim();
   if (!trimmed) {
     return "/";
   }
-  let normalTrimmed = trimmed.replaceAll("\\", "/");
-  if (isWindowsDriveAbsolutePath(normalTrimmed)) {
-    normalTrimmed = normalTrimmed.charAt(0).toUpperCase() + normalTrimmed.slice(1);
-  }
-  const normalized = posix.normalize(normalTrimmed);
-  const withoutTrailingSlash = normalized.replace(/\/+$/, "") || "/";
-  if (/^[A-Z]:$/.test(withoutTrailingSlash)) {
-    return `${withoutTrailingSlash}/`;
-  }
-  return withoutTrailingSlash;
+  return posix.normalize(trimmed).replace(/\/+$/, "") || "/";
 }
 
 export function getSandboxHostPathPolicyKey(raw: string): string {
-  const normalized = normalizeSandboxHostPath(raw);
-  if (isWindowsDriveAbsolutePath(normalized)) {
-    return normalized.toLowerCase();
-  }
-  return normalized;
+  return normalizeSandboxHostPath(raw);
 }
 
 /**
@@ -69,9 +26,6 @@ export function getSandboxHostPathPolicyKey(raw: string): string {
 export function resolveSandboxHostPathViaExistingAncestor(sourcePath: string): string {
   if (!isSandboxHostPathAbsolute(sourcePath)) {
     return sourcePath;
-  }
-  if (isWindowsDriveAbsolutePath(sourcePath) && process.platform !== "win32") {
-    return normalizeSandboxHostPath(sourcePath);
   }
   return normalizeSandboxHostPath(resolvePathViaExistingAncestorSync(sourcePath));
 }

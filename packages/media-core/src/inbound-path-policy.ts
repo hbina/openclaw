@@ -11,7 +11,7 @@ function normalizePosixAbsolutePath(value: string): string | undefined {
     return undefined;
   }
   // Compare all roots as POSIX-style absolute paths so channel configs can use
-  // stable patterns even when a source reports Windows separators.
+  // stable patterns even when a source reports backslash separators.
   const normalized = path.posix.normalize(trimmed.replaceAll("\\", "/"));
   const isAbsolute = normalized.startsWith("/") || WINDOWS_DRIVE_ABS_RE.test(normalized);
   if (!isAbsolute || normalized === "/") {

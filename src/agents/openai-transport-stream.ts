@@ -34,7 +34,6 @@ import { redactSensitiveText } from "../logging/redact.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import { resolveProviderTransportTurnStateWithPlugin } from "../plugins/provider-runtime.js";
-import { isGemma4ModelId } from "../shared/google-models.js";
 import { createReasoningTagTextPartitioner } from "../shared/text/reasoning-tag-text-partitioner.js";
 import { CHARS_PER_TOKEN_ESTIMATE, estimateStringChars } from "../utils/cjk-chars.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./copilot-dynamic-headers.js";
@@ -90,7 +89,6 @@ import {
 const DEFAULT_AZURE_OPENAI_API_VERSION = "preview";
 const OPENAI_CODEX_RESPONSES_EMPTY_INPUT_TEXT = " ";
 const OPENAI_CODEX_RESPONSES_DEFAULT_INSTRUCTIONS = "Follow the user request.";
-const GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP = "skip_thought_signature_validator";
 const AZURE_RESPONSES_FIRST_EVENT_TIMEOUT_MS = 30_000;
 const MODEL_STREAM_COOPERATIVE_YIELD_INTERVAL_MS = 12;
 const MODEL_STREAM_COOPERATIVE_YIELD_MAX_EVENTS = 64;
@@ -2988,14 +2986,12 @@ async function processOpenAICompletionsStream(
             currentBlock = null;
             flushPendingPostToolCallDeltas();
           }
-          const initialSig = extractGoogleThoughtSignature(toolCall);
           block = {
             type: "toolCall",
             id: toolCall.id || "",
             name: toolCall.function?.name || "",
             arguments: {},
             partialArgs: "",
-            ...(initialSig ? { thoughtSignature: initialSig } : {}),
           };
           output.content.push(block);
           pushStreamEvent({
@@ -3014,10 +3010,6 @@ async function processOpenAICompletionsStream(
         currentBlock = block;
         if (toolCall.function?.name) {
           block.name = toolCall.function.name;
-        }
-        const deltaSig = extractGoogleThoughtSignature(toolCall);
-        if (deltaSig) {
-          block.thoughtSignature = deltaSig;
         }
         if (toolCall.function?.arguments) {
           const nextArgumentBytes = measureUtf8Bytes(toolCall.function.arguments);
@@ -3738,123 +3730,6 @@ function sortTransportToolsByName<T extends { name?: string; description?: strin
   );
 }
 
-function extractGoogleThoughtSignature(toolCall: unknown): string | undefined {
-  const tc = toolCall as Record<string, unknown> | undefined;
-  if (!tc) {
-    return undefined;
-  }
-  const extra = (tc.extra_content as Record<string, unknown> | undefined)?.google as
-    | Record<string, unknown>
-    | undefined;
-  const fromExtra = extra?.thought_signature;
-  if (typeof fromExtra === "string" && fromExtra.length > 0) {
-    return fromExtra;
-  }
-  const fromFunction = (tc.function as { thought_signature?: unknown } | undefined)
-    ?.thought_signature;
-  return typeof fromFunction === "string" && fromFunction.length > 0 ? fromFunction : undefined;
-}
-
-function isGoogleOpenAICompatModel(model: OpenAIModeModel): boolean {
-  const endpointClass = detectOpenAICompletionsCompat(model as Model<"openai-completions">)
-    .capabilities.endpointClass;
-  return (
-    model.provider === "google" ||
-    endpointClass === "google-generative-ai" ||
-    endpointClass === "google-vertex"
-  );
-}
-
-function requiresGoogleCompatToolCallThoughtSignature(model: OpenAIModeModel): boolean {
-  return model.id.toLowerCase().includes("gemini-3");
-}
-
-const GOOGLE_COMPAT_THOUGHT_SIGNATURE_ELLIPSIS_RE = /[\u2026]|\.\.\./;
-const GOOGLE_COMPAT_THOUGHT_SIGNATURE_BASE64_RE = /^[A-Za-z0-9+/=]+$/;
-
-function hasGoogleCompatThoughtSignatureTruncationFootprint(value: string): boolean {
-  return (
-    GOOGLE_COMPAT_THOUGHT_SIGNATURE_ELLIPSIS_RE.test(value) ||
-    (GOOGLE_COMPAT_THOUGHT_SIGNATURE_BASE64_RE.test(value) && value.length % 4 !== 0)
-  );
-}
-
-function injectToolCallThoughtSignatures(
-  outgoingMessages: unknown[],
-  context: Context,
-  model: OpenAIModeModel,
-): void {
-  if (!isGoogleOpenAICompatModel(model)) {
-    return;
-  }
-  const sigById = new Map<string, string>();
-  const fallbackSig = requiresGoogleCompatToolCallThoughtSignature(model)
-    ? GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP
-    : undefined;
-  for (const msg of context.messages ?? []) {
-    if ((msg as { role?: string }).role !== "assistant") {
-      continue;
-    }
-    const source = msg as { api?: string; provider?: string; model?: string; content?: unknown };
-    if (!Array.isArray(source.content)) {
-      continue;
-    }
-    for (const block of source.content as Array<Record<string, unknown>>) {
-      if (block.type !== "toolCall") {
-        continue;
-      }
-      const id = block.id;
-      const sig = block.thoughtSignature;
-      if (typeof id === "string" && typeof sig === "string" && sig.length > 0) {
-        const isSameRoute =
-          source.api === model.api &&
-          source.provider === model.provider &&
-          source.model === model.id;
-        if (!isSameRoute && !fallbackSig) {
-          continue;
-        }
-        sigById.set(id, isSameRoute ? sig : (fallbackSig ?? sig));
-      }
-    }
-  }
-  if (sigById.size === 0 && !fallbackSig) {
-    return;
-  }
-  for (const message of outgoingMessages) {
-    const toolCalls = (message as { tool_calls?: unknown }).tool_calls;
-    if (!Array.isArray(toolCalls)) {
-      continue;
-    }
-    for (const toolCall of toolCalls as Array<Record<string, unknown>>) {
-      const id = toolCall.id;
-      if (typeof id !== "string") {
-        continue;
-      }
-      let sig: string | undefined = sigById.get(id) ?? fallbackSig;
-      if (typeof sig === "string" && sig.length > 0) {
-        const trimmed = sig.trim();
-        if (hasGoogleCompatThoughtSignatureTruncationFootprint(trimmed)) {
-          sig = fallbackSig;
-        }
-      }
-      if (typeof sig !== "string" || sig.length === 0) {
-        continue;
-      }
-      const extra =
-        toolCall.extra_content && typeof toolCall.extra_content === "object"
-          ? (toolCall.extra_content as Record<string, unknown>)
-          : {};
-      toolCall.extra_content = extra;
-      const google =
-        extra.google && typeof extra.google === "object"
-          ? (extra.google as Record<string, unknown>)
-          : {};
-      extra.google = google;
-      google.thought_signature = sig;
-    }
-  }
-}
-
 const COMPLETIONS_REASONING_REPLAY_FIELDS = [
   "reasoning_details",
   "reasoning_content",
@@ -4002,7 +3877,7 @@ function shouldPreserveOpenRouterReasoningReplay(model: OpenAIModeModel): boolea
 }
 
 function shouldTrustReasoningContentReplayMetadata(model: OpenAIModeModel): boolean {
-  if (!model.reasoning || isGemma4ModelId(model.id)) {
+  if (!model.reasoning) {
     return false;
   }
   const provider = model.provider.trim().toLowerCase();
@@ -4055,7 +3930,6 @@ export function buildOpenAICompletionsParams(
       }
     : context;
   let messages = convertMessages(model as never, completionsContext, compat as never);
-  injectToolCallThoughtSignatures(messages as unknown[], context, model);
   sanitizeCompletionsReasoningReplayFields(messages, {
     preserveOpenRouterReasoning:
       compat.thinkingFormat === "openrouter" && shouldPreserveOpenRouterReasoningReplay(model),

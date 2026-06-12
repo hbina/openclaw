@@ -1053,9 +1053,9 @@ function resolveHomeCandidatesFromRoots(localMediaPreviewRoots: readonly string[
       candidates.add(unixHome[1]);
       continue;
     }
-    const windowsHome = normalized.match(/^([a-z]:\/Users\/[^/]+)(?:\/|$)/i);
-    if (windowsHome?.[1]) {
-      candidates.add(windowsHome[1]);
+    const posixHome = normalized.match(/^([a-z]:\/Users\/[^/]+)(?:\/|$)/i);
+    if (posixHome?.[1]) {
+      candidates.add(posixHome[1]);
     }
   }
   return [...candidates];

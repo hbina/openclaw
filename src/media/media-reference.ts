@@ -46,7 +46,6 @@ type MediaReferenceSourceInfo = {
   isFileUrl: boolean;
   isHttpUrl: boolean;
   isMediaStoreUrl: boolean;
-  looksLikeWindowsDrivePath: boolean;
 };
 
 /** Classifies media reference schemes before local resolution or sandbox rewriting. */
@@ -55,19 +54,13 @@ export function classifyMediaReferenceSource(
   options?: { allowDataUrl?: boolean },
 ): MediaReferenceSourceInfo {
   const allowDataUrl = options?.allowDataUrl ?? true;
-  const looksLikeWindowsDrivePath = /^[a-zA-Z]:[\\/]/.test(source);
   const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(source);
   const isFileUrl = /^file:/i.test(source);
   const isHttpUrl = /^https?:\/\//i.test(source);
   const isDataUrl = /^data:/i.test(source);
   const isMediaStoreUrl = /^media:\/\//i.test(source);
   const hasUnsupportedScheme =
-    hasScheme &&
-    !looksLikeWindowsDrivePath &&
-    !isFileUrl &&
-    !isHttpUrl &&
-    !isMediaStoreUrl &&
-    !(allowDataUrl && isDataUrl);
+    hasScheme && !isFileUrl && !isHttpUrl && !isMediaStoreUrl && !(allowDataUrl && isDataUrl);
   return {
     hasScheme,
     hasUnsupportedScheme,
@@ -75,7 +68,6 @@ export function classifyMediaReferenceSource(
     isFileUrl,
     isHttpUrl,
     isMediaStoreUrl,
-    looksLikeWindowsDrivePath,
   };
 }
 

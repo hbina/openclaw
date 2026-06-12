@@ -1,9 +1,6 @@
 // Model Catalog Core module implements provider model id normalization behavior.
 import { normalizeLowercaseStringOrEmpty } from "./provider-id.js";
-import {
-  normalizeGooglePreviewModelId,
-  normalizeTogetherModelId,
-} from "./provider-model-id-normalize.js";
+import { normalizeTogetherModelId } from "./provider-model-id-normalize.js";
 
 // Provider model-id normalization policies from manifests plus built-in provider rules.
 
@@ -122,13 +119,6 @@ export function normalizeProviderModelIdWithPolicies(params: {
 /** Apply built-in provider-specific model id normalization rules. */
 export function normalizeBuiltInProviderModelId(provider: string, model: string): string {
   const normalizedProvider = normalizeLowercaseStringOrEmpty(provider);
-  if (
-    normalizedProvider === "google" ||
-    normalizedProvider === "google-gemini-cli" ||
-    normalizedProvider === "google-vertex"
-  ) {
-    return normalizeGooglePreviewModelId(model);
-  }
   if (normalizedProvider === "openrouter") {
     const trimmed = model.trim();
     return trimmed && !trimmed.includes("/") ? `openrouter/${trimmed}` : model;
@@ -216,23 +206,6 @@ export function normalizeConfiguredProviderCatalogModelId(
   return normalizeConfiguredProviderCatalogModelRef(providerModel);
 }
 
-/** Normalize embedded Google model aliases inside provider/model catalog refs. */
 export function normalizeConfiguredProviderCatalogModelRef(providerModel: string): string {
-  const googlePrefix = "google/";
-  if (!providerModel.startsWith(googlePrefix)) {
-    const slash = providerModel.indexOf("/");
-    if (slash <= 0 || slash >= providerModel.length - 1) {
-      return providerModel;
-    }
-    const prefix = providerModel.slice(0, slash + 1);
-    const suffix = providerModel.slice(slash + 1);
-    if (!suffix.startsWith(googlePrefix)) {
-      return providerModel;
-    }
-    const normalizedSuffix = normalizeGooglePreviewModelId(suffix);
-    return normalizedSuffix === suffix ? providerModel : `${prefix}${normalizedSuffix}`;
-  }
-  const modelId = providerModel.slice(googlePrefix.length);
-  const normalizedModelId = normalizeGooglePreviewModelId(modelId);
-  return normalizedModelId === modelId ? providerModel : `${googlePrefix}${normalizedModelId}`;
+  return providerModel;
 }

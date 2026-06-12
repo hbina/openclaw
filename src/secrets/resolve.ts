@@ -49,8 +49,6 @@ const DEFAULT_FILE_MAX_BYTES = 1024 * 1024;
 const DEFAULT_FILE_TIMEOUT_MS = 5_000;
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000;
 const DEFAULT_EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
-const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
 
 export type { SecretRefResolveCache } from "./resolve-types.js";
 
@@ -173,11 +171,7 @@ async function readFileStatOrThrow(pathname: string, label: string) {
 }
 
 function isAbsolutePathname(value: string): boolean {
-  return (
-    path.isAbsolute(value) ||
-    WINDOWS_ABS_PATH_PATTERN.test(value) ||
-    WINDOWS_UNC_PATH_PATTERN.test(value)
-  );
+  return path.isAbsolute(value);
 }
 
 function resolveResolutionLimits(config: OpenClawConfig): ResolutionLimits {
@@ -308,13 +302,7 @@ async function assertSecurePath(params: {
     throw new Error(`${params.label} permissions are too open: ${effectivePath}`);
   }
 
-  if (process.platform === "win32" && perms.source === "unknown") {
-    throw new Error(
-      `${params.label} ACL verification unavailable on Windows for ${effectivePath}. Set allowInsecurePath=true for this provider to bypass this check when the path is trusted.`,
-    );
-  }
-
-  if (process.platform !== "win32" && typeof process.getuid === "function" && stat.uid != null) {
+  if (typeof process.getuid === "function" && stat.uid != null) {
     const uid = process.getuid();
     if (stat.uid !== uid) {
       throw new Error(
@@ -496,7 +484,6 @@ async function runExecResolver(params: {
       env: params.env,
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
-      windowsHide: true,
     });
 
     let settled = false;

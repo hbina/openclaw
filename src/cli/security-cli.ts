@@ -205,14 +205,6 @@ export function registerSecurityCli(program: Command) {
               }
               continue;
             }
-            const command = shortenHomeInString(action.command);
-            if (action.ok) {
-              lines.push(muted(`  ${command}`));
-            } else if (action.skipped) {
-              lines.push(muted(`  skip ${command} (${action.skipped})`));
-            } else if (action.error) {
-              lines.push(muted(`  ${command} failed: ${action.error}`));
-            }
           }
           if (fixResult.errors.length > 0) {
             for (const err of fixResult.errors) {

@@ -9,23 +9,19 @@ import type { AuthProfileCredential, AuthProfileStore } from "./auth-profiles/ty
 import {
   readClaudeCliCredentialsCached,
   readCodexCliCredentialsCached,
-  readGeminiCliCredentialsCached,
   type ClaudeCliCredential,
   type CodexCliCredential,
-  type GeminiCliCredential,
 } from "./cli-credentials.js";
 
 type CliAuthEpochDeps = {
   readClaudeCliCredentialsCached: typeof readClaudeCliCredentialsCached;
   readCodexCliCredentialsCached: typeof readCodexCliCredentialsCached;
-  readGeminiCliCredentialsCached: typeof readGeminiCliCredentialsCached;
   loadAuthProfileStoreForRuntime: typeof loadAuthProfileStoreForRuntime;
 };
 
 const defaultCliAuthEpochDeps: CliAuthEpochDeps = {
   readClaudeCliCredentialsCached,
   readCodexCliCredentialsCached,
-  readGeminiCliCredentialsCached,
   loadAuthProfileStoreForRuntime,
 };
 
@@ -92,17 +88,6 @@ function encodeClaudeCredential(credential: ClaudeCliCredential): string {
 }
 
 function encodeCodexCredential(credential: CodexCliCredential): string {
-  return encodeOAuthIdentity(credential);
-}
-
-function encodeGeminiCredential(credential: GeminiCliCredential): string {
-  // Delegate to the shared OAuth-identity encoder. The Gemini CLI reader
-  // lifts the Google-account identity (sub, email) off the openid id_token
-  // onto the credential, so the encoder fingerprints the user through stable,
-  // non-secret identity fields — matching the Claude/Codex OAuth contract.
-  // When the id_token is absent (older logins, scope omitted), the encoder
-  // falls back to a provider-keyed constant, the same identity-less behavior
-  // the Claude CLI OAuth branch tolerates.
   return encodeOAuthIdentity(credential);
 }
 
@@ -183,12 +168,6 @@ function getLocalCliCredentialFingerprint(provider: string): string | undefined 
         allowKeychainPrompt: false,
       });
       return credential ? hashCliAuthEpochPart(encodeCodexCredential(credential)) : undefined;
-    }
-    case "google-gemini-cli": {
-      const credential = cliAuthEpochDeps.readGeminiCliCredentialsCached({
-        ttlMs: 5000,
-      });
-      return credential ? hashCliAuthEpochPart(encodeGeminiCredential(credential)) : undefined;
     }
     default:
       return undefined;

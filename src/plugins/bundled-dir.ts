@@ -209,7 +209,6 @@ function createBundledPluginsDirCacheKey(env: NodeJS.ProcessEnv): string {
     execPath: process.execPath,
     openClawHome: env.OPENCLAW_HOME ?? "",
     home: env.HOME ?? "",
-    userProfile: env.USERPROFILE ?? "",
     testOverride: bundledPluginsDirOverrideForTest ?? "",
   });
 }

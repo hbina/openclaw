@@ -244,7 +244,6 @@
     "REDIS_URL",
     "SSH_AUTH_SOCK",
     "SYSTEMROOT",
-    "WINDIR"
   ],
   "allowedInheritedOverrideOnlyKeys": [
     "ALL_PROXY",
@@ -275,7 +274,6 @@
     "SSL_CERT_DIR",
     "SSL_CERT_FILE",
     "SYSTEMROOT",
-    "WINDIR",
     "XDG_CACHE_HOME",
     "XDG_CONFIG_DIRS",
     "XDG_CONFIG_HOME",

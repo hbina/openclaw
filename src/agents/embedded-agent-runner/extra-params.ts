@@ -3,7 +3,6 @@
  */
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { createGoogleThinkingPayloadWrapper } from "../../llm/providers/stream-wrappers/google.js";
 import { createMinimaxThinkingDisabledWrapper } from "../../llm/providers/stream-wrappers/minimax.js";
 import {
   createSiliconFlowThinkingWrapper,
@@ -847,10 +846,6 @@ function applyPostPluginStreamWrappers(
       baseStreamFn: ctx.agent.streamFn,
       shouldPatchModel: isMiMoReasoningAsVisibleTextOpenAICompatibleModel,
     });
-
-    // Guard Google-family payloads against invalid negative thinking budgets
-    // emitted by upstream model-ID heuristics for Gemini 3.1 variants.
-    ctx.agent.streamFn = createGoogleThinkingPayloadWrapper(ctx.agent.streamFn, ctx.thinkingLevel);
 
     // Work around upstream shared model runtime hardcoding `store: false` for Responses API.
     // Force `store=true` for direct OpenAI Responses models and auto-enable

@@ -32,7 +32,6 @@ import {
   isAvatarDataUrl,
   isAvatarHttpUrl,
   isPathWithinRoot,
-  isWindowsAbsolutePath,
 } from "../shared/avatar-policy.js";
 import {
   formatUnsafeGatewayTailscaleNoAuthMessage,
@@ -811,7 +810,7 @@ function validateIdentityAvatar(config: OpenClawConfig): ConfigValidationIssue[]
       continue;
     }
     const hasScheme = hasAvatarUriScheme(avatar);
-    if (hasScheme && !isWindowsAbsolutePath(avatar)) {
+    if (hasScheme) {
       issues.push({
         path: `agents.list.${index}.identity.avatar`,
         message: "identity.avatar must be a workspace-relative path, http(s) URL, or data URI.",

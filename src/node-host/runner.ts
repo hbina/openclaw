@@ -46,8 +46,6 @@ export function resolveNodeHostGatewayPlatform(platform: NodeJS.Platform): strin
   switch (platform) {
     case "darwin":
       return "macos";
-    case "win32":
-      return "windows";
     case "linux":
       return "linux";
     default:
@@ -59,8 +57,6 @@ export function resolveNodeHostGatewayDeviceFamily(platform: NodeJS.Platform): s
   switch (platform) {
     case "darwin":
       return "Mac";
-    case "win32":
-      return "Windows";
     case "linux":
       return "Linux";
     default:

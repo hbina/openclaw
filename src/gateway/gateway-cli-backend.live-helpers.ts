@@ -100,7 +100,7 @@ export function resolveCliBackendLiveModelSelection(params: {
 
   if (parsed.provider === "codex-cli") {
     throw new Error(
-      "OPENCLAW_LIVE_CLI_BACKEND_MODEL=codex-cli/... is no longer supported. Use a supported CLI backend such as claude-cli or google-gemini-cli.",
+      "OPENCLAW_LIVE_CLI_BACKEND_MODEL=codex-cli/... is no longer supported. Use a supported CLI backend such as claude-cli.",
     );
   }
   const cliBinding = listCliRuntimeModelBackendBindings({ includeSetupRegistry: true }).find(

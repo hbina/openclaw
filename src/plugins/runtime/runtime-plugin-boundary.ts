@@ -130,7 +130,6 @@ export function loadPluginBoundaryModule<TModule>(
 ): TModule {
   if (isJavaScriptModulePath(modulePath)) {
     const native = tryNativeRequireJavaScriptModule(modulePath, {
-      allowWindows: true,
       fallbackOnNativeError: options.origin !== "bundled",
     });
     if (native.ok) {

@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { isSupportedNodeVersion } from "../infra/runtime-guard.js";
 import { resolveStableNodePath } from "../infra/stable-node-path.js";
-import { getWindowsProgramFilesRoots } from "../infra/windows-install-roots.js";
 
 const VERSION_MANAGER_MARKERS = [
   "/.nvm/",
@@ -22,29 +21,16 @@ const VERSION_MANAGER_MARKERS = [
   "/nvs/",
 ];
 
-function getPathModule(platform: NodeJS.Platform) {
-  return platform === "win32" ? path.win32 : path.posix;
+function isNodeExecPath(execPath: string): boolean {
+  const base = normalizeLowercaseStringOrEmpty(path.posix.basename(execPath));
+  return base === "node";
 }
 
-function isNodeExecPath(execPath: string, platform: NodeJS.Platform): boolean {
-  const pathModule = getPathModule(platform);
-  const base = normalizeLowercaseStringOrEmpty(pathModule.basename(execPath));
-  return base === "node" || base === "node.exe";
+function normalizeForCompare(input: string): string {
+  return path.posix.normalize(input).replaceAll("\\", "/");
 }
 
-function normalizeForCompare(input: string, platform: NodeJS.Platform): string {
-  const pathModule = getPathModule(platform);
-  const normalized = pathModule.normalize(input).replaceAll("\\", "/");
-  if (platform === "win32") {
-    return normalizeLowercaseStringOrEmpty(normalized);
-  }
-  return normalized;
-}
-
-function buildSystemNodeCandidates(
-  env: Record<string, string | undefined>,
-  platform: NodeJS.Platform,
-): string[] {
+function buildSystemNodeCandidates(platform: NodeJS.Platform): string[] {
   // Prefer system package-manager Node paths over shell-managed shims; daemons
   // launch without interactive shell init files.
   if (platform === "darwin") {
@@ -62,12 +48,6 @@ function buildSystemNodeCandidates(
   }
   if (platform === "linux") {
     return ["/usr/local/bin/node", "/usr/bin/node"];
-  }
-  if (platform === "win32") {
-    const pathModule = getPathModule(platform);
-    return getWindowsProgramFilesRoots(env).map((root) =>
-      pathModule.join(root, "nodejs", "node.exe"),
-    );
   }
   return [];
 }
@@ -119,29 +99,30 @@ export function isVersionManagedNodePath(
   nodePath: string,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  const normalized = normalizeLowercaseStringOrEmpty(normalizeForCompare(nodePath, platform));
+  void platform;
+  const normalized = normalizeLowercaseStringOrEmpty(normalizeForCompare(nodePath));
   return VERSION_MANAGER_MARKERS.some((marker) => normalized.includes(marker));
 }
 
 /** True when a Node path matches known system install candidates for the platform. */
 export function isSystemNodePath(
   nodePath: string,
-  env: Record<string, string | undefined> = process.env,
+  _env: Record<string, string | undefined> = process.env,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  const normalized = normalizeForCompare(nodePath, platform);
-  return buildSystemNodeCandidates(env, platform).some((candidate) => {
-    const normalizedCandidate = normalizeForCompare(candidate, platform);
+  const normalized = normalizeForCompare(nodePath);
+  return buildSystemNodeCandidates(platform).some((candidate) => {
+    const normalizedCandidate = normalizeForCompare(candidate);
     return normalized === normalizedCandidate;
   });
 }
 
 /** Resolves the first available system Node candidate for the platform. */
 export async function resolveSystemNodePath(
-  env: Record<string, string | undefined> = process.env,
+  _env: Record<string, string | undefined> = process.env,
   platform: NodeJS.Platform = process.platform,
 ): Promise<string | null> {
-  const candidates = buildSystemNodeCandidates(env, platform);
+  const candidates = buildSystemNodeCandidates(platform);
   for (const candidate of candidates) {
     try {
       await fs.access(candidate);
@@ -159,11 +140,10 @@ export async function resolveSystemNodeInfo(params: {
   platform?: NodeJS.Platform;
   execFile?: ExecFileAsync;
 }): Promise<SystemNodeInfo | null> {
-  const env = params.env ?? process.env;
   const platform = params.platform ?? process.platform;
   const execFileImpl = params.execFile ?? execFileAsync;
   let firstAvailable: SystemNodeInfo | null = null;
-  for (const systemNode of buildSystemNodeCandidates(env, platform)) {
+  for (const systemNode of buildSystemNodeCandidates(platform)) {
     try {
       await fs.access(systemNode);
     } catch {
@@ -215,7 +195,7 @@ export async function resolvePreferredNodePath(params: {
   const platform = params.platform ?? process.platform;
   const currentExecPath = params.execPath ?? process.execPath;
   const execFileImpl = params.execFile ?? execFileAsync;
-  if (currentExecPath && isNodeExecPath(currentExecPath, platform)) {
+  if (currentExecPath && isNodeExecPath(currentExecPath)) {
     const version = await resolveNodeVersion(currentExecPath, execFileImpl);
     if (isSupportedNodeVersion(version)) {
       const stableCurrentPath = await resolveStableNodePath(currentExecPath);

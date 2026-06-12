@@ -10,7 +10,6 @@ export {
   isPathInsideWithRealpath,
   isSymlinkOpenError,
   isWithinDir,
-  normalizeWindowsPathForComparison,
   resolveSafeBaseDir,
   resolveSafeRelativePath,
   safeRealpathSync,

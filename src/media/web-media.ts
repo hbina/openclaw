@@ -15,7 +15,7 @@ import { uniqueValues } from "@openclaw/normalization-core/string-normalization"
 import { logVerbose, shouldLogVerbose } from "../globals.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { FsSafeError, readLocalFileSafely } from "../infra/fs-safe.js";
-import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../infra/local-file-access.js";
+import { safeFileURLToPath } from "../infra/local-file-access.js";
 import type { PinnedDispatcherPolicy, SsrFPolicy } from "../infra/net/ssrf.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { getActivePluginRegistry } from "../plugins/runtime.js";
@@ -141,7 +141,6 @@ function resolveWebMediaOptions(params: {
 
 const HEIC_MIME_RE = /^image\/hei[cf]$/i;
 const HEIC_EXT_RE = /\.(heic|heif)$/i;
-const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/;
 const HOST_READ_ALLOWED_DOCUMENT_MIMES = new Set([
   "application/msword",
   "application/pdf",
@@ -250,7 +249,7 @@ function decodeHostReadText(buffer: Buffer): string | undefined {
     if (!hasSingleByteTextShape(buffer)) {
       return undefined;
     }
-    // WHATWG latin1 decodes common Excel-style single-byte exports via Windows-1252 mapping.
+    // WHATWG latin1 decodes common Excel-style single-byte exports via CP1252 mapping.
     return new TextDecoder("latin1").decode(buffer);
   }
 }
@@ -997,15 +996,8 @@ async function loadWebMediaInternal(
   if (mediaUrl.startsWith("~")) {
     mediaUrl = resolveUserPath(mediaUrl);
   }
-  if (workspaceDir && !path.isAbsolute(mediaUrl) && !WINDOWS_DRIVE_RE.test(mediaUrl)) {
+  if (workspaceDir && !path.isAbsolute(mediaUrl)) {
     mediaUrl = path.resolve(workspaceDir, mediaUrl);
-  }
-  try {
-    assertNoWindowsNetworkPath(mediaUrl, "Local media path");
-  } catch (err) {
-    throw new LocalMediaAccessError("network-path-not-allowed", (err as Error).message, {
-      cause: err,
-    });
   }
 
   if ((sandboxValidated || localRoots === "any") && !readFileOverride) {

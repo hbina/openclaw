@@ -48,8 +48,7 @@ function resolveNodeVersions(node: {
   }
   const platform = normalizeOptionalLowercaseString(node.platform) ?? "";
   // Legacy nodes reported one version field; headless hosts use it as core, mobile nodes as UI.
-  const headless =
-    platform === "darwin" || platform === "linux" || platform === "win32" || platform === "windows";
+  const headless = platform === "darwin" || platform === "linux";
   return headless ? { core: legacy, ui: undefined } : { core: undefined, ui: legacy };
 }
 

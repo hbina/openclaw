@@ -1050,10 +1050,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       const resolved = path.isAbsolute(value)
         ? path.resolve(value)
         : path.resolve(this.workspaceDir, value);
-      const normalized = path.normalize(resolved);
-      return process.platform === "win32"
-        ? normalizeLowercaseStringOrEmpty(normalized)
-        : normalized;
+      return path.normalize(resolved);
     };
     return normalize(left) === normalize(right);
   }
@@ -1923,13 +1920,7 @@ export class QmdMemoryManager implements MemorySearchManager {
     // spawn) overrides XDG_CACHE_HOME.  So reading it here gives us the
     // user's original value, which is where `qmd` downloaded its models.
     //
-    // On Windows, well-behaved apps (including Rust `dirs` / Go os.UserCacheDir)
-    // store caches under %LOCALAPPDATA% rather than ~/.cache.  Fall back to
-    // LOCALAPPDATA when XDG_CACHE_HOME is not set on Windows.
-    const defaultCacheHome =
-      process.env.XDG_CACHE_HOME ||
-      (process.platform === "win32" ? process.env.LOCALAPPDATA : undefined) ||
-      path.join(os.homedir(), ".cache");
+    const defaultCacheHome = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
     const defaultModelsDir = path.join(defaultCacheHome, "qmd", "models");
     const targetModelsDir = path.join(this.xdgCacheHome, "qmd", "models");
     try {
@@ -1952,20 +1943,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       } catch {
         // Does not exist – proceed to create symlink
       }
-      // On Windows, creating directory symlinks requires either Administrator
-      // privileges or Developer Mode.  Fall back to a directory junction which
-      // works without elevated privileges (junctions are always absolute-path,
-      // which is fine here since both paths are already absolute).
-      try {
-        await fs.symlink(defaultModelsDir, targetModelsDir, "dir");
-      } catch (symlinkErr: unknown) {
-        const code = (symlinkErr as NodeJS.ErrnoException).code;
-        if (process.platform === "win32" && (code === "EPERM" || code === "ENOTSUP")) {
-          await fs.symlink(defaultModelsDir, targetModelsDir, "junction");
-        } else {
-          throw symlinkErr;
-        }
-      }
+      await fs.symlink(defaultModelsDir, targetModelsDir, "dir");
       log.debug(`symlinked qmd models: ${defaultModelsDir} → ${targetModelsDir}`);
     } catch (err) {
       // Non-fatal: if we can't symlink, qmd will fall back to downloading

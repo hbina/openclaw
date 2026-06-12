@@ -145,26 +145,16 @@ export function resolveRuntimePlatform(): string {
   return process.platform;
 }
 
-function windowsPathExtensions(): string[] {
-  const raw = process.env.PATHEXT;
-  const list =
-    raw !== undefined ? raw.split(";").map((v) => v.trim()) : [".EXE", ".CMD", ".BAT", ".COM"];
-  return ["", ...list.filter(Boolean)];
-}
-
 let cachedHasBinaryPath: string | undefined;
-let cachedHasBinaryPathExt: string | undefined;
 const hasBinaryCache = new Map<string, boolean>();
 
-/** Checks PATH for an executable binary, including PATHEXT candidates on Windows. */
+/** Checks PATH for an executable binary. */
 export function hasBinary(bin: string): boolean {
   const pathEnv = process.env.PATH ?? "";
-  const pathExt = process.platform === "win32" ? (process.env.PATHEXT ?? "") : "";
-  if (cachedHasBinaryPath !== pathEnv || cachedHasBinaryPathExt !== pathExt) {
-    // PATH/PATHEXT changes invalidate all cached binary probes; keeping stale misses
+  if (cachedHasBinaryPath !== pathEnv) {
+    // PATH changes invalidate all cached binary probes; keeping stale misses
     // would make newly installed tools invisible until process restart.
     cachedHasBinaryPath = pathEnv;
-    cachedHasBinaryPathExt = pathExt;
     hasBinaryCache.clear();
   }
   if (hasBinaryCache.has(bin)) {
@@ -172,17 +162,14 @@ export function hasBinary(bin: string): boolean {
   }
 
   const parts = pathEnv.split(path.delimiter).filter(Boolean);
-  const extensions = process.platform === "win32" ? windowsPathExtensions() : [""];
   for (const part of parts) {
-    for (const ext of extensions) {
-      const candidate = path.join(part, bin + ext);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        hasBinaryCache.set(bin, true);
-        return true;
-      } catch {
-        // keep scanning
-      }
+    const candidate = path.join(part, bin);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      hasBinaryCache.set(bin, true);
+      return true;
+    } catch {
+      // keep scanning
     }
   }
   hasBinaryCache.set(bin, false);

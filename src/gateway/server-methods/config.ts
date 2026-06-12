@@ -167,26 +167,10 @@ function sanitizeLookupPathForLog(path: string): string {
   return sanitized.length > 120 ? `${sanitized.slice(0, 117)}...` : sanitized;
 }
 
-function escapePowerShellSingleQuotedString(value: string): string {
-  return value.replaceAll("'", "''");
-}
-
 export function resolveConfigOpenCommand(
   configPath: string,
   platform: NodeJS.Platform = process.platform,
 ): ConfigOpenCommand {
-  if (platform === "win32") {
-    // Use a PowerShell string literal so the path stays data, not code.
-    return {
-      command: "powershell.exe",
-      args: [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Start-Process -LiteralPath '${escapePowerShellSingleQuotedString(configPath)}'`,
-      ],
-    };
-  }
   return {
     command: platform === "darwin" ? "open" : "xdg-open",
     args: [configPath],

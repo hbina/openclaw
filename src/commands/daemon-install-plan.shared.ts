@@ -58,16 +58,8 @@ export function resolveDaemonNodeBinDir(nodePath?: string): string[] | undefined
   return [path.dirname(trimmed)];
 }
 
-function isOpenClawCommandBasename(basename: string, platform: NodeJS.Platform): boolean {
-  if (basename === "openclaw") {
-    return true;
-  }
-  if (platform === "win32") {
-    return (
-      basename === "openclaw.cmd" || basename === "openclaw.ps1" || basename === "openclaw.exe"
-    );
-  }
-  return false;
+function isOpenClawCommandBasename(basename: string): boolean {
+  return basename === "openclaw";
 }
 
 function safeRealpathSync(
@@ -101,7 +93,6 @@ export function resolveDaemonOpenClawBinDir(
     realpathSync?: (path: string) => string;
   } = {},
 ): string[] | undefined {
-  const platform = params.platform ?? process.platform;
   const argv = params.argv ?? process.argv;
   const env = params.env ?? process.env;
   const existsSync = params.existsSync ?? fs.existsSync;
@@ -109,11 +100,7 @@ export function resolveDaemonOpenClawBinDir(
   const argv1 = argv[1]?.trim();
   const dirs: string[] = [];
 
-  if (
-    argv1 &&
-    path.isAbsolute(argv1) &&
-    isOpenClawCommandBasename(path.basename(argv1), platform)
-  ) {
+  if (argv1 && path.isAbsolute(argv1) && isOpenClawCommandBasename(path.basename(argv1))) {
     addUniquePathDir(dirs, path.dirname(argv1));
   }
 
@@ -125,7 +112,7 @@ export function resolveDaemonOpenClawBinDir(
     if (!path.isAbsolute(segment)) {
       continue;
     }
-    const candidate = path.join(segment, platform === "win32" ? "openclaw.cmd" : "openclaw");
+    const candidate = path.join(segment, "openclaw");
     if (!existsSync(candidate)) {
       continue;
     }

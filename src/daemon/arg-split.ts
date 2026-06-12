@@ -35,7 +35,7 @@ export function splitArgsPreservingQuotes(
       i + 1 < value.length &&
       value[i + 1] === '"'
     ) {
-      // Windows cmd scripts escape only renderer-inserted quotes here; paths keep
+      // scripts escape only renderer-inserted quotes here; paths keep
       // their backslashes literal.
       current += '"';
       i++;

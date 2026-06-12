@@ -231,7 +231,7 @@ type NativeHookRelaySharedState = {
   invocations: NativeHookRelayInvocation[];
   pendingPermissionApprovals: Map<string, Promise<NativeHookRelayPermissionApprovalResult>>;
   pendingPreToolUseApprovals: Map<string, NativeHookRelayPreToolUseApproval>;
-  permissionApprovalWindows: Map<string, number[]>;
+  permissionApprovalPeriods: Map<string, number[]>;
   permissionAllowAlwaysApprovals: Map<string, { expiresAtMs: number }>;
 };
 
@@ -255,7 +255,7 @@ function getNativeHookRelaySharedState(): NativeHookRelaySharedState {
     invocations: [],
     pendingPermissionApprovals: new Map<string, Promise<NativeHookRelayPermissionApprovalResult>>(),
     pendingPreToolUseApprovals: new Map<string, NativeHookRelayPreToolUseApproval>(),
-    permissionApprovalWindows: new Map<string, number[]>(),
+    permissionApprovalPeriods: new Map<string, number[]>(),
     permissionAllowAlwaysApprovals: new Map<string, { expiresAtMs: number }>(),
   };
   return globalRecord[NATIVE_HOOK_RELAY_STATE_SYMBOL];
@@ -267,7 +267,7 @@ const relayBridges = nativeHookRelayState.relayBridges;
 const invocations = nativeHookRelayState.invocations;
 const pendingPermissionApprovals = nativeHookRelayState.pendingPermissionApprovals;
 const pendingPreToolUseApprovals = nativeHookRelayState.pendingPreToolUseApprovals;
-const permissionApprovalWindows = nativeHookRelayState.permissionApprovalWindows;
+const permissionApprovalPeriods = nativeHookRelayState.permissionApprovalPeriods;
 const permissionAllowAlwaysApprovals = nativeHookRelayState.permissionAllowAlwaysApprovals;
 
 type NativeHookRelayPermissionApprovalRequest = {
@@ -509,7 +509,7 @@ function normalizeRelayGeneration(value: string | undefined): string | undefined
 }
 
 function resolveNativeHookRelayNicePrefix(value: number | false | undefined): string[] {
-  if (process.platform === "win32" || value === false || value === undefined) {
+  if (value === false || value === undefined) {
     return [];
   }
   const nice = normalizePositiveInteger(value, 0);
@@ -1305,7 +1305,7 @@ function ensureNativeHookRelayBridgeDir(): string {
   if (expectedUid !== undefined && stats.uid !== expectedUid) {
     throw new Error("unsafe native hook relay bridge directory owner");
   }
-  if (process.platform !== "win32" && (stats.mode & 0o077) !== 0) {
+  if ((stats.mode & 0o077) !== 0) {
     chmodSync(bridgeDir, 0o700);
     const repaired = lstatSync(bridgeDir);
     if ((repaired.mode & 0o077) !== 0) {
@@ -1697,15 +1697,15 @@ function readBoundedOwnKeys(
 
 function consumeNativeHookRelayPermissionBudget(relayId: string, now = Date.now()): boolean {
   const windowStart = now - PERMISSION_APPROVAL_WINDOW_MS;
-  const timestamps = (permissionApprovalWindows.get(relayId) ?? []).filter(
+  const timestamps = (permissionApprovalPeriods.get(relayId) ?? []).filter(
     (timestamp) => timestamp >= windowStart,
   );
   if (timestamps.length >= MAX_PERMISSION_APPROVALS_PER_WINDOW) {
-    permissionApprovalWindows.set(relayId, timestamps);
+    permissionApprovalPeriods.set(relayId, timestamps);
     return false;
   }
   timestamps.push(now);
-  permissionApprovalWindows.set(relayId, timestamps);
+  permissionApprovalPeriods.set(relayId, timestamps);
   return true;
 }
 
@@ -1760,7 +1760,7 @@ function pruneNativeHookRelayPermissionAllowAlways(now = Date.now()): void {
 }
 
 function removeNativeHookRelayPermissionState(relayId: string): void {
-  permissionApprovalWindows.delete(relayId);
+  permissionApprovalPeriods.delete(relayId);
   for (const key of pendingPermissionApprovals.keys()) {
     if (key.startsWith(`${relayId}:`)) {
       pendingPermissionApprovals.delete(key);
@@ -2158,15 +2158,12 @@ function normalizePositiveInteger(value: number | undefined, fallback: number): 
 }
 
 function shellQuoteArgs(args: readonly string[]): string {
-  return args.map((arg) => shellQuoteArg(arg, process.platform)).join(" ");
+  return args.map((arg) => shellQuoteArg(arg)).join(" ");
 }
 
-function shellQuoteArg(value: string, platform: NodeJS.Platform): string {
+function shellQuoteArg(value: string): string {
   if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) {
     return value;
-  }
-  if (platform === "win32") {
-    return `"${value.replaceAll('"', '\\"')}"`;
   }
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -2300,7 +2297,7 @@ export const testing = {
       cancelDeferredPluginToolApproval(pendingApproval.deferredApproval);
     }
     pendingPreToolUseApprovals.clear();
-    permissionApprovalWindows.clear();
+    permissionApprovalPeriods.clear();
     permissionAllowAlwaysApprovals.clear();
     nativeHookRelayPermissionApprovalRequester = requestNativeHookRelayPermissionApproval;
     nativeHookRelayDeferredToolApprovalRequester = requestDeferredPluginToolApproval;

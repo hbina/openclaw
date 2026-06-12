@@ -522,7 +522,7 @@ export async function runGatewayCommand(opts: GatewayRunOpts) {
 
   // The heaviest part of gateway startup is loading the server module tree
   // (channels, plugins, HTTP stack, etc.). Show a spinner so the user sees
-  // progress instead of a silent 15-20 s pause (especially on Windows/NTFS).
+  // progress instead of a silent 15-20 s pause (on slower filesystems).
   const { startGatewayServer } = await startupTrace.measure("cli.server-import", () =>
     withProgress(
       { label: "Loading gateway modules…", indeterminate: true },

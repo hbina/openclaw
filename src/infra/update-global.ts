@@ -17,7 +17,6 @@ import {
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
 import { readPackageVersion } from "./package-json.js";
-import { applyPathPrepend } from "./path-prepend.js";
 import { parseSemver } from "./runtime-guard.js";
 
 /** Supported package managers for OpenClaw global install and update flows. */
@@ -332,40 +331,6 @@ export function canResolveRegistryVersionForPackageTarget(value: string): boolea
   return !isMainPackageTarget(trimmed) && !isExplicitPackageInstallSpec(trimmed);
 }
 
-async function resolvePortableGitPathPrepend(): Promise<string[]> {
-  if (process.platform !== "win32") {
-    return [];
-  }
-  const localAppData = process.env.LOCALAPPDATA?.trim();
-  if (!localAppData) {
-    return [];
-  }
-  const portableGitRoot = path.join(localAppData, "OpenClaw", "deps", "portable-git");
-  const candidates = [
-    path.join(portableGitRoot, "mingw64", "bin"),
-    path.join(portableGitRoot, "usr", "bin"),
-    path.join(portableGitRoot, "cmd"),
-    path.join(portableGitRoot, "bin"),
-  ];
-  const existing: string[] = [];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) {
-      existing.push(candidate);
-    }
-  }
-  return existing;
-}
-
-function applyWindowsPackageInstallEnv(env: Record<string, string>) {
-  if (process.platform !== "win32") {
-    return;
-  }
-  env.NPM_CONFIG_UPDATE_NOTIFIER = "false";
-  env.NPM_CONFIG_FUND = "false";
-  env.NPM_CONFIG_AUDIT = "false";
-  env.NODE_LLAMA_CPP_SKIP_DOWNLOAD = "1";
-}
-
 function applyCorepackDownloadPromptEnv(env: Record<string, string>) {
   const current = env.COREPACK_ENABLE_DOWNLOAD_PROMPT?.trim();
   if (!current) {
@@ -406,15 +371,12 @@ export function resolveGlobalInstallSpec(params: {
 export async function createGlobalInstallEnv(
   env?: NodeJS.ProcessEnv,
 ): Promise<NodeJS.ProcessEnv | undefined> {
-  const pathPrepend = await resolvePortableGitPathPrepend();
   const sourceEnv = env ?? process.env;
   const merged = Object.fromEntries(
     Object.entries(sourceEnv)
       .filter(([, value]) => value != null)
       .map(([key, value]) => [key, String(value)]),
   ) as Record<string, string>;
-  applyPathPrepend(merged, pathPrepend);
-  applyWindowsPackageInstallEnv(merged);
   applyCorepackDownloadPromptEnv(merged);
   applyNpmFreshnessBypassEnv(merged);
   applyPosixNpmScriptShellEnv(merged);
@@ -448,12 +410,6 @@ function inferNpmPrefixFromPackageRoot(pkgRoot?: string | null): string | null {
   if (path.basename(parentDir) === "lib") {
     return path.dirname(parentDir);
   }
-  if (
-    process.platform === "win32" &&
-    normalizeLowercaseStringOrEmpty(path.basename(parentDir)) === "npm"
-  ) {
-    return parentDir;
-  }
   return null;
 }
 
@@ -482,13 +438,6 @@ export function resolveNpmGlobalPrefixLayoutFromGlobalRoot(
       binDir: path.join(prefix, "bin"),
     };
   }
-  if (process.platform === "win32") {
-    return {
-      prefix: parentDir,
-      globalRoot: normalized,
-      binDir: parentDir,
-    };
-  }
   if (options.allowDirectNodeModulesRoot) {
     return {
       prefix: parentDir,
@@ -505,13 +454,6 @@ export function resolveNpmGlobalPrefixLayoutFromGlobalRoot(
  */
 export function resolveNpmGlobalPrefixLayoutFromPrefix(prefix: string): NpmGlobalPrefixLayout {
   const resolvedPrefix = path.resolve(prefix);
-  if (process.platform === "win32") {
-    return {
-      prefix: resolvedPrefix,
-      globalRoot: path.join(resolvedPrefix, "node_modules"),
-      binDir: resolvedPrefix,
-    };
-  }
   return {
     prefix: resolvedPrefix,
     globalRoot: path.join(resolvedPrefix, "lib", "node_modules"),
@@ -524,8 +466,7 @@ function resolvePreferredNpmCommand(pkgRoot?: string | null): string | null {
   if (!prefix) {
     return null;
   }
-  const candidate =
-    process.platform === "win32" ? path.join(prefix, "npm.cmd") : path.join(prefix, "bin", "npm");
+  const candidate = path.join(prefix, "bin", "npm");
   return fsSync.existsSync(candidate) ? candidate : null;
 }
 

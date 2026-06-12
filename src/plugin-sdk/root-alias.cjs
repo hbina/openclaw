@@ -324,8 +324,7 @@ function listPluginSdkRootAliasSubpaths() {
 function buildPluginSdkAliasMap(useDist) {
   const packageRoot = getPackageRoot();
   const pluginSdkDir = path.join(packageRoot, useDist ? "dist" : "src", "plugin-sdk");
-  const normalizeTarget = (target) =>
-    process.platform === "win32" ? target.replace(/\\/g, "/") : target;
+  const normalizeTarget = (target) => target;
   const aliasMap = {};
 
   for (const subpath of listPluginSdkRootAliasSubpaths()) {

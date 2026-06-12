@@ -47,7 +47,6 @@ const CAPTURE_ENV_NAMES = new Set([
   "HOME",
   "OPENCLAW_SHELL",
   "SHELL",
-  "USERPROFILE",
   "ZDOTDIR",
 ]);
 const SECRET_ENV_PATTERN = /(secret|token|password|passwd|credential|cookie|session|auth|key)/i;
@@ -81,7 +80,6 @@ export async function maybeWrapCommandWithShellSnapshot(
   opts: ShellSnapshotWrapOptions,
 ): Promise<string> {
   if (
-    process.platform === "win32" ||
     isExecShellSnapshotDisabled(process.env) ||
     !isSupportedSnapshotShell(opts.shell, opts.shellArgs)
   ) {
@@ -184,7 +182,7 @@ function buildStartupSignature(shell: string): Array<[string, number, number] | 
 }
 
 function getTrustedShellHome(): string {
-  return process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
+  return process.env.HOME ?? os.homedir();
 }
 
 async function createShellSnapshot(
@@ -444,10 +442,9 @@ async function runShell(opts: {
   return await new Promise((resolve) => {
     const child = spawn(opts.shell, [...opts.shellArgs, opts.command], {
       cwd: opts.cwd,
-      detached: process.platform !== "win32",
+      detached: true,
       env: opts.env,
       stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
     });
     let stdout = "";
     let settled = false;

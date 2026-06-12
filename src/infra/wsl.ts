@@ -1,4 +1,4 @@
-// Detects Windows Subsystem for Linux environments.
+// Detects WSL environments.
 import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";

@@ -155,7 +155,7 @@ function resolveDefaultGitDir(): string {
 /** Prefer the current Node executable, falling back to `node` when run through another shim. */
 export function resolveNodeRunner(): string {
   const base = normalizeLowercaseStringOrEmpty(path.basename(process.execPath));
-  if (base === "node" || base === "node.exe") {
+  if (base === "node") {
     return process.execPath;
   }
   return "node";

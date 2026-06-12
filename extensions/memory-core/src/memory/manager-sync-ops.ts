@@ -582,7 +582,7 @@ export abstract class MemoryManagerSyncOps {
       this.scheduleWatchSync();
     };
     // Native recursive fs.watch for directory paths — one watcher per
-    // directory on macOS (FSEvents) and Windows (ReadDirectoryChangesW).
+    // directory on macOS (FSEvents).
     // Avoids chokidar's per-file fs.watch fan-out on large memory trees.
     //
     // Linux is intentionally handled by a separate directory-tree watcher
@@ -594,7 +594,7 @@ export abstract class MemoryManagerSyncOps {
     // On any other native creation failure (e.g. unsupported filesystem,
     // ERR_FEATURE_UNAVAILABLE_ON_PLATFORM) the directory also falls back to
     // chokidar so freshness is preserved on the degraded path.
-    const nativeRecursiveSupported = process.platform === "darwin" || process.platform === "win32";
+    const nativeRecursiveSupported = process.platform === "darwin";
     for (const dir of dirWatchPaths) {
       const attached = nativeRecursiveSupported
         ? this.attachNativeMemoryWatchForDir(dir, markDirty)

@@ -623,7 +623,7 @@ export async function runConfigureWizard(
       if (channelMode === "configure") {
         nextConfig = await setupChannels(nextConfig, runtime, prompter, {
           allowDisable: true,
-          allowSignalInstall: true,
+          allowSignalInstall: false,
           deferStatusUntilSelection: true,
           skipConfirm: true,
           skipStatusNote: true,

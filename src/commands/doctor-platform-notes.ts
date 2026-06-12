@@ -265,9 +265,6 @@ export function noteStartupOptimizationHints(
   },
 ) {
   const platform = deps?.platform ?? process.platform;
-  if (platform === "win32") {
-    return;
-  }
   const arch = deps?.arch ?? os.arch();
   const totalMemBytes = deps?.totalMemBytes ?? os.totalmem();
   const isArmHost = arch === "arm" || arch === "arm64";

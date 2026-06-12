@@ -9,7 +9,6 @@ import {
 import {
   resolveNodeLaunchAgentLabel,
   resolveNodeSystemdServiceName,
-  resolveNodeWindowsTaskName,
 } from "../../daemon/constants.js";
 import { resolveNodeService } from "../../daemon/node-service.js";
 import {
@@ -63,7 +62,6 @@ function renderNodeServiceStartHints(): string[] {
     startCommand: formatCliCommand("openclaw node start"),
     launchAgentPlistPath: `~/Library/LaunchAgents/${resolveNodeLaunchAgentLabel()}.plist`,
     systemdServiceName: resolveNodeSystemdServiceName(),
-    windowsTaskName: resolveNodeWindowsTaskName(),
   });
 }
 
@@ -71,7 +69,6 @@ function buildNodeRuntimeHints(env: NodeJS.ProcessEnv = process.env): string[] {
   return buildPlatformRuntimeLogHints({
     env,
     systemdServiceName: resolveNodeSystemdServiceName(),
-    windowsTaskName: resolveNodeWindowsTaskName(),
   });
 }
 

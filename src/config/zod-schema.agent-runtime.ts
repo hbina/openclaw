@@ -50,7 +50,7 @@ function validateSandboxBindEntries(
         path: ["binds", i],
         message:
           `Sandbox security: bind mount "${bind}" uses a non-absolute source path "${source}". ` +
-          "Only absolute POSIX or Windows drive-letter paths are supported for sandbox binds.",
+          "Only absolute POSIX paths are supported for sandbox binds.",
       });
     }
   }

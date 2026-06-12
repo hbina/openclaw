@@ -192,8 +192,7 @@ function isCronRunGeneratedRecord(record: unknown): boolean {
 }
 
 function normalizeComparablePath(pathname: string): string {
-  const resolved = path.resolve(pathname);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return path.resolve(pathname);
 }
 
 export function normalizeSessionTranscriptPathForComparison(pathname: string): string {

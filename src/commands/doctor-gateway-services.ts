@@ -56,10 +56,10 @@ function detectGatewayRuntime(programArguments: string[] | undefined): GatewayDa
   const first = programArguments?.[0];
   if (first) {
     const base = normalizeLowercaseStringOrEmpty(path.basename(first));
-    if (base === "bun" || base === "bun.exe") {
+    if (base === "bun") {
       return "bun";
     }
-    if (base === "node" || base === "node.exe") {
+    if (base === "node") {
       return "node";
     }
   }

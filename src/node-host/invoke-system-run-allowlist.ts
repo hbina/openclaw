@@ -140,7 +140,6 @@ export function resolveSystemRunExecArgv(params: {
   trustedSafeBinDirs: ReturnType<typeof resolveExecSafeBinRuntimePolicy>["trustedSafeBinDirs"];
   skillBins: SkillBinTrustEntry[];
   autoAllowSkills: boolean;
-  isWindows: boolean;
   policy: {
     approvedByAsk: boolean;
     analysisOk: boolean;
@@ -155,20 +154,6 @@ export function resolveSystemRunExecArgv(params: {
   let execArgv = params.plannedAllowlistArgv ?? params.argv;
   if (
     params.security === "allowlist" &&
-    params.isWindows &&
-    !params.policy.approvedByAsk &&
-    params.shellCommand &&
-    params.policy.analysisOk &&
-    params.policy.allowlistSatisfied &&
-    params.segments.length === 1 &&
-    params.segments[0]?.argv.length > 0
-  ) {
-    // Windows shell transports expose a parsed argv segment that is safer than the wrapper argv.
-    execArgv = params.segments[0].argv;
-  }
-  if (
-    params.security === "allowlist" &&
-    !params.isWindows &&
     !params.policy.approvedByAsk &&
     params.shellCommand &&
     params.policy.analysisOk &&

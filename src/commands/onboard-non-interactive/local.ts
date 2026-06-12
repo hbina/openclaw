@@ -34,26 +34,14 @@ import { resolveNonInteractiveWorkspaceDir } from "./local/workspace.js";
 const INSTALL_DAEMON_HEALTH_DEADLINE_MS = 45_000;
 const ATTACH_EXISTING_GATEWAY_HEALTH_DEADLINE_MS = 15_000;
 const INSTALL_DAEMON_HEALTH_PROBE_TIMEOUT_MS = 10_000;
-const WINDOWS_INSTALL_DAEMON_HEALTH_DEADLINE_MS = 90_000;
-const WINDOWS_INSTALL_DAEMON_HEALTH_PROBE_TIMEOUT_MS = 15_000;
 const INSTALL_DAEMON_HEALTH_COMMAND_TIMEOUT_MS = 10_000;
-const WINDOWS_INSTALL_DAEMON_HEALTH_COMMAND_TIMEOUT_MS = 90_000;
 
-/** Returns platform-specific health timing for managed daemon installs. */
-export function resolveInstallDaemonGatewayHealthTiming(
-  platform: NodeJS.Platform = process.platform,
-): {
+/** Returns health timing for managed daemon installs. */
+export function resolveInstallDaemonGatewayHealthTiming(): {
   deadlineMs: number;
   probeTimeoutMs: number;
   healthCommandTimeoutMs: number;
 } {
-  if (platform === "win32") {
-    return {
-      deadlineMs: WINDOWS_INSTALL_DAEMON_HEALTH_DEADLINE_MS,
-      probeTimeoutMs: WINDOWS_INSTALL_DAEMON_HEALTH_PROBE_TIMEOUT_MS,
-      healthCommandTimeoutMs: WINDOWS_INSTALL_DAEMON_HEALTH_COMMAND_TIMEOUT_MS,
-    };
-  }
   return {
     deadlineMs: INSTALL_DAEMON_HEALTH_DEADLINE_MS,
     probeTimeoutMs: INSTALL_DAEMON_HEALTH_PROBE_TIMEOUT_MS,
@@ -344,9 +332,6 @@ export async function runNonInteractiveLocalSetup(params: {
           ? [
               "Non-interactive local setup only waits for an already-running gateway unless you pass --install-daemon.",
               `Fix: start \`${formatCliCommand("openclaw gateway run")}\`, re-run with \`--install-daemon\`, or use \`--skip-health\`.`,
-              process.platform === "win32"
-                ? "Native Windows managed gateway install tries Scheduled Tasks first and falls back to a per-user Startup-folder login item when task creation is denied."
-                : undefined,
             ].filter((value): value is string => Boolean(value))
           : [`Run \`${formatCliCommand("openclaw gateway status --deep")}\` for more detail.`],
       });

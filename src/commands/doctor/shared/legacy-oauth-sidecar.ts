@@ -156,17 +156,6 @@ function uniquePaths(paths: Array<string | undefined>): string[] {
 }
 
 function resolveLegacyOAuthSecretKeyFileCandidates(env: NodeJS.ProcessEnv): string[] {
-  if (process.platform === "win32") {
-    const home = env.USERPROFILE?.trim() || os.homedir();
-    const root = env.APPDATA?.trim() || (home ? path.join(home, "AppData", "Roaming") : undefined);
-    return uniquePaths([
-      root ? path.join(root, "OpenClaw", LEGACY_OAUTH_SECRET_KEY_FILE_NAME) : undefined,
-      home
-        ? path.join(home, ".openclaw-auth-profile-secrets", LEGACY_OAUTH_SECRET_KEY_FILE_NAME)
-        : undefined,
-    ]);
-  }
-
   if (process.platform === "darwin") {
     const home = env.HOME?.trim() || os.homedir();
     return uniquePaths([

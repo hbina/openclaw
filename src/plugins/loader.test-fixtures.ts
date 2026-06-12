@@ -12,9 +12,6 @@ export type PluginLoadConfig = NonNullable<Parameters<typeof loadOpenClawPlugins
 export type PluginRegistry = ReturnType<typeof loadOpenClawPlugins>;
 
 function chmodSafeDir(dir: string) {
-  if (process.platform === "win32") {
-    return;
-  }
   fs.chmodSync(dir, 0o755);
 }
 

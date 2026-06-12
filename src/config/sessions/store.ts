@@ -715,39 +715,6 @@ async function saveSessionStoreUnlocked(
     return;
   }
 
-  // Windows: keep retry semantics because rename can fail while readers hold locks.
-  if (process.platform === "win32") {
-    for (let i = 0; i < 5; i++) {
-      try {
-        await writeSessionStoreAtomic({
-          storePath,
-          store,
-          serialized: json,
-          serializedPromptRefs: promptRefs,
-          cloneSerialized,
-          promptBlobs,
-          takeOwnership: opts?.takeCacheOwnership,
-        });
-        return;
-      } catch (err) {
-        const code = getErrorCode(err);
-        if (code === "ENOENT") {
-          return;
-        }
-        if (i < 4) {
-          await new Promise((r) => {
-            setTimeout(r, 50 * (i + 1));
-          });
-          continue;
-        }
-        // Final attempt failed - skip this save. The writer queue ensures
-        // the next save will retry with fresh data. Log for diagnostics.
-        log.warn(`atomic write failed after 5 attempts: ${storePath}`);
-      }
-    }
-    return;
-  }
-
   try {
     await writeSessionStoreAtomic({
       storePath,

@@ -11,7 +11,6 @@ const PLATFORM_VARIANTS: Readonly<Record<string, PlatformVariant | undefined>> =
   "linux-arm64": { pkg: "sqlite-vec-linux-arm64", file: "vec0.so" },
   "darwin-x64": { pkg: "sqlite-vec-darwin-x64", file: "vec0.dylib" },
   "darwin-arm64": { pkg: "sqlite-vec-darwin-arm64", file: "vec0.dylib" },
-  "win32-x64": { pkg: "sqlite-vec-windows-x64", file: "vec0.dll" },
 };
 
 /** Resolve the installed sqlite-vec native extension for the current platform if present. */

@@ -7,13 +7,9 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { isInterpreterLikeAllowlistPattern } from "./command-analysis/inline-eval.js";
 import { detectInlineEvalArgv } from "./command-analysis/risks.js";
-import {
-  isDispatchWrapperExecutable,
-  unwrapDispatchWrappersForResolution,
-} from "./dispatch-wrapper-resolution.js";
+import { isDispatchWrapperExecutable } from "./dispatch-wrapper-resolution.js";
 import {
   analyzeShellCommand,
-  isWindowsPlatform,
   matchAllowlist,
   resolveExecutableTrustPath,
   resolveExecutionTargetCandidatePath,
@@ -42,16 +38,10 @@ import {
   extractBindableShellWrapperInlineCommand,
   isShellWrapperExecutable,
   normalizeExecutableToken,
-  POWERSHELL_WRAPPERS,
 } from "./exec-wrapper-resolution.js";
 import { resolveExecWrapperTrustPlan } from "./exec-wrapper-trust-plan.js";
 import { expandHomePrefix } from "./home-dir.js";
-import {
-  POSIX_INLINE_COMMAND_FLAGS,
-  isPowerShellInlineFileCommandFlag,
-  resolveInlineCommandMatch,
-  resolvePowerShellInlineCommandMatch,
-} from "./shell-inline-command.js";
+import { POSIX_INLINE_COMMAND_FLAGS, resolveInlineCommandMatch } from "./shell-inline-command.js";
 
 function hasShellLineContinuation(command: string): boolean {
   return /\\(?:\r\n|\n|\r)/.test(command);
@@ -83,11 +73,6 @@ export function isSafeBinUsage(params: {
   safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
   isTrustedSafeBinPathFn?: typeof isTrustedSafeBinPath;
 }): boolean {
-  // Windows host exec uses PowerShell, which has different parsing/expansion rules.
-  // Keep safeBins conservative there (require explicit allowlist entries).
-  if (isWindowsPlatform(params.platform ?? process.platform)) {
-    return false;
-  }
   if (params.safeBins.size === 0) {
     return false;
   }
@@ -182,11 +167,7 @@ function normalizeSkillBinResolvedPath(value: string | undefined): string | null
   if (!trimmed) {
     return null;
   }
-  const resolved = path.resolve(trimmed);
-  if (process.platform === "win32") {
-    return normalizeLowercaseStringOrEmpty(resolved.replace(/\\/g, "/"));
-  }
-  return resolved;
+  return path.resolve(trimmed);
 }
 
 function buildSkillBinTrustIndex(
@@ -317,57 +298,6 @@ function resolveShellWrapperScriptArgv(params: {
   return [params.shellScriptCandidatePath, ...scriptArgs];
 }
 
-function resolvePowerShellFileScriptArgv(params: {
-  segment: ExecCommandSegment;
-  cwd?: string;
-}): string[] | null {
-  const argv = resolveSegmentSourceArgv(params.segment);
-  if (!Array.isArray(argv) || argv.length < 3) {
-    return null;
-  }
-  const wrapperName = normalizeExecutableToken(argv[0] ?? "");
-  if (!POWERSHELL_WRAPPERS.has(wrapperName)) {
-    return null;
-  }
-
-  const match = resolvePowerShellInlineCommandMatch(argv);
-  if (match.valueTokenIndex === null || !match.command) {
-    return null;
-  }
-  if (!isPowerShellInlineFileCommandFlag(argv[match.valueTokenIndex - 1] ?? "")) {
-    return null;
-  }
-
-  const scriptToken = argv[match.valueTokenIndex]?.trim();
-  if (!scriptToken) {
-    return null;
-  }
-  const expanded = scriptToken.startsWith("~") ? expandHomePrefix(scriptToken) : scriptToken;
-  const base = params.cwd && params.cwd.trim().length > 0 ? params.cwd : process.cwd();
-  const scriptPath = path.isAbsolute(expanded) ? expanded : path.resolve(base, expanded);
-  return [scriptPath, ...argv.slice(match.valueTokenIndex + 1)];
-}
-
-function resolveSegmentSourceArgv(segment: ExecCommandSegment): string[] {
-  const sourceArgv = segment.sourceArgv;
-  if (!Array.isArray(sourceArgv) || sourceArgv.length === 0) {
-    return segment.argv;
-  }
-
-  const segmentExecutable = normalizeExecutableToken(segment.argv[0] ?? "");
-  if (!segmentExecutable) {
-    return segment.argv;
-  }
-  if (normalizeExecutableToken(sourceArgv[0] ?? "") === segmentExecutable) {
-    return sourceArgv;
-  }
-
-  const unwrappedSourceArgv = unwrapDispatchWrappersForResolution(sourceArgv);
-  return normalizeExecutableToken(unwrappedSourceArgv[0] ?? "") === segmentExecutable
-    ? unwrappedSourceArgv
-    : segment.argv;
-}
-
 function resolveSegmentAllowlistMatch(params: {
   segment: ExecCommandSegment;
   context: ExecAllowlistContext;
@@ -392,10 +322,6 @@ function resolveSegmentAllowlistMatch(params: {
       ? { ...executableResolution, resolvedPath: candidatePath, resolvedRealPath: trustPath }
       : executableResolution;
   const inlineCommand = extractBindableShellWrapperInlineCommand(allowlistSegment.argv);
-  const powerShellFileScriptArgv = resolvePowerShellFileScriptArgv({
-    segment: allowlistSegment,
-    cwd: params.context.cwd,
-  });
   const isShellWrapperInvocation = isShellWrapperSegment(allowlistSegment);
   const isPositionalCarrierInvocation =
     inlineCommand !== null && isDirectShellPositionalCarrierInvocation(inlineCommand);
@@ -435,20 +361,18 @@ function resolveSegmentAllowlistMatch(params: {
       )
     : null;
   const shellScriptCandidatePath =
-    powerShellFileScriptArgv?.[0] ??
-    (inlineCommand === null
+    inlineCommand === null
       ? resolveShellWrapperScriptCandidatePath({
           segment: allowlistSegment,
           cwd: params.context.cwd,
         })
-      : undefined);
+      : undefined;
   const shellScriptArgv = shellScriptCandidatePath
-    ? (powerShellFileScriptArgv ??
-      resolveShellWrapperScriptArgv({
+    ? resolveShellWrapperScriptArgv({
         shellScriptCandidatePath,
         effectiveArgv,
         cwd: params.context.cwd,
-      }))
+      })
     : null;
   const shellScriptMatch =
     shellScriptCandidatePath && shellScriptArgv
@@ -466,7 +390,7 @@ function resolveSegmentAllowlistMatch(params: {
       : null;
   return {
     effectiveArgv,
-    inlineCommand: powerShellFileScriptArgv ? null : inlineCommand,
+    inlineCommand,
     match: executableMatch ?? shellPositionalArgvMatch ?? shellScriptMatch,
   };
 }
@@ -516,22 +440,15 @@ function resolveInlineCommandFallback(params: {
   if (params.by !== null || !params.inlineCommand) {
     return null;
   }
-  if (!isWindowsPlatform(params.context.platform)) {
-    if (hasShellLineContinuation(params.inlineCommand)) {
-      return null;
-    }
-    const inlineChainParts = splitCommandChain(params.inlineCommand);
-    if (!inlineChainParts || inlineChainParts.length <= 1) {
-      return null;
-    }
-    return evaluateShellWrapperInlineCommands({
-      inlineCommands: inlineChainParts,
-      context: params.context,
-      inlineDepth: params.inlineDepth + 1,
-    });
+  if (hasShellLineContinuation(params.inlineCommand)) {
+    return null;
   }
-  return evaluateShellWrapperInlineCommand({
-    inlineCommand: params.inlineCommand,
+  const inlineChainParts = splitCommandChain(params.inlineCommand);
+  if (!inlineChainParts || inlineChainParts.length <= 1) {
+    return null;
+  }
+  return evaluateShellWrapperInlineCommands({
+    inlineCommands: inlineChainParts,
     context: params.context,
     inlineDepth: params.inlineDepth + 1,
   });
@@ -569,38 +486,6 @@ function evaluateShellWrapperInlineCommands(params: {
     (entry) => entry === "safeBins" || entry === "inlineChain",
   );
   return { matches, satisfiedBy: hasLiteralizedInnerSegment ? "inlineChain" : "allowlist" };
-}
-
-function evaluateShellWrapperInlineCommand(params: {
-  inlineCommand: string;
-  context: ExecAllowlistContext;
-  inlineDepth: number;
-}): InlineChainAllowlistEvaluation | null {
-  if (params.inlineDepth >= MAX_SHELL_WRAPPER_INLINE_EVAL_DEPTH) {
-    return null;
-  }
-  if (hasShellLineContinuation(params.inlineCommand)) {
-    return null;
-  }
-  const analysis = analyzeShellCommand({
-    command: params.inlineCommand,
-    cwd: params.context.cwd,
-    env: params.context.env,
-    platform: params.context.platform,
-  });
-  if (!analysis.ok || analysis.segments.length === 0) {
-    return null;
-  }
-
-  const matches: ExecAllowlistEntry[] = [];
-  for (const group of resolveAnalysisSegmentGroups(analysis)) {
-    const result = evaluateSegments(group, params.context, params.inlineDepth);
-    if (!result.satisfied) {
-      return null;
-    }
-    matches.push(...result.matches);
-  }
-  return { matches, satisfiedBy: "allowlist" };
 }
 
 function evaluateSegments(
@@ -765,9 +650,6 @@ function hasDisqualifyingShellWrapperScriptOption(token: string): boolean {
   );
 }
 
-const POWERSHELL_OPTIONS_WITH_VALUE_RE =
-  /^-(?:executionpolicy|ep|windowstyle|w|workingdirectory|wd|inputformat|outputformat|settingsfile|configurationfile|version|v|psconsolefile|pscf|encodedcommand|en|enc|encodedarguments|ea)$/i;
-
 function resolveShellWrapperScriptCandidatePath(params: {
   segment: ExecCommandSegment;
   cwd?: string;
@@ -780,9 +662,6 @@ function resolveShellWrapperScriptCandidatePath(params: {
   if (!Array.isArray(argv) || argv.length < 2) {
     return undefined;
   }
-
-  const wrapperName = normalizeExecutableToken(argv[0] ?? "");
-  const isPowerShell = POWERSHELL_WRAPPERS.has(wrapperName);
 
   let idx = 1;
   while (idx < argv.length) {
@@ -798,20 +677,16 @@ function resolveShellWrapperScriptCandidatePath(params: {
     if (token === "-c" || token === "--command") {
       return undefined;
     }
-    if (!isPowerShell && /^-[^-]*c[^-]*$/i.test(token)) {
+    if (/^-[^-]*c[^-]*$/i.test(token)) {
       return undefined;
     }
-    if (token === "-s" || (!isPowerShell && /^-[^-]*s[^-]*$/i.test(token))) {
+    if (token === "-s" || /^-[^-]*s[^-]*$/i.test(token)) {
       return undefined;
     }
     if (hasDisqualifyingShellWrapperScriptOption(token)) {
       return undefined;
     }
     if (SHELL_WRAPPER_OPTIONS_WITH_VALUE.has(token)) {
-      idx += 2;
-      continue;
-    }
-    if (isPowerShell && POWERSHELL_OPTIONS_WITH_VALUE_RE.test(token)) {
       idx += 2;
       continue;
     }
@@ -907,48 +782,17 @@ export type AllowAlwaysPattern = {
   argPattern?: string;
 };
 
-function escapeRegExpLiteral(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function buildScriptArgPatternFromArgv(
-  argv: string[],
-  scriptPath: string,
-  cwd?: string,
-  platform?: string | null,
+  _argv: string[],
+  _scriptPath: string,
+  _cwd?: string,
+  _platform?: string | null,
 ): string | undefined {
-  if (!isWindowsPlatform(platform ?? process.platform)) {
-    return undefined;
-  }
-  const scriptBase = normalizeLowercaseStringOrEmpty(path.basename(scriptPath));
-  const base = cwd && cwd.trim() ? cwd.trim() : process.cwd();
-  const resolveArgPath = (arg: string): string =>
-    path.isAbsolute(arg) ? arg : path.resolve(base, arg);
-  let scriptIdx = argv.findIndex((arg) => resolveArgPath(arg) === scriptPath);
-  if (scriptIdx === -1) {
-    scriptIdx = argv.findIndex(
-      (arg) => normalizeLowercaseStringOrEmpty(path.basename(arg)) === scriptBase,
-    );
-  }
-  const scriptArgs = scriptIdx !== -1 ? argv.slice(scriptIdx + 1) : [];
-  const normalized = scriptArgs.map((a) => a.replace(/\//g, "\\"));
-  if (normalized.length === 0) {
-    return "^\x00\x00$";
-  }
-  return `^${normalized.map(escapeRegExpLiteral).join("\x00")}\x00$`;
+  return undefined;
 }
 
-function buildArgPatternFromArgv(argv: string[], platform?: string | null): string | undefined {
-  if (!isWindowsPlatform(platform ?? process.platform)) {
-    return undefined;
-  }
-  const args = argv.slice(1);
-  const normalized = args.map((a) => a.replace(/\//g, "\\"));
-  if (normalized.length === 0) {
-    return "^\x00\x00$";
-  }
-  const joined = normalized.join("\x00");
-  return `^${escapeRegExpLiteral(joined)}\x00$`;
+function buildArgPatternFromArgv(_argv: string[], _platform?: string | null): string | undefined {
+  return undefined;
 }
 
 function addAllowAlwaysPattern(
@@ -1026,11 +870,7 @@ function collectAllowAlwaysPatterns(params: {
     addAllowAlwaysPattern(params.out, candidatePath, argPattern);
     return;
   }
-  const powerShellFileScriptArgv = resolvePowerShellFileScriptArgv({
-    segment,
-    cwd: params.cwd,
-  });
-  const inlineCommand = powerShellFileScriptArgv ? null : trustPlan.shellInlineCommand;
+  const inlineCommand = trustPlan.shellInlineCommand;
   const positionalArgvPath =
     inlineCommand !== null
       ? resolveShellWrapperPositionalArgvCandidatePath({
@@ -1048,16 +888,14 @@ function collectAllowAlwaysPatterns(params: {
     return;
   }
   if (!inlineCommand) {
-    const scriptPath =
-      powerShellFileScriptArgv?.[0] ??
-      resolveShellWrapperScriptCandidatePath({
-        segment,
-        cwd: params.cwd,
-      });
+    const scriptPath = resolveShellWrapperScriptCandidatePath({
+      segment,
+      cwd: params.cwd,
+    });
     if (scriptPath) {
       const scriptTrustPath = resolveCandidateTrustPath(scriptPath) ?? scriptPath;
       const argPattern = buildScriptArgPatternFromArgv(
-        powerShellFileScriptArgv ?? params.segment.argv,
+        params.segment.argv,
         scriptPath,
         params.cwd,
         params.platform,
@@ -1153,9 +991,7 @@ export function evaluateShellAllowlist(
     return analysisFailure();
   }
 
-  const chainParts = isWindowsPlatform(params.platform)
-    ? null
-    : splitCommandChainWithOperators(params.command);
+  const chainParts = splitCommandChainWithOperators(params.command);
   if (!chainParts) {
     const analysis = analyzeShellCommand({
       command: params.command,

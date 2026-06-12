@@ -491,63 +491,7 @@ function extractScriptTargetFromCommand(
   command: string,
 ): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | null {
   const raw = command.trim();
-  const splitShellArgsPreservingBackslashes = (value: string): string[] | null => {
-    const tokens: string[] = [];
-    let buf = "";
-    let inSingle = false;
-    let inDouble = false;
-
-    const pushToken = () => {
-      if (buf.length > 0) {
-        tokens.push(buf);
-        buf = "";
-      }
-    };
-
-    for (const ch of value) {
-      if (inSingle) {
-        if (ch === "'") {
-          inSingle = false;
-        } else {
-          buf += ch;
-        }
-        continue;
-      }
-      if (inDouble) {
-        if (ch === '"') {
-          inDouble = false;
-        } else {
-          buf += ch;
-        }
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = true;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = true;
-        continue;
-      }
-      if (/\s/.test(ch)) {
-        pushToken();
-        continue;
-      }
-      buf += ch;
-    }
-
-    if (inSingle || inDouble) {
-      return null;
-    }
-    pushToken();
-    return tokens;
-  };
-  const shouldUseWindowsPathTokenizer =
-    process.platform === "win32" &&
-    /(?:^|[\s"'`])(?:[A-Za-z]:\\|\\\\|[^\s"'`|&;()<>]+\\[^\s"'`|&;()<>]+)/.test(raw);
-  const candidateArgv = shouldUseWindowsPathTokenizer
-    ? [splitShellArgsPreservingBackslashes(raw)]
-    : [splitShellArgs(raw)];
+  const candidateArgv = [splitShellArgs(raw)];
 
   for (const argv of candidateArgv) {
     const attempts = [argv, argv ? stripPreflightEnvPrefix(argv) : null];
@@ -1663,7 +1607,7 @@ export function createExecTool(
         // recreate the cross-platform approval failure this path is fixing.
         // When no explicit cwd was given, the gateway's own
         // process.cwd() is meaningless on the remote node (especially cross-platform,
-        // e.g. Linux gateway + Windows node) and would cause
+        // e.g. Linux gateway plus remote node) and would cause
         // "SYSTEM_RUN_DENIED: approval requires an existing canonical cwd".
         // Passing undefined lets the node use its own default working directory.
         workdir = explicitWorkdir;

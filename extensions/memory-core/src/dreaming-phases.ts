@@ -540,8 +540,7 @@ type SessionIngestionCollectionResult = {
 };
 
 function normalizeWorkspaceKey(workspaceDir: string): string {
-  const resolved = path.resolve(workspaceDir).replace(/\\/g, "/");
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return path.resolve(workspaceDir).replace(/\\/g, "/");
 }
 
 export function normalizeSessionIngestionState(raw: unknown): SessionIngestionState {

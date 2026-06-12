@@ -812,8 +812,8 @@ export async function cleanStaleLockFiles(params: {
   const nowMs = params.nowMs ?? Date.now();
   const baseOwnerProcessArgsReader = params.readOwnerProcessArgs ?? readProcessArgsSync;
   // Memoize per-invocation: many locks in the same sweep often share a pid (gateway, MCP),
-  // and resolving owner argv is the most expensive per-lock syscall (PowerShell on Windows
-  // is ~0.5–1s per pid) — pids do not recycle within a single sweep. (#86509)
+  // and resolving owner argv is the most expensive per-lock syscall; pids do
+  // not recycle within a single sweep. (#86509)
   const ownerArgsByPid = new Map<number, string[] | null>();
   const ownerProcessArgsReader: SessionLockOwnerProcessArgsReader = (pid) => {
     const cached = ownerArgsByPid.get(pid);
@@ -844,7 +844,7 @@ export async function cleanStaleLockFiles(params: {
 
   for (const entry of lockEntries) {
     // Yield to the event loop between locks so concurrent timers/HTTP polling can run
-    // while this sweep does per-lock sync syscalls (isPidAlive, /proc reads, PowerShell). (#86509)
+    // while this sweep does per-lock sync syscalls (isPidAlive, /proc reads). (#86509)
     await new Promise<void>((resolve) => {
       setImmediate(resolve);
     });

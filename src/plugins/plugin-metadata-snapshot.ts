@@ -61,7 +61,6 @@ export function clearLoadPluginMetadataSnapshotMemo(): void {
 registerPluginMetadataProcessMemoLifecycleClear(clearLoadPluginMetadataSnapshotMemo);
 
 const MEMO_RELEVANT_ENV_KEYS = [
-  "APPDATA",
   "HOME",
   "OPENCLAW_BUNDLED_PLUGINS_DIR",
   "OPENCLAW_COMPATIBILITY_HOST_VERSION",
@@ -72,7 +71,6 @@ const MEMO_RELEVANT_ENV_KEYS = [
   "OPENCLAW_HOME",
   "OPENCLAW_NIX_MODE",
   "OPENCLAW_STATE_DIR",
-  "USERPROFILE",
   "XDG_CONFIG_HOME",
 ] as const;
 export type {

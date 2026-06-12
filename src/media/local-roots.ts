@@ -20,7 +20,6 @@ type BuildMediaLocalRootsOptions = {
 
 let cachedPreferredTmpDir: string | undefined;
 const DATA_URL_RE = /^data:/i;
-const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/;
 
 function resolveCachedPreferredTmpDir(): string {
   if (!cachedPreferredTmpDir) {
@@ -93,7 +92,7 @@ function resolveLocalMediaPath(source: string): string | undefined {
   if (trimmed.startsWith("~")) {
     return resolveUserPath(trimmed);
   }
-  if (path.isAbsolute(trimmed) || WINDOWS_DRIVE_RE.test(trimmed)) {
+  if (path.isAbsolute(trimmed)) {
     return path.resolve(trimmed);
   }
   return undefined;

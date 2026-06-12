@@ -18,7 +18,6 @@ import {
   downgradeOpenAIReasoningBlocks,
   normalizeOpenAIResponsesToolCallIds,
   validateAnthropicTurns,
-  validateGeminiTurns,
 } from "../../embedded-agent-helpers.js";
 import type { AgentMessage, StreamFn } from "../../runtime/index.js";
 import { sanitizeToolUseResultPairing } from "../../session-transcript-repair.js";
@@ -1225,7 +1224,7 @@ export function wrapStreamFnSanitizeMalformedToolCalls(
         disallowEmbeddedUserToolResultsForSignedThinkingReplay: allowProviderOwnedThinkingReplay,
       });
     }
-    if (transcriptPolicy?.validateAnthropicTurns || transcriptPolicy?.validateGeminiTurns) {
+    if (transcriptPolicy?.validateAnthropicTurns) {
       const beforeStrip = nextMessages;
       nextMessages = stripTrailingAssistantPrefillTurns(nextMessages);
       strippedTrailingAssistantPrefill ||= nextMessages !== beforeStrip;
@@ -1238,9 +1237,6 @@ export function wrapStreamFnSanitizeMalformedToolCalls(
       transcriptPolicy?.validateAnthropicTurns ||
       strippedTrailingAssistantPrefill
     ) {
-      if (transcriptPolicy?.validateGeminiTurns) {
-        nextMessages = validateGeminiTurns(nextMessages);
-      }
       if (transcriptPolicy?.validateAnthropicTurns) {
         nextMessages = validateAnthropicTurns(nextMessages);
       }

@@ -15,16 +15,6 @@ import {
   stopLaunchAgent,
   uninstallLaunchAgent,
 } from "./launchd.js";
-import {
-  installScheduledTask,
-  isScheduledTaskInstalled,
-  readScheduledTaskCommand,
-  readScheduledTaskRuntime,
-  restartScheduledTask,
-  stageScheduledTask,
-  stopScheduledTask,
-  uninstallScheduledTask,
-} from "./schtasks.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
 import type {
   GatewayServiceCommandConfig,
@@ -63,7 +53,7 @@ export type {
   GatewayServiceState,
 } from "./service-types.js";
 
-// Platform service adapter used by CLI commands across launchd, systemd, and schtasks.
+// Platform service adapter used by CLI commands across launchd and systemd.
 function ignoreServiceWriteResult<TArgs extends GatewayServiceInstallArgs>(
   write: (args: TArgs) => Promise<unknown>,
 ): (args: TArgs) => Promise<void> {
@@ -97,11 +87,7 @@ function mergeGatewayServiceEnv(
     ...baseEnv,
     ...command.environment,
   };
-  for (const key of [
-    "OPENCLAW_LAUNCHD_LABEL",
-    "OPENCLAW_SYSTEMD_UNIT",
-    "OPENCLAW_WINDOWS_TASK_NAME",
-  ]) {
+  for (const key of ["OPENCLAW_LAUNCHD_LABEL", "OPENCLAW_SYSTEMD_UNIT"]) {
     // Explicit caller env selects the target service identity; installed command
     // env may come from a different profile or stale service file.
     const value = baseEnv[key]?.trim();
@@ -262,7 +248,7 @@ export function describeGatewayServiceRestart(
   };
 }
 
-type SupportedGatewayServicePlatform = "darwin" | "linux" | "win32";
+type SupportedGatewayServicePlatform = "darwin" | "linux";
 
 const GATEWAY_SERVICE_REGISTRY: Record<SupportedGatewayServicePlatform, GatewayService> = {
   darwin: {
@@ -291,26 +277,13 @@ const GATEWAY_SERVICE_REGISTRY: Record<SupportedGatewayServicePlatform, GatewayS
     readCommand: readSystemdServiceExecStart,
     readRuntime: readSystemdServiceRuntime,
   },
-  win32: {
-    label: "Scheduled Task",
-    loadedText: "registered",
-    notLoadedText: "missing",
-    stage: ignoreServiceWriteResult(stageScheduledTask),
-    install: ignoreServiceWriteResult(installScheduledTask),
-    uninstall: uninstallScheduledTask,
-    stop: stopScheduledTask,
-    restart: restartScheduledTask,
-    isLoaded: isScheduledTaskInstalled,
-    readCommand: readScheduledTaskCommand,
-    readRuntime: readScheduledTaskRuntime,
-  },
 };
 
 function withFutureConfigGuard(service: GatewayService): GatewayService {
   return {
     ...service,
     stage: async (args) => {
-      // Service mutations rewrite durable launchd/systemd/schtasks files, so
+      // Service mutations rewrite durable launchd/systemd files, so
       // block them when config was produced by a newer OpenClaw.
       await assertFutureConfigActionAllowed("rewrite the gateway service");
       return await service.stage(args);

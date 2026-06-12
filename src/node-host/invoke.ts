@@ -34,10 +34,6 @@ import {
   sanitizeSystemRunEnvOverrides,
 } from "../infra/host-env-security.js";
 import {
-  decodeWindowsOutputBuffer,
-  resolveWindowsConsoleEncoding,
-} from "../infra/windows-encoding.js";
-import {
   buildSystemRunApprovalPlan,
   handleSystemRunInvoke,
   resolveEffectiveSystemRunExecPolicy,
@@ -200,15 +196,6 @@ function resolveExecSecurity(value?: string): ExecSecurity {
   return value === "deny" || value === "allowlist" || value === "full" ? value : "allowlist";
 }
 
-function isCmdExeInvocation(argv: string[]): boolean {
-  const token = argv[0]?.trim();
-  if (!token) {
-    return false;
-  }
-  const base = normalizeLowercaseStringOrEmpty(path.win32.basename(token));
-  return base === "cmd.exe" || base === "cmd";
-}
-
 function resolveExecAsk(value?: string): ExecAsk {
   return value === "off" || value === "on-miss" || value === "always" ? value : "on-miss";
 }
@@ -228,9 +215,9 @@ function truncateOutput(raw: string, maxChars: number): { text: string; truncate
 export function decodeCapturedOutputBuffer(params: {
   buffer: Buffer;
   platform?: NodeJS.Platform;
-  windowsEncoding?: string | null;
 }): string {
-  return decodeWindowsOutputBuffer(params);
+  void params.platform;
+  return params.buffer.toString("utf8");
 }
 
 function redactExecApprovals(file: ExecApprovalsFile): ExecApprovalsFile {
@@ -273,13 +260,10 @@ async function runCommand(
     let truncated = false;
     let timedOut = false;
     let settled = false;
-    const windowsEncoding = resolveWindowsConsoleEncoding();
-
     const child = spawn(argv[0], argv.slice(1), {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
     });
 
     const onChunk = (chunk: Buffer, target: "stdout" | "stderr") => {
@@ -325,11 +309,9 @@ async function runCommand(
       }
       const stdout = decodeCapturedOutputBuffer({
         buffer: Buffer.concat(stdoutChunks),
-        windowsEncoding,
       });
       const stderr = decodeCapturedOutputBuffer({
         buffer: Buffer.concat(stderrChunks),
-        windowsEncoding,
       });
       resolve({
         exitCode,
@@ -352,12 +334,7 @@ async function runCommand(
 }
 
 function resolveEnvPath(env?: Record<string, string>): string[] {
-  const raw =
-    env?.PATH ??
-    (env as Record<string, string>)?.Path ??
-    process.env.PATH ??
-    process.env.Path ??
-    DEFAULT_NODE_PATH;
+  const raw = env?.PATH ?? process.env.PATH ?? DEFAULT_NODE_PATH;
   return raw.split(path.delimiter).filter(Boolean);
 }
 
@@ -365,18 +342,10 @@ function resolveExecutable(bin: string, env?: Record<string, string>) {
   if (bin.includes("/") || bin.includes("\\")) {
     return null;
   }
-  const extensions =
-    process.platform === "win32"
-      ? (process.env.PATHEXT ?? process.env.PathExt ?? ".EXE;.CMD;.BAT;.COM")
-          .split(";")
-          .map((ext) => normalizeLowercaseStringOrEmpty(ext))
-      : [""];
   for (const dir of resolveEnvPath(env)) {
-    for (const ext of extensions) {
-      const candidate = path.join(dir, bin + ext);
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
+    const candidate = path.join(dir, bin);
+    if (fs.existsSync(candidate)) {
+      return candidate;
     }
   }
   return null;
@@ -635,7 +604,6 @@ export async function handleInvoke(
     execHostFallbackAllowed,
     resolveExecSecurity,
     resolveExecAsk,
-    isCmdExeInvocation,
     sanitizeEnv,
     runCommand,
     runViaMacAppExecHost,

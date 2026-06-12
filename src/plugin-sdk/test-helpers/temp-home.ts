@@ -8,9 +8,6 @@ type EnvValue = string | undefined | ((home: string) => string | undefined);
 
 type EnvSnapshot = {
   home: string | undefined;
-  userProfile: string | undefined;
-  homeDrive: string | undefined;
-  homePath: string | undefined;
   openclawHome: string | undefined;
   stateDir: string | undefined;
 };
@@ -25,9 +22,6 @@ const SHARED_HOME_ROOTS = new Map<string, SharedHomeRootState>();
 function snapshotEnv(): EnvSnapshot {
   return {
     home: process.env.HOME,
-    userProfile: process.env.USERPROFILE,
-    homeDrive: process.env.HOMEDRIVE,
-    homePath: process.env.HOMEPATH,
     openclawHome: process.env.OPENCLAW_HOME,
     stateDir: process.env.OPENCLAW_STATE_DIR,
   };
@@ -42,9 +36,6 @@ function restoreEnv(snapshot: EnvSnapshot) {
     }
   };
   restoreKey("HOME", snapshot.home);
-  restoreKey("USERPROFILE", snapshot.userProfile);
-  restoreKey("HOMEDRIVE", snapshot.homeDrive);
-  restoreKey("HOMEPATH", snapshot.homePath);
   restoreKey("OPENCLAW_HOME", snapshot.openclawHome);
   restoreKey("OPENCLAW_STATE_DIR", snapshot.stateDir);
 }
@@ -69,20 +60,9 @@ function restoreExtraEnv(snapshot: Record<string, string | undefined>) {
 
 function setTempHome(base: string) {
   process.env.HOME = base;
-  process.env.USERPROFILE = base;
   // Ensure tests using HOME isolation aren't affected by leaked OPENCLAW_HOME.
   delete process.env.OPENCLAW_HOME;
   process.env.OPENCLAW_STATE_DIR = path.join(base, ".openclaw");
-
-  if (process.platform !== "win32") {
-    return;
-  }
-  const match = base.match(/^([A-Za-z]:)(.*)$/);
-  if (!match) {
-    return;
-  }
-  process.env.HOMEDRIVE = match[1];
-  process.env.HOMEPATH = match[2] || "\\";
 }
 
 async function allocateTempHomeBase(prefix: string): Promise<string> {
@@ -114,7 +94,7 @@ export async function withTempHome<T>(
   const snapshot = snapshotEnv();
   const envKeys = Object.keys(opts.env ?? {});
   for (const key of envKeys) {
-    if (key === "HOME" || key === "USERPROFILE" || key === "HOMEDRIVE" || key === "HOMEPATH") {
+    if (key === "HOME") {
       throw new Error(`withTempHome: use built-in home env (got ${key})`);
     }
   }
@@ -143,19 +123,10 @@ export async function withTempHome<T>(
     restoreEnv(snapshot);
     if (!opts.skipHomeCleanup) {
       try {
-        if (process.platform === "win32") {
-          await fs.rm(base, {
-            recursive: true,
-            force: true,
-            maxRetries: 10,
-            retryDelay: 50,
-          });
-        } else {
-          await fs.rm(base, {
-            recursive: true,
-            force: true,
-          });
-        }
+        await fs.rm(base, {
+          recursive: true,
+          force: true,
+        });
       } catch {
         // ignore cleanup failures in tests
       }

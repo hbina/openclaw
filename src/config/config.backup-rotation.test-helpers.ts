@@ -2,9 +2,6 @@
 import path from "node:path";
 import { expect } from "vitest";
 
-/** Platform flag shared by config backup permission tests. */
-export const IS_WINDOWS = process.platform === "win32";
-
 export function resolveConfigPathFromTempState(fileName = "openclaw.json"): string {
   const stateDir = process.env.OPENCLAW_STATE_DIR?.trim();
   if (!stateDir) {
@@ -14,8 +11,5 @@ export function resolveConfigPathFromTempState(fileName = "openclaw.json"): stri
 }
 
 export function expectPosixMode(statMode: number, expectedMode: number): void {
-  if (IS_WINDOWS) {
-    return;
-  }
   expect(statMode & 0o777).toBe(expectedMode);
 }

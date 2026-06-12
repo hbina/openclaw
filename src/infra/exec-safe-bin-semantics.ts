@@ -55,15 +55,14 @@ const SAFE_BIN_SEMANTIC_RULES: Readonly<Record<string, SafeBinSemanticRule>> = {
   },
 };
 
-/** Normalizes a configured safe-bin entry to its executable basename without Windows suffixes. */
+/** Normalizes a configured safe-bin entry to its executable basename. */
 export function normalizeSafeBinName(raw: string): string {
   const trimmed = normalizeLowercaseStringOrEmpty(raw);
   if (!trimmed) {
     return "";
   }
   const tail = trimmed.split(/[\\/]/).at(-1);
-  const normalized = tail ?? trimmed;
-  return normalized.replace(/\.(?:exe|cmd|bat|com)$/i, "");
+  return tail ?? trimmed;
 }
 
 function getSafeBinSemanticRule(binName?: string): SafeBinSemanticRule | undefined {

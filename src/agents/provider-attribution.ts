@@ -69,8 +69,6 @@ export type ProviderEndpointClass =
   | "xai-native"
   | "xiaomi-native"
   | "zai-native"
-  | "google-generative-ai"
-  | "google-vertex"
   | "local"
   | "custom"
   | "invalid";
@@ -79,7 +77,6 @@ export type ProviderEndpointClass =
 export type ProviderEndpointResolution = {
   endpointClass: ProviderEndpointClass;
   hostname?: string;
-  googleVertexRegion?: string;
 };
 
 /** Raw model/provider fields accepted by policy resolution. */
@@ -171,16 +168,12 @@ const MANIFEST_PROVIDER_ENDPOINT_CLASSES = new Set<ProviderEndpointClass>([
   "xai-native",
   "xiaomi-native",
   "zai-native",
-  "google-generative-ai",
-  "google-vertex",
 ]);
 type ManifestProviderEndpointCacheEntry = {
   endpointClass: ProviderEndpointClass;
   hosts: readonly string[];
   hostSuffixes: readonly string[];
   normalizedBaseUrls: readonly string[];
-  googleVertexRegion?: string;
-  googleVertexRegionHostSuffix?: string;
 };
 type ManifestProviderRequestCacheEntry = {
   family?: string;
@@ -272,16 +265,6 @@ function readManifestProviderEndpoints(
       normalizedBaseUrls: normalizeTrimmedStringList(rawEndpoint.baseUrls)
         .map((baseUrl) => normalizeComparableBaseUrl(baseUrl))
         .filter((baseUrl): baseUrl is string => baseUrl !== undefined),
-      ...(normalizeOptionalString(rawEndpoint.googleVertexRegion)
-        ? { googleVertexRegion: normalizeOptionalString(rawEndpoint.googleVertexRegion) }
-        : {}),
-      ...(normalizeOptionalString(rawEndpoint.googleVertexRegionHostSuffix)
-        ? {
-            googleVertexRegionHostSuffix: normalizeOptionalString(
-              rawEndpoint.googleVertexRegionHostSuffix,
-            ),
-          }
-        : {}),
     });
   }
   return entries;
@@ -377,14 +360,9 @@ function buildManifestEndpointResolution(
   endpoint: ManifestProviderEndpointCacheEntry,
   host: string,
 ): ProviderEndpointResolution {
-  const regionSuffix = endpoint.googleVertexRegionHostSuffix;
-  const googleVertexRegion =
-    endpoint.googleVertexRegion ??
-    (regionSuffix && host.endsWith(regionSuffix) ? host.slice(0, -regionSuffix.length) : undefined);
   return {
     endpointClass: endpoint.endpointClass,
     hostname: host,
-    ...(googleVertexRegion ? { googleVertexRegion } : {}),
   };
 }
 
@@ -727,9 +705,7 @@ export function resolveProviderRequestCapabilities(
     endpointClass === "openrouter" ||
     endpointClass === "xai-native" ||
     endpointClass === "xiaomi-native" ||
-    endpointClass === "zai-native" ||
-    endpointClass === "google-generative-ai" ||
-    endpointClass === "google-vertex";
+    endpointClass === "zai-native";
 
   const manifestProviderRequest = resolveManifestProviderRequest(provider);
   const compatibilityFamily = manifestProviderRequest?.compatibilityFamily;

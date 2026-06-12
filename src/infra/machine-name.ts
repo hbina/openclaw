@@ -14,7 +14,6 @@ async function tryScutil(key: "ComputerName" | "LocalHostName") {
   try {
     const { stdout } = await execFileAsync("/usr/sbin/scutil", ["--get", key], {
       timeout: 1000,
-      windowsHide: true,
     });
     const value = normalizeOptionalString(stdout ?? "") ?? "";
     return value.length > 0 ? value : null;

@@ -6,7 +6,6 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
-import { isWindowsDrivePath } from "../../infra/archive-path.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { root as fsRoot } from "../../infra/fs-safe.js";
 import { assertCanonicalPathWithinBase } from "../../infra/install-safe-path.js";
@@ -50,9 +49,7 @@ function resolveDownloadTargetDir(entry: SkillEntry, spec: SkillInstallSpec): st
 
   // Treat non-absolute paths as relative to the per-skill tools root.
   const resolved =
-    raw.startsWith("~") || path.isAbsolute(raw) || isWindowsDrivePath(raw)
-      ? resolveUserPath(raw)
-      : path.resolve(root, raw);
+    raw.startsWith("~") || path.isAbsolute(raw) ? resolveUserPath(raw) : path.resolve(root, raw);
 
   if (!isWithinDir(root, resolved)) {
     throw new Error(

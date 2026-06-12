@@ -65,7 +65,6 @@ import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import { createClackPrompter } from "../../wizard/clack-prompter.js";
 import { validateAnthropicSetupToken } from "../auth-token.js";
 import { repairCodexRuntimePluginInstallForModelSelection } from "../codex-runtime-plugin-install.js";
-import { repairCopilotRuntimePluginInstallForModelSelection } from "../copilot-runtime-plugin-install.js";
 import { isRemoteEnvironment } from "../oauth-env.js";
 import { loadValidConfigOrThrow, resolveKnownAgentId, updateConfig } from "./shared.js";
 
@@ -478,11 +477,7 @@ async function persistProviderAuthResult(params: {
         cfg: updated,
         model: defaultModel,
       });
-      const copilotRepaired = await repairCopilotRuntimePluginInstallForModelSelection({
-        cfg: updated,
-        model: defaultModel,
-      });
-      for (const warning of [...repaired.warnings, ...copilotRepaired.warnings]) {
+      for (const warning of repaired.warnings) {
         params.runtime.error?.(warning);
       }
     }

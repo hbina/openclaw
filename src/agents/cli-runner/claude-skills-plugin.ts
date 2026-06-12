@@ -73,14 +73,10 @@ async function collectClaudePluginSkills(snapshot?: SkillSnapshot): Promise<Mate
 
 async function linkOrCopySkillDir(params: { sourceDir: string; targetDir: string }) {
   try {
-    await fs.symlink(
-      params.sourceDir,
-      params.targetDir,
-      process.platform === "win32" ? "junction" : "dir",
-    );
+    await fs.symlink(params.sourceDir, params.targetDir, "dir");
   } catch {
-    // Symlinks are preferred to avoid copying skill trees, but Windows/TCC/filesystem policy can
-    // reject them. Copying preserves the session-scoped plugin contract.
+    // Symlinks are preferred to avoid copying skill trees, but filesystem policy
+    // can reject them. Copying preserves the session-scoped plugin contract.
     await fs.cp(params.sourceDir, params.targetDir, {
       recursive: true,
       force: true,

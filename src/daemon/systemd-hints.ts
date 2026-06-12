@@ -30,7 +30,7 @@ export function renderSystemdUnavailableHints(
     // WSL requires systemd opt-in at distro boot, not just a package install.
     return [
       "WSL2 needs systemd enabled: edit /etc/wsl.conf with [boot]\\nsystemd=true",
-      "Then run: wsl --shutdown (from PowerShell) and reopen your distro.",
+      "Restart the distro, then reopen it.",
       "Verify: systemctl --user status",
     ];
   }

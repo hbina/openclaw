@@ -16,7 +16,6 @@ import { resolveAllAgentSessionStoreTargetsSync } from "../../../config/sessions
 import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { AgentRuntimePolicyConfig } from "../../../config/types.agents-shared.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
-import { detectWindowsSpawnCommandInlineArgs } from "../../../plugin-sdk/windows-spawn.js";
 import { normalizeAgentId } from "../../../routing/session-key.js";
 
 type CodexRouteHit = {
@@ -26,6 +25,33 @@ type CodexRouteHit = {
   runtime?: string;
 };
 type CompactionOverrideKey = "model" | "provider";
+type CommandInlineArgs = { executable: string; arguments: string };
+
+const INLINE_ARGUMENT_EXECUTABLES = new Set(["node", "npm", "npx", "pnpm", "yarn"]);
+
+function detectCommandInlineArgs(command: string): CommandInlineArgs | null {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = trimmed.startsWith('"')
+    ? trimmed.match(/^"([^"]+)"\s+(.+)$/)
+    : trimmed.match(/^(\S+)\s+(.+)$/);
+  const executable = match?.[1]?.trim();
+  const args = match?.[2]?.trim();
+  if (!executable || !args) {
+    return null;
+  }
+  const basename = executable
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    ?.replace(/\.(cmd|exe)$/i, "");
+  if (!basename || !INLINE_ARGUMENT_EXECUTABLES.has(basename.toLowerCase())) {
+    return null;
+  }
+  return { executable, arguments: args };
+}
 type UnsupportedCodexCompactionOverride = {
   path: string;
   key: CompactionOverrideKey;
@@ -2703,7 +2729,7 @@ function collectCodexAppServerCommandWarnings(cfg: OpenClawConfig): string[] {
   if (!command) {
     return [];
   }
-  const inlineArgs = detectWindowsSpawnCommandInlineArgs(command);
+  const inlineArgs = detectCommandInlineArgs(command);
   if (!inlineArgs) {
     return [];
   }

@@ -6,7 +6,7 @@ import { isAudioFileName } from "@openclaw/media-core/mime";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { openLocalFileSafely } from "../../infra/fs-safe.js";
-import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../infra/local-file-access.js";
+import { safeFileURLToPath } from "../../infra/local-file-access.js";
 import { assertLocalMediaAllowed, LocalMediaAccessError } from "../../media/local-media-access.js";
 import { resolveSendableOutboundReplyParts } from "../../plugin-sdk/reply-payload.js";
 import { sanitizeReplyDirectiveId } from "../../utils/directive-tags.js";
@@ -78,11 +78,6 @@ function resolveLocalMediaPathForEmbedding(raw: string): string | null {
     }
   }
   if (!path.isAbsolute(trimmed)) {
-    return null;
-  }
-  try {
-    assertNoWindowsNetworkPath(trimmed, "Local media path");
-  } catch {
     return null;
   }
   return trimmed;

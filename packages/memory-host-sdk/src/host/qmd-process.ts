@@ -2,13 +2,11 @@
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { resolveSafeTimeoutDelayMs } from "../../../gateway-client/src/timeouts.js";
-import { materializeWindowsSpawnProgram, resolveWindowsSpawnProgram } from "./windows-spawn.js";
 
 export type CliSpawnInvocation = {
   command: string;
   argv: string[];
   shell?: boolean;
-  windowsHide?: boolean;
 };
 
 export type QmdBinaryUnavailableReason = "binary" | "workspace-cwd";
@@ -37,15 +35,12 @@ export function resolveCliSpawnInvocation(params: {
   env: NodeJS.ProcessEnv;
   packageName: string;
 }): CliSpawnInvocation {
-  const program = resolveWindowsSpawnProgram({
+  void params.env;
+  void params.packageName;
+  return {
     command: params.command,
-    platform: process.platform,
-    env: params.env,
-    execPath: process.execPath,
-    packageName: params.packageName,
-    allowShellFallback: false,
-  });
-  return materializeWindowsSpawnProgram(program, params.args);
+    argv: params.args,
+  };
 }
 
 export async function checkQmdBinaryAvailability(params: {
@@ -90,7 +85,6 @@ export async function checkQmdBinaryAvailability(params: {
       env: params.env,
       cwd,
       shell: spawnInvocation.shell,
-      windowsHide: spawnInvocation.windowsHide,
       stdio: "ignore",
     });
     const timeoutMs = resolveSafeTimeoutDelayMs(params.timeoutMs ?? 2_000, { minMs: 0 });
@@ -161,7 +155,6 @@ export async function runCliCommand(params: {
       env: params.env,
       cwd: params.cwd,
       shell: params.spawnInvocation.shell,
-      windowsHide: params.spawnInvocation.windowsHide,
     });
     let stdout = "";
     let stderr = "";

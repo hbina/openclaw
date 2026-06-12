@@ -221,11 +221,7 @@ function normalizeHomeValue(value: string | undefined): string | undefined {
 
 /** Resolve the underlying OS home before applying OpenClaw-specific overrides. */
 function resolveRawOsHomeDir(env: NodeJS.ProcessEnv, homedir: () => string): string | undefined {
-  return (
-    normalizeHomeValue(env.HOME) ??
-    normalizeHomeValue(env.USERPROFILE) ??
-    normalizeHomeValue(homedir())
-  );
+  return normalizeHomeValue(env.HOME) ?? normalizeHomeValue(homedir());
 }
 
 /** Resolve OPENCLAW_HOME or the OS home, falling back to cwd for hermetic tests. */

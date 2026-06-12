@@ -631,10 +631,6 @@ function wrapPosixCommandWithPathPrepend(
   env: Record<string, string>,
   pathPrepend?: string[],
 ): string {
-  if (process.platform === "win32") {
-    return command;
-  }
-
   if (!pathPrepend || pathPrepend.length === 0) {
     return command;
   }

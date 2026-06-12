@@ -1002,11 +1002,7 @@ async function scrubManagedNpmRootOpenClawPeer(params: {
     await fs.rm(openclawPackageDir, { recursive: true, force: true });
   }
   const binDir = path.join(params.npmRoot, "node_modules", ".bin");
-  await Promise.all(
-    ["openclaw", "openclaw.cmd", "openclaw.ps1"].map((binName) =>
-      fs.rm(path.join(binDir, binName), { force: true }),
-    ),
-  );
+  await fs.rm(path.join(binDir, "openclaw"), { force: true });
   await fs.rm(path.join(params.npmRoot, "node_modules", ".package-lock.json"), {
     force: true,
   });

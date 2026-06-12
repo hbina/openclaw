@@ -1,22 +1,12 @@
 // Child process adapter wraps spawned child processes for the supervisor.
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
-import { createWindowsOutputDecoder } from "../../../infra/windows-encoding.js";
 import { signalProcessTree } from "../../kill-tree.js";
 import { prepareOomScoreAdjustedSpawn } from "../../linux-oom-score.js";
 import { spawnWithFallback } from "../../spawn-utils.js";
-import { resolveWindowsCommandShim } from "../../windows-command.js";
 import type { ManagedRunStdin, SpawnProcessAdapter } from "../types.js";
 import { toStringEnv } from "./env.js";
 
 const FORCE_KILL_WAIT_FALLBACK_MS = 4000;
-const WINDOWS_CLOSE_STATE_SETTLE_TIMEOUT_MS = 250;
-
-function resolveCommand(command: string): string {
-  return resolveWindowsCommandShim({
-    command,
-    cmdCommands: ["npm", "pnpm", "yarn", "npx"],
-  });
-}
 
 export type ChildAdapter = SpawnProcessAdapter<NodeJS.Signals | null>;
 
@@ -28,12 +18,10 @@ export async function createChildAdapter(params: {
   argv: string[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
-  windowsVerbatimArguments?: boolean;
   input?: string;
   stdinMode?: "inherit" | "pipe-open" | "pipe-closed";
 }): Promise<ChildAdapter> {
   const resolvedArgv = [...params.argv];
-  resolvedArgv[0] = resolveCommand(resolvedArgv[0] ?? "");
   const baseEnv = params.env ? toStringEnv(params.env) : undefined;
   const preparedSpawn = prepareOomScoreAdjustedSpawn(resolvedArgv[0] ?? "", resolvedArgv.slice(1), {
     env: baseEnv,
@@ -44,15 +32,13 @@ export async function createChildAdapter(params: {
   // In service-managed mode keep children attached so systemd/launchd can
   // stop the full process tree reliably. Outside service mode preserve the
   // existing POSIX detached behavior.
-  const useDetached = process.platform !== "win32" && !isServiceManagedRuntime();
+  const useDetached = !isServiceManagedRuntime();
 
   const options: SpawnOptions = {
     cwd: params.cwd,
     env: preparedSpawn.env,
     stdio: ["pipe", "pipe", "pipe"],
     detached: useDetached,
-    windowsHide: true,
-    windowsVerbatimArguments: params.windowsVerbatimArguments,
   };
   if (stdinMode === "inherit") {
     options.stdio = ["inherit", "pipe", "pipe"];
@@ -144,49 +130,21 @@ export async function createChildAdapter(params: {
     : undefined;
 
   const onStdout = (listener: (chunk: string) => void) => {
-    const stdoutDecoder = createWindowsOutputDecoder();
-    let flushed = false;
-    const flush = () => {
-      if (flushed) {
-        return;
-      }
-      flushed = true;
-      const tail = stdoutDecoder.flush();
-      if (tail) {
-        listener(tail);
-      }
-    };
     child.stdout.on("data", (chunk) => {
-      const text = stdoutDecoder.decode(chunk);
+      const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
       if (text) {
         listener(text);
       }
     });
-    child.stdout.once("end", flush);
-    child.stdout.once("close", flush);
   };
 
   const onStderr = (listener: (chunk: string) => void) => {
-    const stderrDecoder = createWindowsOutputDecoder();
-    let flushed = false;
-    const flush = () => {
-      if (flushed) {
-        return;
-      }
-      flushed = true;
-      const tail = stderrDecoder.flush();
-      if (tail) {
-        listener(tail);
-      }
-    };
     child.stderr.on("data", (chunk) => {
-      const text = stderrDecoder.decode(chunk);
+      const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
       if (text) {
         listener(text);
       }
     });
-    child.stderr.once("end", flush);
-    child.stderr.once("close", flush);
   };
 
   let waitResult: { code: number | null; signal: NodeJS.Signals | null } | null = null;
@@ -198,9 +156,6 @@ export async function createChildAdapter(params: {
   let waitPromise: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | null = null;
   let forceKillWaitFallbackTimer: NodeJS.Timeout | null = null;
   let childExitState: { code: number | null; signal: NodeJS.Signals | null } | null = null;
-  let windowsCloseFallbackTimer: NodeJS.Timeout | null = null;
-  let stdoutDrained = child.stdout == null;
-  let stderrDrained = child.stderr == null;
 
   const clearForceKillWaitFallback = () => {
     if (!forceKillWaitFallbackTimer) {
@@ -210,20 +165,11 @@ export async function createChildAdapter(params: {
     forceKillWaitFallbackTimer = null;
   };
 
-  const clearWindowsCloseFallbackTimer = () => {
-    if (!windowsCloseFallbackTimer) {
-      return;
-    }
-    clearTimeout(windowsCloseFallbackTimer);
-    windowsCloseFallbackTimer = null;
-  };
-
   const settleWait = (value: { code: number | null; signal: NodeJS.Signals | null }) => {
     if (waitResult || waitError !== undefined) {
       return;
     }
     clearForceKillWaitFallback();
-    clearWindowsCloseFallbackTimer();
     waitResult = value;
     if (resolveWait) {
       const resolve = resolveWait;
@@ -238,7 +184,6 @@ export async function createChildAdapter(params: {
       return;
     }
     clearForceKillWaitFallback();
-    clearWindowsCloseFallbackTimer();
     waitError = error;
     if (rejectWait) {
       const reject = rejectWait;
@@ -250,7 +195,6 @@ export async function createChildAdapter(params: {
 
   const scheduleForceKillWaitFallback = (signal: NodeJS.Signals) => {
     clearForceKillWaitFallback();
-    // Some Windows child processes never emit `close` after a hard kill.
     forceKillWaitFallbackTimer = setTimeout(() => {
       settleWait({ code: null, signal });
     }, FORCE_KILL_WAIT_FALLBACK_MS);
@@ -270,52 +214,11 @@ export async function createChildAdapter(params: {
     };
   };
 
-  const maybeSettleAfterWindowsExit = () => {
-    if (
-      process.platform !== "win32" ||
-      childExitState == null ||
-      !stdoutDrained ||
-      !stderrDrained
-    ) {
-      return;
-    }
-    settleWait(resolveObservedExitState(childExitState));
-  };
-
-  const scheduleWindowsCloseFallback = () => {
-    if (process.platform !== "win32") {
-      return;
-    }
-    clearWindowsCloseFallbackTimer();
-    windowsCloseFallbackTimer = setTimeout(() => {
-      maybeSettleAfterWindowsExit();
-    }, WINDOWS_CLOSE_STATE_SETTLE_TIMEOUT_MS);
-    windowsCloseFallbackTimer.unref?.();
-  };
-
-  child.stdout?.once("end", () => {
-    stdoutDrained = true;
-    maybeSettleAfterWindowsExit();
-  });
-  child.stdout?.once("close", () => {
-    stdoutDrained = true;
-    maybeSettleAfterWindowsExit();
-  });
-  child.stderr?.once("end", () => {
-    stderrDrained = true;
-    maybeSettleAfterWindowsExit();
-  });
-  child.stderr?.once("close", () => {
-    stderrDrained = true;
-    maybeSettleAfterWindowsExit();
-  });
-
   child.once("error", (error) => {
     rejectPendingWait(error);
   });
   child.once("exit", (code, signal) => {
     childExitState = { code, signal };
-    scheduleWindowsCloseFallback();
   });
   child.once("close", (code, signal) => {
     settleWait(resolveObservedExitState({ code, signal }));
@@ -391,7 +294,6 @@ export async function createChildAdapter(params: {
 
   const dispose = () => {
     clearForceKillWaitFallback();
-    clearWindowsCloseFallbackTimer();
     child.removeAllListeners();
   };
 

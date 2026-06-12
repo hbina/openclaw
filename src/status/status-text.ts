@@ -48,12 +48,7 @@ export type { BuildStatusTextParams } from "./status-text.types.js";
 
 // Status text assembly gathers runtime/model/session/task facts, then delegates
 // final formatting to status-message.runtime through lazy imports.
-const USAGE_OAUTH_ONLY_PROVIDERS = new Set([
-  "anthropic",
-  "github-copilot",
-  "google-gemini-cli",
-  "openai",
-]);
+const USAGE_OAUTH_ONLY_PROVIDERS = new Set(["anthropic", "openai"]);
 
 let statusMessageRuntimePromise: Promise<typeof import("../auto-reply/status.runtime.js")> | null =
   null;
@@ -365,7 +360,7 @@ export async function buildStatusText(params: BuildStatusTextParams): Promise<st
       ) {
         const summaryLine = formatUsageWindowSummary(usageEntry, {
           now: Date.now(),
-          maxWindows: 2,
+          maxPeriods: 2,
           includeResets: true,
         });
         if (summaryLine) {

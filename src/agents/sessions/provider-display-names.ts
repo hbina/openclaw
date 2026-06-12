@@ -4,15 +4,12 @@
  */
 export const BUILT_IN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
-  "amazon-bedrock": "Amazon Bedrock",
   "azure-openai-responses": "Azure OpenAI Responses",
   cerebras: "Cerebras",
   "cloudflare-ai-gateway": "Cloudflare AI Gateway",
   "cloudflare-workers-ai": "Cloudflare Workers AI",
   deepseek: "DeepSeek",
   fireworks: "Fireworks",
-  google: "Google Gemini",
-  "google-vertex": "Google Vertex AI",
   groq: "Groq",
   huggingface: "Hugging Face",
   "kimi-coding": "Kimi For Coding",

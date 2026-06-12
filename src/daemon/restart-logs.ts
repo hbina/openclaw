@@ -1,6 +1,5 @@
 /** Resolves daemon log paths and shell snippets for restart handoff diagnostics. */
 import path from "node:path";
-import { quoteCmdScriptArg } from "./cmd-argv.js";
 import { resolveGatewayProfileSuffix } from "./constants.js";
 import { resolveGatewayStateDir, resolveHomeDir } from "./paths.js";
 import type { GatewayServiceEnv } from "./service-types.js";
@@ -50,7 +49,7 @@ export function resolveGatewaySupervisorLogPaths(
   env: GatewayServiceEnv,
   options?: { platform?: NodeJS.Platform },
 ): GatewayLogPaths {
-  // launchd supervisors write to ~/Library/Logs; systemd and schtasks use the
+  // launchd supervisors write to ~/Library/Logs; systemd uses the
   // OpenClaw state dir so generated service users can create the directory.
   return (options?.platform ?? process.platform) === "darwin"
     ? resolveMacLaunchAgentLogPaths(env)
@@ -75,21 +74,4 @@ export function renderPosixRestartLogSetup(env: GatewayServiceEnv): string {
   return `if mkdir -p '${escapedLogDir}' 2>/dev/null && : >>'${escapedLogPath}' 2>/dev/null; then
   exec >>'${escapedLogPath}' 2>&1
 fi`;
-}
-
-export function renderCmdRestartLogSetup(env: GatewayServiceEnv): {
-  lines: string[];
-  quotedLogPath: string;
-} {
-  const logPath = resolveGatewayRestartLogPath(env);
-  const logDir = path.dirname(logPath);
-  const quotedLogDir = quoteCmdScriptArg(logDir);
-  const quotedLogPath = quoteCmdScriptArg(logPath);
-  return {
-    quotedLogPath,
-    lines: [
-      `if not exist ${quotedLogDir} mkdir ${quotedLogDir} >nul 2>&1`,
-      `>> ${quotedLogPath} 2>&1 echo [%DATE% %TIME%] openclaw restart log initialized`,
-    ],
-  };
 }

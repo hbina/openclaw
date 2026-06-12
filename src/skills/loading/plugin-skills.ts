@@ -17,7 +17,7 @@ import { CONFIG_DIR } from "../../utils.js";
 
 const log = createSubsystemLogger("skills");
 
-type PluginSkillLinkType = "dir" | "junction";
+type PluginSkillLinkType = "dir";
 
 export function resolvePluginSkillDirs(params: {
   workspaceDir: string | undefined;
@@ -119,10 +119,8 @@ function resolveDefaultPluginSkillsDir(): string {
   return path.join(CONFIG_DIR, "plugin-skills");
 }
 
-function resolvePluginSkillLinkType(
-  platform: NodeJS.Platform = process.platform,
-): PluginSkillLinkType {
-  return platform === "win32" ? "junction" : "dir";
+function resolvePluginSkillLinkType(): PluginSkillLinkType {
+  return "dir";
 }
 
 /**
@@ -267,8 +265,7 @@ function publishPluginSkills(skillDirs: string[], opts?: { pluginSkillsDir?: str
 function isGeneratedPluginSkillEntry(
   entry: Pick<fs.Dirent, "isDirectory" | "isSymbolicLink">,
 ): boolean {
-  // Windows directory symlinks are junctions and lstat reports them as directories.
-  return entry.isSymbolicLink() || (process.platform === "win32" && entry.isDirectory());
+  return entry.isSymbolicLink();
 }
 
 function removeGeneratedPluginSkillEntry(linkPath: string): void {

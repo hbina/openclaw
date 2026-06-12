@@ -234,7 +234,6 @@ import {
   resolveExtraParams,
   resolvePreparedExtraParams,
 } from "../extra-params.js";
-import { prepareGooglePromptCacheStreamFn } from "../google-prompt-cache.js";
 import { getHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
 import { log } from "../logger.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
@@ -267,7 +266,6 @@ import { prepareSessionManagerForRun } from "../session-manager-init.js";
 import {
   describeEmbeddedAgentStreamStrategy,
   resetEmbeddedAgentBaseStreamFnCacheForTest,
-  resolveEmbeddedAgentApiKey,
   resolveEmbeddedAgentBaseStreamFn,
   resolveEmbeddedAgentStreamFn,
 } from "../stream-resolution.js";
@@ -3995,31 +3993,6 @@ export async function runEmbeddedAttempt(
           }
 
           if (!skipPromptSubmission) {
-            const googlePromptCacheStreamFn = await prepareGooglePromptCacheStreamFn({
-              apiKey: await resolveEmbeddedAgentApiKey({
-                provider: params.provider,
-                resolvedApiKey: params.resolvedApiKey,
-                authStorage: params.authStorage,
-              }),
-              extraParams: effectiveExtraParams,
-              model: params.model,
-              modelId: params.modelId,
-              provider: params.provider,
-              sessionManager: {
-                appendCustomEntry: async (customType, data) => {
-                  await sessionLockController.withSessionWriteLock(() => {
-                    activeSessionManager.appendCustomEntry(customType, data);
-                  });
-                },
-                getEntries: () => activeSessionManager.getEntries(),
-              },
-              signal: runAbortController.signal,
-              streamFn: activeSession.agent.streamFn,
-              systemPrompt: systemPromptText,
-            });
-            if (googlePromptCacheStreamFn) {
-              activeSession.agent.streamFn = googlePromptCacheStreamFn;
-            }
             installPromptSubmissionLockRelease({
               session: activeSession,
               waitForSessionEvents: (sessionToDrain) =>

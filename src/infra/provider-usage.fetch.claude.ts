@@ -1,4 +1,4 @@
-// Fetches Claude provider usage windows.
+// Fetches Claude provider usage periods.
 import {
   buildUsageHttpErrorSnapshot,
   fetchJson,
@@ -21,7 +21,7 @@ type ClaudeWebOrganizationsResponse = Array<{
 
 type ClaudeWebUsageResponse = ClaudeUsageResponse;
 
-function buildClaudeUsageWindows(data: ClaudeUsageResponse): UsageWindow[] {
+function buildClaudeUsagePeriods(data: ClaudeUsageResponse): UsageWindow[] {
   const windows: UsageWindow[] = [];
 
   if (data.five_hour?.utilization !== undefined) {
@@ -113,7 +113,7 @@ async function fetchClaudeWebUsage(
     return null;
   }
   const data = parsedUsage.data as ClaudeWebUsageResponse;
-  const windows = buildClaudeUsageWindows(data);
+  const windows = buildClaudeUsagePeriods(data);
 
   if (windows.length === 0) {
     return null;
@@ -184,7 +184,7 @@ export async function fetchClaudeUsage(
     return parsed.snapshot;
   }
   const data = parsed.data as ClaudeUsageResponse;
-  const windows = buildClaudeUsageWindows(data);
+  const windows = buildClaudeUsagePeriods(data);
 
   return {
     provider: "anthropic",

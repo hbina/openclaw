@@ -22,7 +22,6 @@ export type ResolvePreferredOpenClawTmpDirOptions = {
   getuid?: () => number | undefined;
   lstatSync?: (path: string) => SecureDirStat;
   mkdirSync?: (path: string, opts: { recursive: boolean; mode?: number }) => void;
-  platform?: NodeJS.Platform;
   tmpdir?: () => string;
   warn?: (message: string) => void;
 };
@@ -56,7 +55,6 @@ export function resolvePreferredOpenClawTmpDir(
       }
     });
   const tmpdir = typeof options.tmpdir === "function" ? options.tmpdir : getOsTmpDir;
-  const platform = options.platform ?? process.platform;
   const uid = getuid();
 
   const isSecureDirForUser = (st: { mode?: number; uid?: number }): boolean => {
@@ -71,8 +69,7 @@ export function resolvePreferredOpenClawTmpDir(
 
   const fallback = (): string => {
     const suffix = uid === undefined ? "openclaw" : `openclaw-${uid}`;
-    const joiner = platform === "win32" ? path.win32.join : path.join;
-    return joiner(tmpdir(), suffix);
+    return path.join(tmpdir(), suffix);
   };
 
   const isTrustedTmpDir = (st: SecureDirStat): boolean =>
@@ -150,10 +147,6 @@ export function resolvePreferredOpenClawTmpDir(
     }
     return fallbackPath;
   };
-
-  if (platform === "win32") {
-    return ensureTrustedFallbackDir();
-  }
 
   const preferredDir = POSIX_OPENCLAW_TMP_DIR;
   const preferredState = resolveDirState(preferredDir);

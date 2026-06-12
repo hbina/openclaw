@@ -15,11 +15,7 @@ export const PUBLIC_SURFACE_SOURCE_EXTENSIONS = [
 
 /** Normalizes a bundled public artifact subpath and rejects traversal/absolute paths. */
 export function normalizeBundledPluginArtifactSubpath(artifactBasename: string): string {
-  if (
-    path.posix.isAbsolute(artifactBasename) ||
-    path.win32.isAbsolute(artifactBasename) ||
-    artifactBasename.includes("\\")
-  ) {
+  if (path.posix.isAbsolute(artifactBasename) || artifactBasename.includes("\\")) {
     throw new Error(`Bundled plugin artifact path must stay plugin-local: ${artifactBasename}`);
   }
 

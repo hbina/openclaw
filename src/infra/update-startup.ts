@@ -329,11 +329,7 @@ async function runAutoUpdateCommand(params: {
   const execPath = process.execPath?.trim();
   const argv1 = process.argv[1]?.trim();
   const lowerExecBase = execPath ? normalizeLowercaseStringOrEmpty(path.basename(execPath)) : "";
-  const runtimeIsNodeOrBun =
-    lowerExecBase === "node" ||
-    lowerExecBase === "node.exe" ||
-    lowerExecBase === "bun" ||
-    lowerExecBase === "bun.exe";
+  const runtimeIsNodeOrBun = lowerExecBase === "node" || lowerExecBase === "bun";
   const argv: string[] = [];
   if (execPath && argv1) {
     argv.push(execPath, argv1, ...baseArgs);

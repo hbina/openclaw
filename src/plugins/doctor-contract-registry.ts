@@ -4,7 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeTrimmedStringList } from "@openclaw/normalization-core/string-normalization";
-import type { LegacyConfigRule } from "../config/legacy.shared.js";
 import type { OpenClawConfig } from "../config/types.js";
 import type {
   OpenKeyedStoreOptions,
@@ -27,7 +26,6 @@ const RUNNING_FROM_BUILT_ARTIFACT =
   CURRENT_MODULE_PATH.includes(`${path.sep}dist-runtime${path.sep}`);
 
 type PluginDoctorContractModule = {
-  legacyConfigRules?: unknown;
   normalizeCompatibilityConfig?: unknown;
   sessionRouteStateOwners?: unknown;
   stateMigrations?: unknown;
@@ -44,7 +42,6 @@ type PluginDoctorCompatibilityNormalizer = (params: {
 
 type PluginDoctorContractEntry = {
   pluginId: string;
-  rules: LegacyConfigRule[];
   normalizeCompatibilityConfig?: PluginDoctorCompatibilityNormalizer;
   sessionRouteStateOwners: DoctorSessionRouteStateOwner[];
   stateMigrations: PluginDoctorStateMigration[];
@@ -116,19 +113,6 @@ function resolveContractApiPath(rootDir: string): string | null {
     }
   }
   return null;
-}
-
-function coerceLegacyConfigRules(value: unknown): LegacyConfigRule[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return false;
-    }
-    const candidate = entry as { path?: unknown; message?: unknown };
-    return Array.isArray(candidate.path) && typeof candidate.message === "string";
-  }) as LegacyConfigRule[];
 }
 
 function coerceNormalizeCompatibilityConfig(
@@ -300,10 +284,6 @@ function loadPluginDoctorContractEntry(
   } catch {
     return null;
   }
-  const rules = coerceLegacyConfigRules(
-    (mod as { default?: PluginDoctorContractModule }).default?.legacyConfigRules ??
-      mod.legacyConfigRules,
-  );
   const normalizeCompatibilityConfig = coerceNormalizeCompatibilityConfig(
     mod.normalizeCompatibilityConfig ??
       (mod as { default?: PluginDoctorContractModule }).default?.normalizeCompatibilityConfig,
@@ -317,7 +297,6 @@ function loadPluginDoctorContractEntry(
       (mod as { default?: PluginDoctorContractModule }).default?.stateMigrations,
   );
   if (
-    rules.length === 0 &&
     !normalizeCompatibilityConfig &&
     sessionRouteStateOwners.length === 0 &&
     stateMigrations.length === 0
@@ -326,7 +305,6 @@ function loadPluginDoctorContractEntry(
   }
   return {
     pluginId: record.id,
-    rules,
     normalizeCompatibilityConfig,
     sessionRouteStateOwners,
     stateMigrations,
@@ -380,15 +358,6 @@ export function setPluginDoctorContractRegistryModuleLoaderFactoryForTest(
 ): void {
   moduleLoaderFactoryForTest = factory;
   moduleLoaders.clear();
-}
-
-export function listPluginDoctorLegacyConfigRules(params?: {
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-  pluginIds?: readonly string[];
-}): LegacyConfigRule[] {
-  return resolvePluginDoctorContracts(params).flatMap((entry) => entry.rules);
 }
 
 export function listPluginDoctorSessionRouteStateOwners(params?: {

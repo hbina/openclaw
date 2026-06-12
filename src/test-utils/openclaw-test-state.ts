@@ -57,9 +57,6 @@ export type OpenClawTestState = {
 const DEFAULT_PREFIX = "openclaw-test-state-";
 const ENV_KEYS = [
   "HOME",
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
   "OPENCLAW_HOME",
   "OPENCLAW_STATE_DIR",
   "OPENCLAW_CONFIG_PATH",
@@ -69,22 +66,6 @@ const ENV_KEYS = [
 
 function normalizeLabel(value: string | undefined): string {
   return (value ?? "state").replace(/[^A-Za-z0-9_.-]+/gu, "-").replace(/^-+|-+$/gu, "") || "state";
-}
-
-function resolveWindowsHomeEnv(
-  home: string,
-): Partial<Pick<NodeJS.ProcessEnv, "HOMEDRIVE" | "HOMEPATH">> {
-  if (process.platform !== "win32") {
-    return {};
-  }
-  const match = home.match(/^([A-Za-z]:)(.*)$/u);
-  if (!match) {
-    return {};
-  }
-  return {
-    HOMEDRIVE: match[1],
-    HOMEPATH: match[2] || "\\",
-  };
 }
 
 function resolveLayout(
@@ -219,9 +200,7 @@ function buildEnvVars(params: {
   if (params.layout !== "state-only") {
     Object.assign(envVars, {
       HOME: params.home,
-      USERPROFILE: params.home,
       OPENCLAW_HOME: params.home,
-      ...resolveWindowsHomeEnv(params.home),
     });
   }
   return envVars;

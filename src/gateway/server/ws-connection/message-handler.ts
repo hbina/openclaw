@@ -279,9 +279,6 @@ function resolvePinnedClientMetadata(params: {
       case "darwin":
       case "macos":
         return "macos";
-      case "win32":
-      case "windows":
-        return "windows";
       default:
         return value;
     }

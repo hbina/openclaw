@@ -124,7 +124,6 @@ export function noteCronModelOverrides(params: {
 async function readUserCrontab(): Promise<{ stdout: string; stderr?: string }> {
   const result = await execFileAsync("crontab", ["-l"], {
     encoding: "utf8",
-    windowsHide: true,
   });
   return {
     stdout: result.stdout,

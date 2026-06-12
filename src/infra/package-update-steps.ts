@@ -70,7 +70,7 @@ async function removePathBestEffort(targetPath: string): Promise<boolean> {
     await fs.rm(targetPath, {
       recursive: true,
       force: true,
-      maxRetries: process.platform === "win32" ? 5 : 2,
+      maxRetries: 2,
       retryDelay: 100,
     });
     return true;
@@ -103,7 +103,7 @@ function isUnambiguousNpmPrefixGlobalRoot(globalRoot: string | null): boolean {
   if (path.basename(parentDir) === "lib") {
     return true;
   }
-  return process.platform === "win32" && path.basename(parentDir).toLowerCase() === "npm";
+  return false;
 }
 
 function resolveStagedNpmTargetLayout(

@@ -153,24 +153,6 @@ function detectSystemTimeFormat(): boolean {
     }
   }
 
-  if (process.platform === "win32") {
-    try {
-      const result = execFileSync(
-        "powershell",
-        ["-Command", "(Get-Culture).DateTimeFormat.ShortTimePattern"],
-        { encoding: "utf8", timeout: 1000 },
-      ).trim();
-      if (result.startsWith("H")) {
-        return true;
-      }
-      if (result.startsWith("h")) {
-        return false;
-      }
-    } catch {
-      // Windows detection is best-effort; Intl below is the portable fallback.
-    }
-  }
-
   try {
     const sample = new Date(2000, 0, 1, 13, 0);
     const formatted = new Intl.DateTimeFormat(undefined, { hour: "numeric" }).format(sample);

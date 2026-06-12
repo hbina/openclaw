@@ -28,7 +28,7 @@ export type GatewayRestartHandoffSource =
   | "plugin-change"
   | "signal"
   | "unknown";
-export type GatewayRestartHandoffSupervisorMode = "launchd" | "systemd" | "schtasks" | "external";
+export type GatewayRestartHandoffSupervisorMode = "launchd" | "systemd" | "external";
 
 export type GatewayRestartHandoff = {
   kind: typeof GATEWAY_SUPERVISOR_RESTART_HANDOFF_KIND;
@@ -210,7 +210,7 @@ function isRestartKind(value: unknown): value is GatewayRestartHandoffRestartKin
 }
 
 function isSupervisorMode(value: unknown): value is GatewayRestartHandoffSupervisorMode {
-  return value === "launchd" || value === "systemd" || value === "schtasks" || value === "external";
+  return value === "launchd" || value === "systemd" || value === "external";
 }
 
 function parseGatewayRestartHandoff(raw: string): GatewayRestartHandoff | null {

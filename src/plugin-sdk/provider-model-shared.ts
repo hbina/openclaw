@@ -1,27 +1,15 @@
 // Provider model helpers normalize model catalog entries shared by provider plugins.
 import { normalizeProviderId as normalizeProviderIdCore } from "@openclaw/model-catalog-core/provider-id";
 import {
-  normalizeAntigravityPreviewModelId as normalizeAntigravityPreviewModelIdCore,
-  normalizeGooglePreviewModelId as normalizeGooglePreviewModelIdCore,
-} from "@openclaw/model-catalog-core/provider-model-id-normalize";
-import {
   buildAnthropicReplayPolicyForModel,
-  buildGoogleGeminiReplayPolicy,
   buildHybridAnthropicOrOpenAIReplayPolicy,
   buildNativeAnthropicReplayPolicyForModel,
   buildOpenAICompatibleReplayPolicy,
-  buildPassthroughGeminiSanitizingReplayPolicy,
   buildStrictAnthropicReplayPolicy,
   resolveTaggedReasoningOutputMode,
-  sanitizeGoogleGeminiReplayHistory,
 } from "../plugins/provider-replay-helpers.js";
 import type { ProviderPlugin } from "../plugins/types.js";
-import type {
-  ProviderReasoningOutputModeContext,
-  ProviderReplayPolicyContext,
-  ProviderSanitizeReplayHistoryContext,
-  ProviderThinkingProfile,
-} from "./plugin-entry.js";
+import type { ProviderReplayPolicyContext, ProviderThinkingProfile } from "./plugin-entry.js";
 
 export type {
   ModelApi,
@@ -71,13 +59,10 @@ export {
 } from "../plugins/provider-model-compat.js";
 export {
   buildAnthropicReplayPolicyForModel,
-  buildGoogleGeminiReplayPolicy,
   buildHybridAnthropicOrOpenAIReplayPolicy,
   buildNativeAnthropicReplayPolicyForModel,
   buildOpenAICompatibleReplayPolicy,
-  buildPassthroughGeminiSanitizingReplayPolicy,
   resolveTaggedReasoningOutputMode,
-  sanitizeGoogleGeminiReplayHistory,
   buildStrictAnthropicReplayPolicy,
 };
 
@@ -184,34 +169,12 @@ export function resolveClaudeThinkingProfile(
 }
 
 /**
- * Normalizes Antigravity preview model ids to the canonical provider catalog form.
- */
-export function normalizeAntigravityPreviewModelId(
-  /** Antigravity preview model id from config or catalog data. */
-  id: string,
-): string {
-  return normalizeAntigravityPreviewModelIdCore(id);
-}
-
-/**
- * Normalizes Google preview model ids to the canonical provider catalog form.
- */
-export function normalizeGooglePreviewModelId(
-  /** Google preview model id from config or catalog data. */
-  id: string,
-): string {
-  return normalizeGooglePreviewModelIdCore(id);
-}
-
-/**
  * Shared replay-policy families reused by provider plugins with matching transcript semantics.
  */
 export type ProviderReplayFamily =
   | "openai-compatible"
   | "anthropic-by-model"
   | "native-anthropic-by-model"
-  | "google-gemini"
-  | "passthrough-gemini"
   | "hybrid-anthropic-openai";
 
 type ProviderReplayFamilyHooks = Pick<
@@ -235,14 +198,6 @@ type BuildProviderReplayFamilyHooksOptions =
   | {
       /** Native Anthropic transcript policy preserving Anthropic ids/signatures. */
       family: "native-anthropic-by-model";
-    }
-  | {
-      /** Google Gemini transcript policy with Gemini replay sanitation hooks. */
-      family: "google-gemini";
-    }
-  | {
-      /** OpenAI-compatible transport carrying Gemini-style thought signatures. */
-      family: "passthrough-gemini";
     }
   | {
       /** Family that switches between Anthropic and OpenAI-compatible replay by request context. */
@@ -281,19 +236,6 @@ export function buildProviderReplayFamilyHooks(
         buildReplayPolicy: ({ modelId }: ProviderReplayPolicyContext) =>
           buildNativeAnthropicReplayPolicyForModel(modelId),
       };
-    case "google-gemini":
-      return {
-        buildReplayPolicy: () => buildGoogleGeminiReplayPolicy(),
-        sanitizeReplayHistory: (ctx: ProviderSanitizeReplayHistoryContext) =>
-          sanitizeGoogleGeminiReplayHistory(ctx),
-        resolveReasoningOutputMode: (_ctx: ProviderReasoningOutputModeContext) =>
-          resolveTaggedReasoningOutputMode(),
-      };
-    case "passthrough-gemini":
-      return {
-        buildReplayPolicy: ({ modelId }: ProviderReplayPolicyContext) =>
-          buildPassthroughGeminiSanitizingReplayPolicy(modelId),
-      };
     case "hybrid-anthropic-openai":
       return {
         buildReplayPolicy: (ctx: ProviderReplayPolicyContext) =>
@@ -318,9 +260,4 @@ export const ANTHROPIC_BY_MODEL_REPLAY_HOOKS = buildProviderReplayFamilyHooks({
 /** @deprecated Anthropic provider-owned replay hook shortcut; use local provider hooks instead. */
 export const NATIVE_ANTHROPIC_REPLAY_HOOKS = buildProviderReplayFamilyHooks({
   family: "native-anthropic-by-model",
-});
-
-/** @deprecated Google provider-owned replay hook shortcut; use local provider hooks instead. */
-export const PASSTHROUGH_GEMINI_REPLAY_HOOKS = buildProviderReplayFamilyHooks({
-  family: "passthrough-gemini",
 });

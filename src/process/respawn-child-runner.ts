@@ -46,7 +46,7 @@ export function runRespawnChildWithSignalBridge(params: {
   };
   const forceKillChild = (): void => {
     try {
-      child.kill(process.platform === "win32" ? "SIGTERM" : "SIGKILL");
+      child.kill("SIGKILL");
     } catch {
       // Best-effort shutdown fallback.
     }

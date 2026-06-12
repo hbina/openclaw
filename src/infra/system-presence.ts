@@ -77,18 +77,12 @@ function initSelfPresence() {
     if (p === "darwin") {
       return `macos ${macOSVersion()}`;
     }
-    if (p === "win32") {
-      return `windows ${rel}`;
-    }
     return `${p} ${rel}`;
   })();
   const deviceFamily = (() => {
     const p = os.platform();
     if (p === "darwin") {
       return "Mac";
-    }
-    if (p === "win32") {
-      return "Windows";
     }
     if (p === "linux") {
       return "Linux";

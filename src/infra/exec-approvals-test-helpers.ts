@@ -7,10 +7,7 @@ import type { CommandResolution, ExecutableResolution } from "./exec-command-res
 // Shared exec-approval fixtures keep parser, allowlist, and wrapper tests on
 // the same mock resolution shape.
 export function makePathEnv(binDir: string): NodeJS.ProcessEnv {
-  if (process.platform !== "win32") {
-    return { PATH: binDir };
-  }
-  return { PATH: binDir, PATHEXT: ".EXE;.CMD;.BAT;.COM" };
+  return { PATH: binDir };
 }
 
 /** Create a real temp directory for exec-approval tests that need filesystem paths. */

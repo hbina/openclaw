@@ -25,7 +25,6 @@ export const DEFAULT_RESTART_HEALTH_ATTEMPTS = Math.ceil(
   DEFAULT_RESTART_HEALTH_TIMEOUT_MS / DEFAULT_RESTART_HEALTH_DELAY_MS,
 );
 const STOPPED_FREE_EARLY_EXIT_GRACE_MS = 10_000;
-const WINDOWS_STOPPED_FREE_EARLY_EXIT_GRACE_MS = 90_000;
 
 export type GatewayRestartWaitOutcome =
   | "healthy"
@@ -328,7 +327,6 @@ export async function inspectGatewayRestart(params: {
   port: number;
   env?: NodeJS.ProcessEnv;
   expectedVersion?: string | null;
-  includeUnknownListenersAsStale?: boolean;
   probeAuth?: GatewayRestartProbeAuth;
 }): Promise<GatewayRestartSnapshot> {
   const env = params.env ?? process.env;
@@ -405,16 +403,6 @@ export async function inspectGatewayRestart(params: {
           (listener) => classifyPortListener(listener, params.port) === "gateway",
         )
       : [];
-  const fallbackListenerPids =
-    params.includeUnknownListenersAsStale &&
-    process.platform === "win32" &&
-    runtime.status !== "running" &&
-    portUsage.status === "busy"
-      ? portUsage.listeners
-          .filter((listener) => classifyPortListener(listener, params.port) === "unknown")
-          .map((listener) => listener.pid)
-          .filter((pid): pid is number => Number.isFinite(pid))
-      : [];
   const running = runtime.status === "running";
   const runtimePid = runtime.pid;
   const listenerAttributionGap = hasListenerAttributionGap(portUsage);
@@ -464,9 +452,6 @@ export async function inspectGatewayRestart(params: {
           return !listenerOwnedByRuntimePid({ listener, runtimePid });
         })
         .map((listener) => listener.pid as number),
-      ...fallbackListenerPids.filter(
-        (pid) => runtime.pid == null || pid !== runtime.pid || !running,
-      ),
     ]),
   );
 
@@ -501,9 +486,7 @@ function shouldEarlyExitStoppedFree(
 }
 
 function stoppedFreeEarlyExitGraceMs(): number {
-  return process.platform === "win32"
-    ? WINDOWS_STOPPED_FREE_EARLY_EXIT_GRACE_MS
-    : STOPPED_FREE_EARLY_EXIT_GRACE_MS;
+  return STOPPED_FREE_EARLY_EXIT_GRACE_MS;
 }
 
 function withWaitContext(
@@ -521,7 +504,6 @@ export async function waitForGatewayHealthyRestart(params: {
   delayMs?: number;
   env?: NodeJS.ProcessEnv;
   expectedVersion?: string | null;
-  includeUnknownListenersAsStale?: boolean;
 }): Promise<GatewayRestartSnapshot> {
   const attempts = params.attempts ?? DEFAULT_RESTART_HEALTH_ATTEMPTS;
   const delayMs = params.delayMs ?? DEFAULT_RESTART_HEALTH_DELAY_MS;
@@ -532,7 +514,6 @@ export async function waitForGatewayHealthyRestart(params: {
     port: params.port,
     env: params.env,
     expectedVersion: params.expectedVersion,
-    includeUnknownListenersAsStale: params.includeUnknownListenersAsStale,
     probeAuth,
   });
 
@@ -573,7 +554,6 @@ export async function waitForGatewayHealthyRestart(params: {
       port: params.port,
       env: params.env,
       expectedVersion: params.expectedVersion,
-      includeUnknownListenersAsStale: params.includeUnknownListenersAsStale,
       probeAuth,
     });
   }

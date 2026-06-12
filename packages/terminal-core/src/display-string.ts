@@ -33,12 +33,7 @@ function resolveTermuxHome(env: NodeJS.ProcessEnv): string | undefined {
 
 /** Resolve the underlying OS home before applying OpenClaw overrides. */
 function resolveRawOsHomeDir(env: NodeJS.ProcessEnv, homedir: () => string): string | undefined {
-  return (
-    normalize(env.HOME) ??
-    normalize(env.USERPROFILE) ??
-    resolveTermuxHome(env) ??
-    normalizeSafe(homedir)
-  );
+  return normalize(env.HOME) ?? resolveTermuxHome(env) ?? normalizeSafe(homedir);
 }
 
 /** Resolve raw home with OPENCLAW_HOME tilde expansion. */

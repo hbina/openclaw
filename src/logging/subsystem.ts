@@ -286,10 +286,7 @@ function formatConsoleLine(opts: {
 
 function writeConsoleLine(level: LogLevel, line: string, opts: { redacted?: boolean } = {}) {
   clearActiveProgressLine();
-  const sanitized =
-    process.platform === "win32" && process.env.GITHUB_ACTIONS === "true"
-      ? line.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "?").replace(/[\uD800-\uDFFF]/g, "?")
-      : line;
+  const sanitized = line;
   // Subsystem console output bypasses the patched console.* capture handler in
   // ./console.ts to avoid recursion. Normal formatted messages are redacted
   // before colorization; keep this exit guard for raw writes and structured

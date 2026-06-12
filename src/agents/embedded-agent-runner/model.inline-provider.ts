@@ -3,7 +3,6 @@
  */
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
 import type { ModelDefinitionConfig, ModelProviderConfig } from "../../config/types.js";
-import { normalizeGoogleApiBaseUrl } from "../../infra/google-api-base-url.js";
 import type { Api } from "../../llm/types.js";
 import { isSecretRefHeaderValueMarker } from "../model-auth-markers.js";
 import { attachModelProviderLocalService } from "../provider-local-service.js";
@@ -44,10 +43,7 @@ export function normalizeResolvedTransportApi(
 ): ModelDefinitionConfig["api"] | undefined {
   switch (api) {
     case "anthropic-messages":
-    case "bedrock-converse-stream":
     case "github-copilot":
-    case "google-generative-ai":
-    case "google-vertex":
     case "ollama":
     case "openai-chatgpt-responses":
     case "openai-completions":
@@ -133,8 +129,7 @@ function resolveInlineProviderTransport(params: { api?: Api | null; baseUrl?: st
   const api = normalizeResolvedTransportApi(params.api);
   return {
     api,
-    baseUrl:
-      api === "google-generative-ai" ? normalizeGoogleApiBaseUrl(params.baseUrl) : params.baseUrl,
+    baseUrl: params.baseUrl,
   };
 }
 

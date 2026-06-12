@@ -5,7 +5,7 @@ export {
   listDiscordDirectoryGroupsFromConfig,
   listDiscordDirectoryPeersFromConfig,
 } from "./src/directory-config.js";
-export { normalizeCompatibilityConfig, legacyConfigRules } from "./src/doctor-contract.js";
+export { normalizeCompatibilityConfig } from "./src/doctor-contract.js";
 export {
   collectRuntimeConfigAssignments,
   secretTargetRegistryEntries,

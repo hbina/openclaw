@@ -20,10 +20,7 @@ import {
 import { isNumericTelegramSenderUserId, normalizeTelegramAllowFromEntry } from "./allow-from.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
 import { hasTelegramBotEndpointApiRoot, normalizeTelegramApiRoot } from "./api-root.js";
-import {
-  legacyConfigRules as TELEGRAM_LEGACY_CONFIG_RULES,
-  normalizeCompatibilityConfig as normalizeTelegramCompatibilityConfig,
-} from "./doctor-contract.js";
+import { normalizeCompatibilityConfig as normalizeTelegramCompatibilityConfig } from "./doctor-contract.js";
 import { resolveTelegramPreviewStreamMode } from "./preview-streaming.js";
 
 type TelegramAllowFromInvalidHit = { path: string; entry: string };
@@ -602,7 +599,6 @@ export function collectTelegramEmptyAllowlistExtraWarnings(
 }
 
 export const telegramDoctor: ChannelDoctorAdapter = {
-  legacyConfigRules: TELEGRAM_LEGACY_CONFIG_RULES,
   normalizeCompatibilityConfig: normalizeTelegramCompatibilityConfig,
   collectPreviewWarnings: ({ cfg, doctorFixCommand, env }) => [
     ...collectTelegramMissingEnvTokenWarnings({ cfg, env }),

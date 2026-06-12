@@ -66,7 +66,7 @@ function pathCaseInsensitive(value: string): boolean {
 
     const parent = path.dirname(candidate);
     if (parent === candidate) {
-      return process.platform === "win32";
+      return false;
     }
     candidate = parent;
   }
@@ -109,9 +109,6 @@ function isExecutableSafeBinFile(value: string): boolean {
     const stats = fs.statSync(value);
     if (!stats.isFile()) {
       return false;
-    }
-    if (process.platform === "win32") {
-      return true;
     }
     fs.accessSync(value, fs.constants.X_OK);
     return true;
@@ -215,9 +212,6 @@ export function isTrustedSafeBinPath(params: TrustedSafeBinPathParams): boolean 
 export function listWritableExplicitTrustedSafeBinDirs(
   entries?: readonly string[] | null,
 ): WritableTrustedSafeBinDir[] {
-  if (process.platform === "win32") {
-    return [];
-  }
   const resolved = resolveTrustedSafeBinDirs(normalizeTrustedSafeBinDirs(entries), false);
   const hits: WritableTrustedSafeBinDir[] = [];
   for (const dir of resolved) {

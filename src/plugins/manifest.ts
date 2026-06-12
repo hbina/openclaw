@@ -146,10 +146,6 @@ export type PluginManifestProviderEndpoint = {
   hostSuffixes?: string[];
   /** Exact normalized base URLs that should resolve to this endpoint class. */
   baseUrls?: string[];
-  /** Static Google Vertex region metadata for exact global hosts. */
-  googleVertexRegion?: string;
-  /** Host suffix whose prefix should be exposed as the Google Vertex region. */
-  googleVertexRegionHostSuffix?: string;
 };
 
 export type PluginManifestProviderRequestProvider = {
@@ -230,7 +226,7 @@ export type PluginManifestSetupProviderAuthEvidence = {
   type: "local-file-with-env";
   /** Optional env var containing an explicit credential file path. */
   fileEnvVar?: string;
-  /** Optional fallback credential file paths. Supports `${HOME}` and `${APPDATA}`. */
+  /** Optional fallback credential file paths. Supports `${HOME}`. */
   fallbackPaths?: string[];
   /** At least one of these env vars must be non-empty when provided. */
   requiresAnyEnv?: string[];
@@ -1172,10 +1168,6 @@ function normalizeManifestProviderEndpoints(
       host.toLowerCase(),
     );
     const baseUrls = normalizeTrimmedStringList(rawEndpoint.baseUrls);
-    const googleVertexRegion = normalizeOptionalString(rawEndpoint.googleVertexRegion);
-    const googleVertexRegionHostSuffix = normalizeOptionalString(
-      rawEndpoint.googleVertexRegionHostSuffix,
-    )?.toLowerCase();
     if (hosts.length === 0 && hostSuffixes.length === 0 && baseUrls.length === 0) {
       continue;
     }
@@ -1184,8 +1176,6 @@ function normalizeManifestProviderEndpoints(
       ...(hosts.length > 0 ? { hosts } : {}),
       ...(hostSuffixes.length > 0 ? { hostSuffixes } : {}),
       ...(baseUrls.length > 0 ? { baseUrls } : {}),
-      ...(googleVertexRegion ? { googleVertexRegion } : {}),
-      ...(googleVertexRegionHostSuffix ? { googleVertexRegionHostSuffix } : {}),
     });
   }
 
@@ -1390,7 +1380,6 @@ const MANIFEST_DEFAULT_ENABLEMENT_PLATFORMS = new Set<PluginManifestDefaultPlatf
   "linux",
   "openbsd",
   "sunos",
-  "win32",
   "cygwin",
   "netbsd",
 ]);

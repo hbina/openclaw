@@ -113,7 +113,7 @@ function collectCachedSnapshotPaths(entry: SessionEntry): CachedSnapshotPath[] {
 }
 
 function isAbsolutePathLike(value: string): boolean {
-  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+  return path.isAbsolute(value);
 }
 
 function splitPathSegments(value: string): string[] {
@@ -122,11 +122,6 @@ function splitPathSegments(value: string): string[] {
     .replaceAll("\\", "/")
     .split("/")
     .filter(Boolean);
-}
-function isWindowsAbsolutePath(value: string): boolean {
-  return (
-    (/^[a-z]:/i.test(value) && ["/", "\\"].includes(value.slice(2, 3))) || value.startsWith("\\\\")
-  );
 }
 function isTempBackedOpenClawRoot(segments: readonly string[]): boolean {
   const lower = segments.map((segment) => segment.toLowerCase());
@@ -160,22 +155,13 @@ function extractBundledSkillRelativeSegments(cachedPath: string): string[] | und
   return relativeSegments;
 }
 function isInsidePath(baseDir: string, candidatePath: string): boolean {
-  const baseIsWindows = isWindowsAbsolutePath(baseDir);
-  const candidateIsWindows = isWindowsAbsolutePath(candidatePath);
-  if (baseIsWindows !== candidateIsWindows) {
-    return false;
-  }
-  const pathApi = baseIsWindows ? path.win32 : path;
-  const relative = pathApi.relative(pathApi.resolve(baseDir), pathApi.resolve(candidatePath));
+  const relative = path.relative(path.resolve(baseDir), path.resolve(candidatePath));
   return (
-    relative === "" ||
-    (relative !== "" && !relative.startsWith("..") && !pathApi.isAbsolute(relative))
+    relative === "" || (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative))
   );
 }
 function joinPathForRoot(root: string, ...segments: string[]): string {
-  return isWindowsAbsolutePath(root)
-    ? path.win32.join(root, ...segments)
-    : path.join(root, ...segments);
+  return path.join(root, ...segments);
 }
 function resolveExpectedBundledSkillPath(params: {
   cachedPath: string;

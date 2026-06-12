@@ -1204,7 +1204,7 @@ export async function modelsStatusCommand(
           for (const snapshot of usageSummary.providers) {
             const formatted = formatUsageWindowSummary(snapshot, {
               now: Date.now(),
-              maxWindows: 2,
+              maxPeriods: 2,
               includeResets: true,
             });
             if (formatted) {

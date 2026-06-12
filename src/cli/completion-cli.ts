@@ -29,9 +29,6 @@ export function getCompletionScript(shell: CompletionShell, program: Command): s
   if (shell === "bash") {
     return generateBashCompletion(program);
   }
-  if (shell === "powershell") {
-    return generatePowerShellCompletion(program);
-  }
   return generateFishCompletion(program);
 }
 
@@ -411,72 +408,6 @@ function generateBashSubcommand(cmd: Command): string {
         COMPREPLY=( $(compgen -W "\${opts}" -- \${cur}) )
         return 0
         ;;`;
-}
-
-function generatePowerShellCompletion(program: Command): string {
-  const rootCmd = program.name();
-  const segments: string[] = [];
-  const formatPowerShellArray = (entries: string[]) =>
-    entries.length > 0 ? `@(${entries.map((entry) => `'${entry}'`).join(",")})` : "@()";
-
-  const visit = (cmd: Command, pathSegments: string[]) => {
-    const fullPath = pathSegments.join(" ");
-
-    // Command completion for this level
-    const subCommands = cmd.commands.map((c) => c.name());
-    const options = cmd.options.map((o) => preferredCompletionFlag(o.flags));
-    const allCompletions = formatPowerShellArray([...subCommands, ...options]);
-
-    if (fullPath.length > 0 && [...subCommands, ...options].length > 0) {
-      segments.push(`
-            if ($commandPath -eq '${fullPath}') {
-                $completions = ${allCompletions}
-                $completions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
-                }
-            }
-`);
-    }
-
-    for (const sub of cmd.commands) {
-      visit(sub, [...pathSegments, sub.name()]);
-    }
-  };
-
-  visit(program, []);
-  const rootBody = segments.join("");
-
-  return `
-Register-ArgumentCompleter -Native -CommandName ${rootCmd} -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    
-    $commandElements = $commandAst.CommandElements
-    $commandPath = ""
-    
-    # Reconstruct command path (simple approximation)
-    # Skip the executable name
-    for ($i = 1; $i -lt $commandElements.Count; $i++) {
-        $element = $commandElements[$i].Extent.Text
-        if ($element -like "-*") { break }
-        if ($i -eq $commandElements.Count - 1 -and $wordToComplete -ne "") { break } # Don't include current word being typed
-        $commandPath += "$element "
-    }
-    $commandPath = $commandPath.Trim()
-    
-    # Root command
-    if ($commandPath -eq "") {
-         $completions = ${formatPowerShellArray([
-           ...program.commands.map((command) => command.name()),
-           ...program.options.map((option) => preferredCompletionFlag(option.flags)),
-         ])}
-         $completions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
-         }
-    }
-    
-    ${rootBody}
-}
-`;
 }
 
 function generateFishCompletion(program: Command): string {

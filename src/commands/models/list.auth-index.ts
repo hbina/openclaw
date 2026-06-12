@@ -7,7 +7,6 @@ import {
   resolveProviderEnvAuthLookupMaps,
 } from "../../agents/model-auth-env-vars.js";
 import { resolveEnvApiKey } from "../../agents/model-auth-env.js";
-import { resolveAwsSdkEnvVarName } from "../../agents/model-auth-runtime-shared.js";
 import {
   hasSyntheticLocalProviderAuthConfig,
   hasUsableCustomProviderApiKey,
@@ -147,10 +146,6 @@ export function createModelListAuthIndex(
     ) {
       addProvider(provider);
     }
-  }
-
-  if (resolveAwsSdkEnvVarName(env)) {
-    addProvider("amazon-bedrock");
   }
 
   for (const provider of Object.keys(params.cfg.models?.providers ?? {})) {

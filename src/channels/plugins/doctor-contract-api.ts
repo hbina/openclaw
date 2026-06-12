@@ -1,9 +1,8 @@
 /**
  * Bundled channel doctor contract loader.
  *
- * Loads public doctor hooks for channel-owned legacy config rules and compatibility repairs.
+ * Loads public doctor hooks for channel-owned compatibility repairs.
  */
-import type { LegacyConfigRule } from "../../config/legacy.shared.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { loadBundledPluginPublicArtifactModuleSync } from "../../plugins/public-surface-loader.js";
 
@@ -22,7 +21,6 @@ type BundledChannelDoctorCompatibilityMutation = {
  * importing plugin internals.
  */
 type BundledChannelDoctorContractApi = {
-  legacyConfigRules?: readonly LegacyConfigRule[];
   normalizeCompatibilityConfig?: (params: {
     cfg: OpenClawConfig;
   }) => BundledChannelDoctorCompatibilityMutation;

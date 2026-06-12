@@ -72,9 +72,7 @@ export function resolveThinkingDefault(params: {
     return configured;
   }
   const isClaudeProvider =
-    normalizedProvider === "anthropic" ||
-    normalizedProvider === "anthropic-vertex" ||
-    normalizedProvider === "claude-cli";
+    normalizedProvider === "anthropic" || normalizedProvider === "claude-cli";
   if (
     isClaudeProvider &&
     (normalizedModel.startsWith("claude-opus-4-8") || normalizedModel.startsWith("claude-opus-4.8"))

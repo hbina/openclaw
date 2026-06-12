@@ -19,13 +19,4 @@ export type UsageSummary = {
   providers: ProviderUsageSnapshot[];
 };
 
-export type UsageProviderId =
-  | "anthropic"
-  | "deepseek"
-  | "github-copilot"
-  | "google-gemini-cli"
-  | "minimax"
-  | "openai"
-  | "xiaomi"
-  | "xiaomi-token-plan"
-  | "zai";
+export type UsageProviderId = "anthropic" | "openai";

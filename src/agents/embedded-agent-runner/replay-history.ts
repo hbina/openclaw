@@ -23,10 +23,8 @@ import {
   downgradeOpenAIFunctionCallReasoningPairs,
   downgradeOpenAIReasoningBlocks,
   normalizeOpenAIResponsesToolCallIds,
-  sanitizeGoogleTurnOrdering,
   sanitizeSessionMessagesImages,
   validateAnthropicTurns,
-  validateGeminiTurns,
 } from "../embedded-agent-helpers.js";
 import { resolveImageSanitizationLimits } from "../image-sanitization.js";
 import type { AgentMessage } from "../runtime/index.js";
@@ -813,17 +811,7 @@ export async function sanitizeSessionHistory(params: {
     });
   }
 
-  if (!policy.applyGoogleTurnOrdering) {
-    return sanitizedWithProvider;
-  }
-
-  // Strict OpenAI-compatible providers (vLLM, Gemma, etc.) also reject
-  // conversations that start with an assistant turn (e.g. delivery-mirror
-  // messages after /new). Provider hooks may already have applied a
-  // provider-owned ordering rewrite above; keep this generic fallback for the
-  // strict OpenAI-compatible path and for any provider that leaves assistant-
-  // first repair to core. See #38962.
-  return sanitizeGoogleTurnOrdering(sanitizedWithProvider);
+  return sanitizedWithProvider;
 }
 
 /**
@@ -868,8 +856,5 @@ export async function validateReplayTurns(params: {
     }
   }
 
-  const validatedGemini = policy.validateGeminiTurns
-    ? validateGeminiTurns(params.messages)
-    : params.messages;
-  return policy.validateAnthropicTurns ? validateAnthropicTurns(validatedGemini) : validatedGemini;
+  return policy.validateAnthropicTurns ? validateAnthropicTurns(params.messages) : params.messages;
 }

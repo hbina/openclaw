@@ -748,9 +748,6 @@ function formatPostUpdateGatewayRecoveryLine(platform: NodeJS.Platform): string 
   if (platform === "linux") {
     return `Recovery: run \`${restartCommand}\`; if the systemd user service is missing, stale, or not active, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
   }
-  if (platform === "win32") {
-    return `Recovery: run \`${restartCommand}\`; if the gateway Scheduled Task or Windows login item is missing, stale, or not running, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
-  }
   return `Recovery: run \`${restartCommand}\`; if the local service manager reports the gateway service is missing, stale, or not running, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
 }
 
@@ -1060,7 +1057,7 @@ function resolveServiceRefreshEnv(
     if (!rawValue) {
       continue;
     }
-    if (rawValue.startsWith("~") || path.isAbsolute(rawValue) || path.win32.isAbsolute(rawValue)) {
+    if (rawValue.startsWith("~") || path.isAbsolute(rawValue)) {
       resolvedEnv[key] = rawValue;
       continue;
     }
@@ -1340,7 +1337,7 @@ async function tryRealpathOrResolve(value: string): Promise<string> {
 
 function isNodeExecutable(value: string | undefined): boolean {
   const base = normalizeOptionalString(value ? path.basename(value) : undefined)?.toLowerCase();
-  return base === "node" || base === "node.exe";
+  return base === "node";
 }
 
 function resolveManagedServiceNodeRunner(
@@ -2448,23 +2445,6 @@ function createUpdatedConfigSnapshot(
   };
 }
 
-async function maybeRepairLegacyConfigForUpdateChannel(params: {
-  configSnapshot: Awaited<ReturnType<typeof readConfigFileSnapshot>>;
-  jsonMode: boolean;
-}): Promise<Awaited<ReturnType<typeof readConfigFileSnapshot>>> {
-  if (params.configSnapshot.valid || params.configSnapshot.legacyIssues.length === 0) {
-    return params.configSnapshot;
-  }
-
-  const { repairLegacyConfigForUpdateChannel } =
-    await import("../../commands/doctor/legacy-config-repair.js");
-  const { snapshot, repaired } = await repairLegacyConfigForUpdateChannel(params);
-  if (!params.jsonMode && repaired) {
-    defaultRuntime.log(theme.muted("Migrated legacy config before changing update channel."));
-  }
-  return snapshot;
-}
-
 async function writePostCorePluginUpdateResultFile(
   filePath: string | undefined,
   result: PostCorePluginUpdateResult,
@@ -2586,7 +2566,7 @@ async function isFreshPreUpdateConfigSnapshot(params: {
 
 async function execFileStdout(file: string, args: string[]): Promise<string | undefined> {
   return await new Promise((resolve) => {
-    execFile(file, args, { timeout: 1000, windowsHide: true }, (error, stdout) => {
+    execFile(file, args, { timeout: 1000 }, (error, stdout) => {
       resolve(error ? undefined : stdout);
     });
   });
@@ -2596,15 +2576,7 @@ async function readProcessStartTimeMs(pid: number): Promise<number | undefined> 
   if (!Number.isInteger(pid) || pid <= 0) {
     return undefined;
   }
-  const raw =
-    process.platform === "win32"
-      ? await execFileStdout("powershell.exe", [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `[Console]::Out.Write((Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString("o"))`,
-        ])
-      : await execFileStdout("ps", ["-o", "lstart=", "-p", String(pid)]);
+  const raw = await execFileStdout("ps", ["-o", "lstart=", "-p", String(pid)]);
   if (!raw) {
     return undefined;
   }
@@ -2697,38 +2669,18 @@ async function readPostCorePluginUpdateResultFile(
 }
 
 function stopPostCoreUpdateChild(child: ChildProcess): void {
-  if (process.platform === "win32" && child.pid) {
-    try {
-      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      killer.once("error", () => {
-        child.kill();
-      });
-      return;
-    } catch {
-      child.kill();
-      return;
-    }
-  }
   child.kill();
 }
 
 /**
  * Returns the stdio mode for the post-core-update child process.
  *
- * Windows shells (PowerShell/CMD) wait for all processes that hold inherited console handles to
- * exit before returning the prompt, even after the immediate child has exited.  Using "pipe" on
- * Windows prevents the child (and any grandchildren it spawns) from ever receiving a reference to
- * the parent's console handles, eliminating the terminal hang seen in #78445.
- *
  * @internal exported for testing
  */
 export function resolvePostCoreUpdateChildStdio(
-  platform: NodeJS.Platform = process.platform,
+  _platform: NodeJS.Platform = process.platform,
 ): "inherit" | "pipe" {
-  return platform === "win32" ? "pipe" : "inherit";
+  return "inherit";
 }
 
 function preparePostCorePluginInstallRecordsForFreshProcess(params: {
@@ -3104,13 +3056,7 @@ async function updateCommandInternal(opts: UpdateCommandOptions): Promise<void> 
     return;
   }
 
-  let configSnapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
-  if (opts.channel && !opts.dryRun && !configSnapshot.valid) {
-    configSnapshot = await maybeRepairLegacyConfigForUpdateChannel({
-      configSnapshot,
-      jsonMode: Boolean(opts.json),
-    });
-  }
+  const configSnapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
   const storedChannel = configSnapshot.valid
     ? normalizeUpdateChannel(configSnapshot.config.update?.channel)
     : null;

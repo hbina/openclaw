@@ -776,7 +776,6 @@ function shellCommandFlag(
   argv: string[],
   startIndex: number,
 ): { flag: string; index: number } | null {
-  const shell = normalizeExecutableToken(argv[startIndex - 1] ?? argv[0] ?? "");
   for (let index = startIndex; index < argv.length; index += 1) {
     const token = argv[index]?.trim();
     if (!token) {
@@ -786,27 +785,6 @@ function shellCommandFlag(
       break;
     }
     const lower = token.toLowerCase();
-    if (shell === "cmd") {
-      if (lower === "/c" || lower === "/k") {
-        return { flag: token, index };
-      }
-      continue;
-    }
-    if (shell === "powershell" || shell === "pwsh") {
-      if (
-        lower === "-c" ||
-        lower === "-command" ||
-        lower === "--command" ||
-        lower === "-encodedcommand" ||
-        lower === "-enc" ||
-        lower === "-e" ||
-        lower === "-f" ||
-        lower === "-file"
-      ) {
-        return { flag: token, index };
-      }
-      continue;
-    }
     if (lower === "-c" || lower === "--command") {
       return { flag: token, index };
     }

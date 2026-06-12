@@ -2,7 +2,7 @@
 import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import type { ModelAuthStatusProvider, ModelAuthStatusResult } from "./types.ts";
 
-export type QuotaWindowSummary = {
+export type QuotaPeriodSummary = {
   displayName: string;
   label: string;
   remaining: number;
@@ -35,9 +35,9 @@ export function formatQuotaReset(resetAt?: number): string | null {
   return new Date(timestampMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function collectQuotaWindows(
+export function collectQuotaPeriods(
   providers: ReadonlyArray<ModelAuthStatusProvider>,
-): QuotaWindowSummary[] {
+): QuotaPeriodSummary[] {
   return providers
     .flatMap((provider) =>
       (provider.usage?.windows ?? []).map((window) => ({
@@ -50,9 +50,9 @@ export function collectQuotaWindows(
     .toSorted((a, b) => a.remaining - b.remaining || a.displayName.localeCompare(b.displayName));
 }
 
-export function collectQuotaWindowsFromAuthStatus(
+export function collectQuotaPeriodsFromAuthStatus(
   status: ModelAuthStatusResult | null,
   filter: (provider: ModelAuthStatusProvider) => boolean,
-): QuotaWindowSummary[] {
-  return collectQuotaWindows((status?.providers ?? []).filter(filter));
+): QuotaPeriodSummary[] {
+  return collectQuotaPeriods((status?.providers ?? []).filter(filter));
 }

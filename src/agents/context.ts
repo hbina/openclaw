@@ -53,7 +53,7 @@ const CONFIG_LOAD_RETRY_POLICY: BackoffPolicy = {
   jitter: 0,
 };
 
-export function applyDiscoveredContextWindows(params: {
+export function applyDiscoveredContextLimits(params: {
   cache: Map<string, number>;
   models: ModelEntry[];
 }) {
@@ -82,7 +82,7 @@ export function applyDiscoveredContextWindows(params: {
   }
 }
 
-export function applyConfiguredContextWindows(params: {
+export function applyConfiguredContextLimits(params: {
   cache: Map<string, number>;
   modelsConfig: ModelsConfig | undefined;
 }) {
@@ -118,9 +118,9 @@ function loadModelsConfigRuntime() {
   return CONTEXT_WINDOW_RUNTIME_STATE.modelsConfigRuntimeLoader.load();
 }
 
-function primeConfiguredContextWindows(): OpenClawConfig | undefined {
+function primeConfiguredContextLimits(): OpenClawConfig | undefined {
   if (CONTEXT_WINDOW_RUNTIME_STATE.configuredConfig) {
-    applyConfiguredContextWindows({
+    applyConfiguredContextLimits({
       cache: MODEL_CONTEXT_TOKEN_CACHE,
       modelsConfig: CONTEXT_WINDOW_RUNTIME_STATE.configuredConfig.models as
         | ModelsConfig
@@ -133,7 +133,7 @@ function primeConfiguredContextWindows(): OpenClawConfig | undefined {
   }
   try {
     const cfg = getRuntimeConfig();
-    applyConfiguredContextWindows({
+    applyConfiguredContextLimits({
       cache: MODEL_CONTEXT_TOKEN_CACHE,
       modelsConfig: cfg.models as ModelsConfig | undefined,
     });
@@ -158,7 +158,7 @@ export function ensureContextWindowCacheLoaded(): Promise<void> {
     return CONTEXT_WINDOW_RUNTIME_STATE.loadPromise;
   }
 
-  const cfg = primeConfiguredContextWindows();
+  const cfg = primeConfiguredContextLimits();
   if (!cfg) {
     return Promise.resolve();
   }
@@ -186,7 +186,7 @@ export function ensureContextWindowCacheLoaded(): Promise<void> {
         typeof modelRegistry.getAvailable === "function"
           ? modelRegistry.getAvailable()
           : modelRegistry.getAll();
-      applyDiscoveredContextWindows({
+      applyDiscoveredContextLimits({
         cache: MODEL_CONTEXT_TOKEN_CACHE,
         models,
       });
@@ -194,7 +194,7 @@ export function ensureContextWindowCacheLoaded(): Promise<void> {
       // If model discovery fails, continue with config overrides only.
     }
 
-    applyConfiguredContextWindows({
+    applyConfiguredContextLimits({
       cache: MODEL_CONTEXT_TOKEN_CACHE,
       modelsConfig: cfg.models as ModelsConfig | undefined,
     });
@@ -217,7 +217,7 @@ export function lookupContextTokens(
   if (options?.allowAsyncLoad === false) {
     // Read-only callers still need synchronous config-backed overrides, but they
     // should not start background model discovery or models.json writes.
-    primeConfiguredContextWindows();
+    primeConfiguredContextLimits();
   } else {
     // Best-effort: kick off loading on demand, but don't block lookups.
     void ensureContextWindowCacheLoaded();

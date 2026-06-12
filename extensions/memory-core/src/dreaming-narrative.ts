@@ -745,7 +745,7 @@ export async function appendNarrativeEntry(params: {
 // ── Orchestrator ───────────────────────────────────────────────────────
 
 function normalizeComparablePath(pathname: string): string {
-  return process.platform === "win32" ? pathname.toLowerCase() : pathname;
+  return pathname;
 }
 
 async function normalizeSessionFileForComparison(params: {

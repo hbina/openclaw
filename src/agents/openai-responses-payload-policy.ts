@@ -42,8 +42,6 @@ type OpenAIResponsesEndpointClass =
   | "openrouter"
   | "xai-native"
   | "zai-native"
-  | "google-generative-ai"
-  | "google-vertex"
   | "local"
   | "custom"
   | "invalid";
@@ -172,10 +170,6 @@ function resolveBundledOpenAIResponsesEndpointClass(
       return "openai-public";
     case "chatgpt.com":
       return "openai";
-    case "generativelanguage.googleapis.com":
-      return "google-generative-ai";
-    case "aiplatform.googleapis.com":
-      return "google-vertex";
     case "api.x.ai":
       return "xai-native";
     case "api.z.ai":
@@ -193,9 +187,6 @@ function resolveBundledOpenAIResponsesEndpointClass(
   }
   if (hostMatchesSuffix(host, "opencode.ai")) {
     return "opencode-native";
-  }
-  if (hostMatchesSuffix(host, "-aiplatform.googleapis.com")) {
-    return "google-vertex";
   }
   if (comparableBaseUrl && MOONSHOT_NATIVE_BASE_URLS.has(comparableBaseUrl)) {
     return "moonshot-native";

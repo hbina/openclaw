@@ -13,9 +13,6 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import type { AnthropicOptions } from "./anthropic.js";
 import type { AzureOpenAIResponsesOptions } from "./azure-openai-responses.js";
-import type { GoogleVertexOptions } from "./google-vertex.js";
-import type { GoogleOptions } from "./google.js";
-import type { MistralOptions } from "./mistral.js";
 import type { OpenAICodexResponsesOptions } from "./openai-chatgpt-responses.js";
 import type { OpenAICompletionsOptions } from "./openai-completions.js";
 import type { OpenAIResponsesOptions } from "./openai-responses.js";
@@ -48,21 +45,6 @@ interface AzureOpenAIResponsesProviderModule {
   streamSimpleAzureOpenAIResponses: StreamFunction<"azure-openai-responses", SimpleStreamOptions>;
 }
 
-interface GoogleProviderModule {
-  streamGoogle: StreamFunction<"google-generative-ai", GoogleOptions>;
-  streamSimpleGoogle: StreamFunction<"google-generative-ai", SimpleStreamOptions>;
-}
-
-interface GoogleVertexProviderModule {
-  streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOptions>;
-  streamSimpleGoogleVertex: StreamFunction<"google-vertex", SimpleStreamOptions>;
-}
-
-interface MistralProviderModule {
-  streamMistral: StreamFunction<"mistral-conversations", MistralOptions>;
-  streamSimpleMistral: StreamFunction<"mistral-conversations", SimpleStreamOptions>;
-}
-
 interface OpenAICodexResponsesProviderModule {
   streamOpenAICodexResponses: StreamFunction<
     "openai-chatgpt-responses",
@@ -91,15 +73,6 @@ let azureOpenAIResponsesProviderModulePromise:
   | Promise<
       LazyProviderModule<"azure-openai-responses", AzureOpenAIResponsesOptions, SimpleStreamOptions>
     >
-  | undefined;
-let googleProviderModulePromise:
-  | Promise<LazyProviderModule<"google-generative-ai", GoogleOptions, SimpleStreamOptions>>
-  | undefined;
-let googleVertexProviderModulePromise:
-  | Promise<LazyProviderModule<"google-vertex", GoogleVertexOptions, SimpleStreamOptions>>
-  | undefined;
-let mistralProviderModulePromise:
-  | Promise<LazyProviderModule<"mistral-conversations", MistralOptions, SimpleStreamOptions>>
   | undefined;
 let openAICodexResponsesProviderModulePromise:
   | Promise<
@@ -233,45 +206,6 @@ function loadAzureOpenAIResponsesProviderModule(): Promise<
   return azureOpenAIResponsesProviderModulePromise;
 }
 
-function loadGoogleProviderModule(): Promise<
-  LazyProviderModule<"google-generative-ai", GoogleOptions, SimpleStreamOptions>
-> {
-  googleProviderModulePromise ||= import("./google.js").then((module) => {
-    const provider = module as GoogleProviderModule;
-    return {
-      stream: provider.streamGoogle,
-      streamSimple: provider.streamSimpleGoogle,
-    };
-  });
-  return googleProviderModulePromise;
-}
-
-function loadGoogleVertexProviderModule(): Promise<
-  LazyProviderModule<"google-vertex", GoogleVertexOptions, SimpleStreamOptions>
-> {
-  googleVertexProviderModulePromise ||= import("./google-vertex.js").then((module) => {
-    const provider = module as GoogleVertexProviderModule;
-    return {
-      stream: provider.streamGoogleVertex,
-      streamSimple: provider.streamSimpleGoogleVertex,
-    };
-  });
-  return googleVertexProviderModulePromise;
-}
-
-function loadMistralProviderModule(): Promise<
-  LazyProviderModule<"mistral-conversations", MistralOptions, SimpleStreamOptions>
-> {
-  mistralProviderModulePromise ||= import("./mistral.js").then((module) => {
-    const provider = module as MistralProviderModule;
-    return {
-      stream: provider.streamMistral,
-      streamSimple: provider.streamSimpleMistral,
-    };
-  });
-  return mistralProviderModulePromise;
-}
-
 function loadOpenAICodexResponsesProviderModule(): Promise<
   LazyProviderModule<"openai-chatgpt-responses", OpenAICodexResponsesOptions, SimpleStreamOptions>
 > {
@@ -319,12 +253,6 @@ export const streamAzureOpenAIResponses = createLazyStream(loadAzureOpenAIRespon
 export const streamSimpleAzureOpenAIResponses = createLazySimpleStream(
   loadAzureOpenAIResponsesProviderModule,
 );
-export const streamGoogle = createLazyStream(loadGoogleProviderModule);
-export const streamSimpleGoogle = createLazySimpleStream(loadGoogleProviderModule);
-export const streamGoogleVertex = createLazyStream(loadGoogleVertexProviderModule);
-export const streamSimpleGoogleVertex = createLazySimpleStream(loadGoogleVertexProviderModule);
-export const streamMistral = createLazyStream(loadMistralProviderModule);
-export const streamSimpleMistral = createLazySimpleStream(loadMistralProviderModule);
 export const streamOpenAICodexResponses = createLazyStream(loadOpenAICodexResponsesProviderModule);
 export const streamSimpleOpenAICodexResponses = createLazySimpleStream(
   loadOpenAICodexResponsesProviderModule,
@@ -360,15 +288,6 @@ export function registerBuiltInApiProviders(): void {
 
   registerApiProvider(
     {
-      api: "mistral-conversations",
-      stream: streamMistral,
-      streamSimple: streamSimpleMistral,
-    },
-    BUILT_IN_API_PROVIDER_SOURCE_ID,
-  );
-
-  registerApiProvider(
-    {
       api: "openai-responses",
       stream: streamOpenAIResponses,
       streamSimple: streamSimpleOpenAIResponses,
@@ -390,24 +309,6 @@ export function registerBuiltInApiProviders(): void {
       api: "openai-chatgpt-responses",
       stream: streamOpenAICodexResponses,
       streamSimple: streamSimpleOpenAICodexResponses,
-    },
-    BUILT_IN_API_PROVIDER_SOURCE_ID,
-  );
-
-  registerApiProvider(
-    {
-      api: "google-generative-ai",
-      stream: streamGoogle,
-      streamSimple: streamSimpleGoogle,
-    },
-    BUILT_IN_API_PROVIDER_SOURCE_ID,
-  );
-
-  registerApiProvider(
-    {
-      api: "google-vertex",
-      stream: streamGoogleVertex,
-      streamSimple: streamSimpleGoogleVertex,
     },
     BUILT_IN_API_PROVIDER_SOURCE_ID,
   );

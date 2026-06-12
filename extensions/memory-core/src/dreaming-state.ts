@@ -62,8 +62,7 @@ export function openMemoryCoreStateStore<T>(
 }
 
 export function normalizeMemoryCoreWorkspaceKey(workspaceDir: string): string {
-  const resolved = path.resolve(workspaceDir).replace(/\\/g, "/");
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return path.resolve(workspaceDir).replace(/\\/g, "/");
 }
 
 export function memoryCoreWorkspaceStateKey(workspaceDir: string): string {

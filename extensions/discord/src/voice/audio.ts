@@ -105,7 +105,6 @@ export function createDiscordOpusPlaybackStream(input: Readable | string): Reada
   const inputSource = typeof input === "string" ? input : "pipe:0";
   const ffmpeg = spawn(resolveFfmpegBin(), ["-i", inputSource, ...FFMPEG_PCM_ARGUMENTS, "pipe:1"], {
     stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
   });
   const opusStream = createDiscordOpusEncodeStream();
   let stderr = "";

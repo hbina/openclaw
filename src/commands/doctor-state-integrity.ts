@@ -704,7 +704,7 @@ export async function noteStateIntegrity(
       }
     }
   }
-  if (stateDirExists && process.platform !== "win32") {
+  if (stateDirExists) {
     try {
       const dirLstat = fs.lstatSync(stateDir);
       const isDirSymlink = dirLstat.isSymbolicLink();
@@ -732,7 +732,7 @@ export async function noteStateIntegrity(
     }
   }
 
-  if (configPath && existsFile(configPath) && process.platform !== "win32") {
+  if (configPath && existsFile(configPath)) {
     try {
       const configLstat = fs.lstatSync(configPath);
       const isSymlink = configLstat.isSymbolicLink();

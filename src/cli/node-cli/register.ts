@@ -91,7 +91,7 @@ export function registerNodeCli(program: Command) {
 
   node
     .command("install")
-    .description("Install the node host service (launchd/systemd/schtasks)")
+    .description("Install the node host service (launchd/systemd)")
     .option("--host <host>", "Gateway host")
     .option("--port <port>", "Gateway port")
     .option("--tls", "Use TLS for the gateway connection", false)
@@ -107,7 +107,7 @@ export function registerNodeCli(program: Command) {
 
   node
     .command("uninstall")
-    .description("Uninstall the node host service (launchd/systemd/schtasks)")
+    .description("Uninstall the node host service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runNodeDaemonUninstall(opts);
@@ -115,7 +115,7 @@ export function registerNodeCli(program: Command) {
 
   node
     .command("stop")
-    .description("Stop the node host service (launchd/systemd/schtasks)")
+    .description("Stop the node host service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runNodeDaemonStop(opts);
@@ -123,7 +123,7 @@ export function registerNodeCli(program: Command) {
 
   node
     .command("start")
-    .description("Start the node host service (launchd/systemd/schtasks)")
+    .description("Start the node host service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runNodeDaemonStart(opts);
@@ -131,7 +131,7 @@ export function registerNodeCli(program: Command) {
 
   node
     .command("restart")
-    .description("Restart the node host service (launchd/systemd/schtasks)")
+    .description("Restart the node host service (launchd/systemd)")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runNodeDaemonRestart(opts);

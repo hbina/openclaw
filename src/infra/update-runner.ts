@@ -35,7 +35,6 @@ import {
   type GlobalInstallManager,
 } from "./update-global.js";
 import {
-  managerInstallIgnoreScriptsArgs,
   managerInstallArgs,
   managerScriptArgs,
   resolveUpdateBuildManager,
@@ -186,11 +185,9 @@ const UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR_ENV =
   "OPENCLAW_UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR";
 const UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE_ENV =
   "OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE";
-const PREFLIGHT_TEMP_PREFIX =
-  process.platform === "win32" ? "ocu-pf-" : "openclaw-update-preflight-";
-const PREFLIGHT_WORKTREE_DIRNAME = process.platform === "win32" ? "wt" : "worktree";
+const PREFLIGHT_TEMP_PREFIX = "openclaw-update-preflight-";
+const PREFLIGHT_WORKTREE_DIRNAME = "worktree";
 const PREFLIGHT_CLEANUP_TIMEOUT_MS = 60_000;
-const WINDOWS_PREFLIGHT_BASE_DIR = "ocu";
 const BUILD_MAX_OLD_SPACE_MB = 8192;
 const DEV_PREFLIGHT_LINT_ENV: NodeJS.ProcessEnv = {
   OPENCLAW_LOCAL_CHECK: "1",
@@ -259,16 +256,7 @@ function resolvePreflightWorktreeDir(preflightRoot: string) {
   return path.join(preflightRoot, PREFLIGHT_WORKTREE_DIRNAME);
 }
 
-function shouldUseNativeWindowsTempRoot() {
-  return process.platform === "win32" && path.sep === "\\";
-}
-
 async function createPreflightRoot() {
-  if (shouldUseNativeWindowsTempRoot()) {
-    const baseDir = path.win32.join(process.env.SystemDrive ?? "C:", WINDOWS_PREFLIGHT_BASE_DIR);
-    await fs.mkdir(baseDir, { recursive: true });
-    return fs.mkdtemp(path.win32.join(baseDir, PREFLIGHT_TEMP_PREFIX));
-  }
   return fs.mkdtemp(resolvePreflightTempRootPrefix());
 }
 
@@ -518,14 +506,6 @@ async function looksLikeGitCheckout(root: string): Promise<boolean> {
   }
 }
 
-function shouldRetryWindowsInstallIgnoringScripts(manager: "pnpm" | "bun" | "npm"): boolean {
-  return process.platform === "win32" && manager === "pnpm";
-}
-
-function shouldPreferIgnoreScriptsForWindowsPreflight(manager: "pnpm" | "bun" | "npm"): boolean {
-  return process.platform === "win32" && manager === "pnpm";
-}
-
 function resolveBuildNodeOptions(baseOptions: string | undefined): string {
   const current = baseOptions?.trim() ?? "";
   const desired = `--max-old-space-size=${BUILD_MAX_OLD_SPACE_MB}`;
@@ -567,32 +547,10 @@ function resolveInstallEnv(
   };
 }
 
-function isSupersededInstallFailure(
-  step: UpdateStepResult,
-  steps: readonly UpdateStepResult[],
-): boolean {
-  if (step.exitCode === 0) {
-    return false;
-  }
-  if (step.name === "deps install") {
-    return steps.some(
-      (candidate) => candidate.name === "deps install (ignore scripts)" && candidate.exitCode === 0,
-    );
-  }
-  const preflightMatch = /^preflight deps install \((.+)\)$/.exec(step.name);
-  if (!preflightMatch) {
-    return false;
-  }
-  const retryName = `preflight deps install (ignore scripts) (${preflightMatch[1]})`;
-  return steps.some((candidate) => candidate.name === retryName && candidate.exitCode === 0);
-}
-
 function findBlockingGitFailure(steps: readonly UpdateStepResult[]): UpdateStepResult | undefined {
   return steps.find(
     (step, index) =>
-      step.exitCode !== 0 &&
-      !isSupersededInstallFailure(step, steps) &&
-      !isSupersededTargetRefFailure(step, steps.slice(index + 1)),
+      step.exitCode !== 0 && !isSupersededTargetRefFailure(step, steps.slice(index + 1)),
   );
 }
 
@@ -1127,43 +1085,14 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
             continue;
           }
 
-          const preflightIgnoreScripts = shouldPreferIgnoreScriptsForWindowsPreflight(
-            manager.manager,
-          );
-          const preflightIgnoreScriptsArgv = managerInstallIgnoreScriptsArgs(manager.manager);
-          const depsStepArgv =
-            preflightIgnoreScripts && preflightIgnoreScriptsArgv
-              ? preflightIgnoreScriptsArgv
-              : managerInstallArgs(manager.manager, {
-                  compatFallback: manager.fallback && manager.manager === "npm",
-                });
-          const depsStepName = preflightIgnoreScripts
-            ? `preflight deps install (ignore scripts) (${shortSha})`
-            : `preflight deps install (${shortSha})`;
+          const depsStepArgv = managerInstallArgs(manager.manager, {
+            compatFallback: manager.fallback && manager.manager === "npm",
+          });
+          const depsStepName = `preflight deps install (${shortSha})`;
           const installEnv = resolveInstallEnv(manager.manager, manager.env);
           const depsStep = await runStep(step(depsStepName, depsStepArgv, worktreeDir, installEnv));
           steps.push(depsStep);
-          let finalDepsStep = depsStep;
-          if (
-            depsStep.exitCode !== 0 &&
-            !preflightIgnoreScripts &&
-            shouldRetryWindowsInstallIgnoringScripts(manager.manager)
-          ) {
-            const retryArgv = managerInstallIgnoreScriptsArgs(manager.manager);
-            if (retryArgv) {
-              const retryStep = await runStep(
-                step(
-                  `preflight deps install (ignore scripts) (${shortSha})`,
-                  retryArgv,
-                  worktreeDir,
-                  installEnv,
-                ),
-              );
-              steps.push(retryStep);
-              finalDepsStep = retryStep;
-            }
-          }
-          if (finalDepsStep.exitCode !== 0) {
+          if (depsStep.exitCode !== 0) {
             continue;
           }
 
@@ -1212,10 +1141,7 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
           (await repairPreflightCleanup(worktreeDir, preflightRoot))
         ) {
           removeStep.exitCode = 0;
-          const fallbackMessage =
-            process.platform === "win32"
-              ? "windows fallback cleanup removed preflight tree"
-              : "fallback cleanup removed preflight tree";
+          const fallbackMessage = "fallback cleanup removed preflight tree";
           removeStep.stderrTail = trimLogTail(
             [removeStep.stderrTail, fallbackMessage].filter(Boolean).join("\n"),
             MAX_LOG_CHARS,
@@ -1337,18 +1263,7 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
         ),
       );
       steps.push(depsStep);
-      let finalDepsStep = depsStep;
-      if (depsStep.exitCode !== 0 && shouldRetryWindowsInstallIgnoringScripts(manager.manager)) {
-        const retryArgv = managerInstallIgnoreScriptsArgs(manager.manager);
-        if (retryArgv) {
-          const retryStep = await runStep(
-            step("deps install (ignore scripts)", retryArgv, gitRoot, installEnv),
-          );
-          steps.push(retryStep);
-          finalDepsStep = retryStep;
-        }
-      }
-      if (finalDepsStep.exitCode !== 0) {
+      if (depsStep.exitCode !== 0) {
         return await buildGitErrorResultWithRollback("deps-install-failed");
       }
 

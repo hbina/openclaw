@@ -13,7 +13,7 @@ export function resolveUndiciAutoSelectFamily(): boolean | undefined {
   try {
     const systemDefault = net.getDefaultAutoSelectFamily();
     // WSL2 has unstable IPv6 connectivity; disable autoSelectFamily to force
-    // IPv4 connections and avoid fetch failures when reaching Windows-host services.
+    // IPv4 connections and avoid fetch failures when reaching host services.
     if (systemDefault && isWSL2Sync()) {
       return false;
     }

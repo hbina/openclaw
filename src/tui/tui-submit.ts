@@ -1,6 +1,4 @@
 // Handles TUI input submission and command dispatch.
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-
 export function createEditorSubmitHandler(params: {
   editor: {
     setText: (value: string) => void;
@@ -53,13 +51,12 @@ export function createEditorSubmitHandler(params: {
   };
 }
 
-export function shouldEnableWindowsGitBashPasteFallback(params?: {
+export function shouldEnablePasteBurstCoalescing(params?: {
   platform?: string;
   env?: NodeJS.ProcessEnv;
 }): boolean {
   const platform = params?.platform ?? process.platform;
-  const env = params?.env ?? process.env;
-  const termProgram = normalizeLowercaseStringOrEmpty(env.TERM_PROGRAM);
+  const termProgram = (params?.env ?? process.env).TERM_PROGRAM?.toLowerCase() ?? "";
 
   // Some macOS terminals emit multiline paste as rapid single-line submits.
   // Enable burst coalescing so pasted blocks stay as one user message.
@@ -69,20 +66,7 @@ export function shouldEnableWindowsGitBashPasteFallback(params?: {
     }
     return false;
   }
-
-  if (platform !== "win32") {
-    return false;
-  }
-
-  const msystem = (env.MSYSTEM ?? "").toUpperCase();
-  const shell = env.SHELL ?? "";
-  if (msystem.startsWith("MINGW") || msystem.startsWith("MSYS")) {
-    return true;
-  }
-  if (normalizeLowercaseStringOrEmpty(shell).includes("bash")) {
-    return true;
-  }
-  return termProgram.includes("mintty");
+  return false;
 }
 
 export function createSubmitBurstCoalescer(params: {

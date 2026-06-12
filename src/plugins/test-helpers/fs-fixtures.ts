@@ -5,9 +5,6 @@ import os from "node:os";
 import path from "node:path";
 
 function chmodSafeDir(dir: string) {
-  if (process.platform === "win32") {
-    return;
-  }
   fs.chmodSync(dir, 0o755);
 }
 

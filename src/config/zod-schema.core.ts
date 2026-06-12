@@ -17,17 +17,8 @@ import { sensitive } from "./zod-schema.sensitive.js";
 
 const ENV_SECRET_REF_ID_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 const SECRET_PROVIDER_ALIAS_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
-const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
-
 function isAbsolutePath(value: string): boolean {
-  // `path.isAbsolute` follows the host OS, but config files can be authored for Windows from
-  // macOS/Linux. Accept Windows forms explicitly so cross-platform config validation stays stable.
-  return (
-    path.isAbsolute(value) ||
-    WINDOWS_ABS_PATH_PATTERN.test(value) ||
-    WINDOWS_UNC_PATH_PATTERN.test(value)
-  );
+  return path.isAbsolute(value);
 }
 
 const EnvSecretRefSchema = z
@@ -407,10 +398,7 @@ const ModelProviderLocalServiceSchema = z
   .optional();
 
 const BUILT_IN_MODEL_PROVIDER_OVERLAY_IDS = new Set([
-  "amazon-bedrock",
-  "amazon-bedrock-mantle",
   "anthropic",
-  "anthropic-vertex",
   "arcee",
   "byteplus",
   "byteplus-plan",
@@ -426,10 +414,6 @@ const BUILT_IN_MODEL_PROVIDER_OVERLAY_IDS = new Set([
   "fal",
   "fireworks",
   "github-copilot",
-  "google",
-  "google-antigravity",
-  "google-gemini-cli",
-  "google-vertex",
   "groq",
   "huggingface",
   "kilocode",
@@ -440,7 +424,6 @@ const BUILT_IN_MODEL_PROVIDER_OVERLAY_IDS = new Set([
   "microsoft-foundry",
   "minimax",
   "minimax-portal",
-  "mistral",
   "modelstudio",
   "moonshot",
   "nvidia",

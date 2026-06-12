@@ -1,6 +1,5 @@
 // Child process bridge adapts child process events into typed lifecycle callbacks.
 import type { ChildProcess } from "node:child_process";
-import process from "node:process";
 
 /** Signal forwarding options for a child process bridge. */
 export type ChildProcessBridgeOptions = {
@@ -8,10 +7,7 @@ export type ChildProcessBridgeOptions = {
   onSignal?: (signal: NodeJS.Signals) => void;
 };
 
-const defaultSignals: NodeJS.Signals[] =
-  process.platform === "win32"
-    ? ["SIGTERM", "SIGINT", "SIGBREAK"]
-    : ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"];
+const defaultSignals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"];
 
 /** Forwards process termination signals to a child and detaches on child exit/error. */
 export function attachChildProcessBridge(

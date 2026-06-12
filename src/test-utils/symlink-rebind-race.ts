@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { vi } from "vitest";
 
-/** Repoints a symlink or junction to a new target for realpath race tests. */
+/** Repoints a symlink to a new target for realpath race tests. */
 export async function createRebindableDirectoryAlias(params: {
   aliasPath: string;
   targetPath: string;
@@ -11,7 +11,7 @@ export async function createRebindableDirectoryAlias(params: {
   const aliasPath = path.resolve(params.aliasPath);
   const targetPath = path.resolve(params.targetPath);
   await fs.rm(aliasPath, { recursive: true, force: true });
-  await fs.symlink(targetPath, aliasPath, process.platform === "win32" ? "junction" : undefined);
+  await fs.symlink(targetPath, aliasPath);
 }
 
 export async function withRealpathSymlinkRebindRace<T>(params: {

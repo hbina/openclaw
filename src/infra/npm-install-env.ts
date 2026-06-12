@@ -44,7 +44,7 @@ type NpmFreshnessConfigScope = {
   npmConfigPrefix?: string | null;
 };
 
-const NPM_CONFIG_PATH_PROBE_PARENT_ENV_KEYS = ["PATH", "Path", "PATHEXT", "SystemRoot", "ComSpec"];
+const NPM_CONFIG_PATH_PROBE_PARENT_ENV_KEYS = ["PATH"];
 const NPM_GLOBAL_CONFIG_PATH_CACHE = new Map<string, string | null>();
 const NPM_GLOBAL_CONFIG_PATH_CACHE_ENV_KEYS = [
   ...NPM_CONFIG_PATH_PROBE_PARENT_ENV_KEYS,
@@ -56,7 +56,6 @@ const NPM_GLOBAL_CONFIG_PATH_CACHE_ENV_KEYS = [
   "npm_config_userconfig",
   "HOME",
   "PREFIX",
-  "USERPROFILE",
 ] as const;
 
 function resolveEnvPath(env: NodeJS.ProcessEnv, upperKey: string, lowerKey: string): string | null {
@@ -65,7 +64,7 @@ function resolveEnvPath(env: NodeJS.ProcessEnv, upperKey: string, lowerKey: stri
 }
 
 function resolveHomeNpmrc(env: NodeJS.ProcessEnv): string {
-  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
+  const home = env.HOME?.trim() || os.homedir();
   return path.join(home, ".npmrc");
 }
 
@@ -85,9 +84,8 @@ function replaceNpmEnvRefs(value: string, env: NodeJS.ProcessEnv): string {
 
 function resolveNpmConfigPath(rawPath: string, env: NodeJS.ProcessEnv): string {
   const expanded = replaceNpmEnvRefs(rawPath, env);
-  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
-  const homePattern = process.platform === "win32" ? /^~(\/|\\)/u : /^~\//u;
-  return homePattern.test(expanded) && home
+  const home = env.HOME?.trim() || os.homedir();
+  return /^~\//u.test(expanded) && home
     ? path.resolve(home, expanded.slice(2))
     : path.resolve(expanded);
 }
@@ -246,9 +244,6 @@ function resolveNpmFreshnessBypassMode(
   env: NodeJS.ProcessEnv,
   scope: NpmFreshnessConfigScope,
 ): NpmFreshnessBypassMode {
-  if (process.platform === "win32") {
-    return "before";
-  }
   if (hasRawNpmConfigKey(env, "min-release-age", scope)) {
     return "min-release-age";
   }
@@ -278,10 +273,6 @@ export function applyNpmFreshnessBypassEnv(
 ): void {
   const [arg] = createNpmFreshnessBypassArgs(env, now, scope);
   for (const key of NPM_FRESHNESS_BYPASS_KEYS) {
-    if (process.platform === "win32" && key.includes("-")) {
-      delete env[key];
-      continue;
-    }
     env[key] = "";
   }
   if (arg?.startsWith("--before=")) {
@@ -331,9 +322,6 @@ export function hasNpmScriptShellSetting(env: NodeJS.ProcessEnv): boolean {
 
 /** Resolves an absolute POSIX shell for npm lifecycle scripts when one is available. */
 export function resolvePosixNpmScriptShell(env: NodeJS.ProcessEnv): string | null {
-  if (process.platform === "win32") {
-    return null;
-  }
   if (fsSync.existsSync("/bin/sh")) {
     return "/bin/sh";
   }

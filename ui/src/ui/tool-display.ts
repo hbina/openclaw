@@ -86,7 +86,6 @@ function shortenHomeInString(input: string): string {
   const patterns = [
     { re: /^\/Users\/[^/]+(\/|$)/, replacement: "~$1" }, // macOS
     { re: /^\/home\/[^/]+(\/|$)/, replacement: "~$1" }, // Linux
-    { re: /^C:\\Users\\[^\\]+(\\|$)/i, replacement: "~$1" }, // Windows
   ] as const;
 
   for (const pattern of patterns) {

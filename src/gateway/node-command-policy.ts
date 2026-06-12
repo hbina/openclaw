@@ -117,24 +117,16 @@ const PLATFORM_DEFAULTS: Record<string, string[]> = {
     ...SCREEN_COMMANDS,
   ],
   linux: [...SYSTEM_COMMANDS],
-  windows: [
-    ...CAMERA_COMMANDS,
-    ...LOCATION_COMMANDS,
-    ...DEVICE_COMMANDS,
-    ...SYSTEM_COMMANDS,
-    ...SCREEN_COMMANDS,
-  ],
   // Fail-safe: unknown metadata should not receive host exec defaults.
   unknown: [...UNKNOWN_PLATFORM_COMMANDS],
 };
 
-type PlatformId = "ios" | "android" | "macos" | "windows" | "linux" | "unknown";
+type PlatformId = "ios" | "android" | "macos" | "linux" | "unknown";
 
 const CANONICAL_PLATFORM_IDS = new Set<Exclude<PlatformId, "unknown">>([
   "ios",
   "android",
   "macos",
-  "windows",
   "linux",
 ]);
 
@@ -145,7 +137,6 @@ const DEVICE_FAMILY_TOKEN_RULES: ReadonlyArray<{
   { id: "ios", tokens: ["iphone", "ipad", "ios"] },
   { id: "android", tokens: ["android"] },
   { id: "macos", tokens: ["mac"] },
-  { id: "windows", tokens: ["windows"] },
   { id: "linux", tokens: ["linux"] },
 ] as const;
 
@@ -167,8 +158,6 @@ function platformMatchesDeviceFamily(
       return family === "" || family === "android";
     case "macos":
       return family === "mac";
-    case "windows":
-      return family === "windows";
     case "linux":
       return family === "linux";
   }
@@ -273,7 +262,7 @@ type NodeCommandPolicyNode = Pick<NodeSession, "platform" | "deviceFamily"> &
   };
 
 function isDesktopPlatformId(platformId: PlatformId): boolean {
-  return platformId === "macos" || platformId === "windows" || platformId === "linux";
+  return platformId === "macos" || platformId === "linux";
 }
 
 function filterDesktopHostCommandDefaults(params: {

@@ -115,14 +115,12 @@ function resolveDefaultNodeInstallStateDir({
   cwd = process.cwd(),
   getuid = process.getuid?.bind(process),
   homedir = os.homedir,
-  platform = process.platform,
 }: {
   cwd?: string;
   getuid?: () => number;
   homedir?: () => string;
-  platform?: NodeJS.Platform;
 } = {}): string {
-  if (platform !== "win32" && getuid?.() === 0) {
+  if (getuid?.() === 0) {
     return path.join(path.parse(cwd).root, "var", "lib", "openclaw");
   }
   return path.join(homedir(), ".openclaw");

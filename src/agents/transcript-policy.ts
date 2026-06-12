@@ -11,7 +11,6 @@ import { resolveProviderRuntimePlugin } from "../plugins/provider-hook-runtime.j
 import { shouldPreserveThinkingBlocks } from "../plugins/provider-replay-helpers.js";
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import type { ProviderReplayPolicy } from "../plugins/types.js";
-import { isGoogleModelApi } from "./embedded-agent-helpers/google.js";
 import { normalizeProviderId } from "./model-selection.js";
 import type { ToolCallIdMode } from "./tool-call-id.js";
 
@@ -39,7 +38,7 @@ export type TranscriptPolicy = {
   allowSyntheticToolResults: boolean;
 };
 
-const SIGNED_THINKING_PROVIDERS = new Set(["anthropic", "amazon-bedrock", "anthropic-vertex"]);
+const SIGNED_THINKING_PROVIDERS = new Set(["anthropic"]);
 
 /** Return true when a provider family owns signed thinking blocks. */
 export function providerRequiresSignedThinking(provider?: string | null): boolean {
@@ -83,7 +82,7 @@ const DEFAULT_TRANSCRIPT_POLICY: TranscriptPolicy = {
 };
 
 function isAnthropicApi(modelApi?: string | null): boolean {
-  return modelApi === "anthropic-messages" || modelApi === "bedrock-converse-stream";
+  return modelApi === "anthropic-messages";
 }
 
 function isOpenAiResponsesCompatibleApi(modelApi?: string | null): boolean {
@@ -123,7 +122,6 @@ function buildUnownedProviderTransportReplayFallback(params: {
   modelId?: string | null;
   model?: ProviderRuntimeModel;
 }): ProviderReplayPolicy | undefined {
-  const isGoogle = isGoogleModelApi(params.modelApi);
   const isAnthropic = isAnthropicApi(params.modelApi);
   const isStrictOpenAiCompatible = params.modelApi === "openai-completions";
   const requiresOpenAiCompatibleToolIdSanitization =
@@ -132,12 +130,7 @@ function buildUnownedProviderTransportReplayFallback(params: {
     params.modelApi === "openai-chatgpt-responses" ||
     params.modelApi === "azure-openai-responses";
 
-  if (
-    !isGoogle &&
-    !isAnthropic &&
-    !isStrictOpenAiCompatible &&
-    !requiresOpenAiCompatibleToolIdSanitization
-  ) {
+  if (!isAnthropic && !isStrictOpenAiCompatible && !requiresOpenAiCompatibleToolIdSanitization) {
     return undefined;
   }
 
@@ -146,22 +139,14 @@ function buildUnownedProviderTransportReplayFallback(params: {
     ? isClaudeFamilyModelId(modelId)
     : false;
   return {
-    ...(isGoogle || isAnthropic ? { sanitizeMode: "full" as const } : {}),
-    ...(isGoogle || isAnthropic || requiresOpenAiCompatibleToolIdSanitization
+    ...(isAnthropic ? { sanitizeMode: "full" as const } : {}),
+    ...(isAnthropic || requiresOpenAiCompatibleToolIdSanitization
       ? {
           sanitizeToolCallIds: true,
           toolCallIdMode: "strict" as const,
         }
       : {}),
     ...(isAnthropic ? { preserveSignatures: true } : {}),
-    ...(isGoogle
-      ? {
-          sanitizeThoughtSignatures: {
-            allowBase64Only: true,
-            includeCamelCase: true,
-          },
-        }
-      : {}),
     ...(isAnthropic && modelId.includes("claude")
       ? { dropThinkingBlocks: !shouldPreserveThinkingBlocks(modelId) }
       : {}),
@@ -171,12 +156,11 @@ function buildUnownedProviderTransportReplayFallback(params: {
     ...(isStrictOpenAiCompatible
       ? { dropReasoningFromHistory: !shouldPreserveReasoningContentReplay(params) }
       : {}),
-    ...(isGoogle || isStrictOpenAiCompatible ? { applyAssistantFirstOrderingFix: true } : {}),
-    ...(isGoogle || isStrictOpenAiCompatible ? { validateGeminiTurns: true } : {}),
+    ...(isStrictOpenAiCompatible ? { applyAssistantFirstOrderingFix: true } : {}),
     ...(isAnthropic || isStrictOpenAiCompatible || isClaudeOpenAiResponses
       ? { validateAnthropicTurns: true }
       : {}),
-    ...(isGoogle || isAnthropic || isOpenAiResponsesCompatibleApi(params.modelApi)
+    ...(isAnthropic || isOpenAiResponsesCompatibleApi(params.modelApi)
       ? { allowSyntheticToolResults: true }
       : {}),
   };

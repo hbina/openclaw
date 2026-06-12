@@ -2,10 +2,6 @@
 import type { PluginCompatRecord } from "./types.js";
 
 const CHANNEL_RUNTIME_SDK_SURFACE = ["openclaw/plugin-sdk/channel", "runtime"].join("-");
-const LEGACY_CONFIG_MIGRATE_TEST_PATH = [
-  "src/commands/doctor/shared/legacy-config",
-  "migrate.test.ts",
-].join("-");
 
 export const PLUGIN_COMPAT_RECORDS = [
   {
@@ -462,7 +458,7 @@ export const PLUGIN_COMPAT_RECORDS = [
     docsPath: "/plugins/sdk-agent-harness",
     surfaces: ["agents.defaults.embeddedHarness", "model/provider runtime selection"],
     diagnostics: ["agent runtime config compatibility"],
-    tests: [LEGACY_CONFIG_MIGRATE_TEST_PATH],
+    tests: [],
   },
   {
     code: "agent-harness-sdk-alias",
@@ -591,51 +587,6 @@ export const PLUGIN_COMPAT_RECORDS = [
     surfaces: ["plugins.load.paths entries pointing at bundled plugin source/dist paths"],
     diagnostics: ["doctor bundled plugin load-path warning"],
     tests: ["src/commands/doctor/shared/bundled-plugin-load-paths.test.ts"],
-  },
-  {
-    code: "plugin-owned-web-search-config",
-    status: "deprecated",
-    owner: "provider",
-    introduced: "2026-04-26",
-    deprecated: "2026-04-26",
-    warningStarts: "2026-04-26",
-    removeAfter: "2026-07-26",
-    replacement: "`plugins.entries.<plugin>.config.webSearch`",
-    docsPath: "/tools/web",
-    surfaces: ["tools.web.search.apiKey", "tools.web.search.<provider>"],
-    diagnostics: ["doctor legacy web-search config migration"],
-    tests: ["src/commands/doctor/shared/legacy-web-search-migrate.test.ts"],
-  },
-  {
-    code: "plugin-owned-web-fetch-config",
-    status: "deprecated",
-    owner: "provider",
-    introduced: "2026-04-26",
-    deprecated: "2026-04-26",
-    warningStarts: "2026-04-26",
-    removeAfter: "2026-07-26",
-    replacement: "`plugins.entries.firecrawl.config.webFetch`",
-    docsPath: "/tools/web-fetch",
-    surfaces: ["tools.web.fetch.firecrawl"],
-    diagnostics: ["doctor legacy web-fetch config migration"],
-    tests: ["src/commands/doctor/shared/legacy-web-fetch-migrate.test.ts"],
-  },
-  {
-    code: "plugin-owned-x-search-config",
-    status: "deprecated",
-    owner: "provider",
-    introduced: "2026-04-26",
-    deprecated: "2026-04-26",
-    warningStarts: "2026-04-26",
-    removeAfter: "2026-07-26",
-    replacement: "`plugins.entries.xai.config.webSearch.apiKey`",
-    docsPath: "/tools/grok-search",
-    surfaces: ["tools.web.x_search.apiKey"],
-    diagnostics: ["doctor legacy x_search config migration"],
-    tests: [
-      "src/commands/doctor/shared/legacy-x-search-migrate.test.ts",
-      LEGACY_CONFIG_MIGRATE_TEST_PATH,
-    ],
   },
   {
     code: "plugin-activate-entrypoint-alias",

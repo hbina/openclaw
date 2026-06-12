@@ -50,7 +50,6 @@ export {
 } from "./embedded-agent-helpers/errors.js";
 export type { ProviderRuntimeFailureKind } from "./embedded-agent-helpers/errors.js";
 export { sanitizeUserFacingText } from "./embedded-agent-helpers/sanitize-user-facing-text.js";
-export { isGoogleModelApi, sanitizeGoogleTurnOrdering } from "./embedded-agent-helpers/google.js";
 
 export {
   downgradeOpenAIFunctionCallReasoningPairs,
@@ -72,7 +71,6 @@ export { pickFallbackThinkingLevel } from "./embedded-agent-helpers/thinking.js"
 export {
   mergeConsecutiveUserTurns,
   validateAnthropicTurns,
-  validateGeminiTurns,
 } from "./embedded-agent-helpers/turns.js";
 export type { EmbeddedContextFile, FailoverReason } from "./embedded-agent-helpers/types.js";
 

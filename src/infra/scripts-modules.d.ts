@@ -24,7 +24,6 @@ declare module "../../scripts/ci-changed-scope.mjs" {
     runNode: boolean;
     runMacos: boolean;
     runAndroid: boolean;
-    runWindows: boolean;
     runSkillsPython: boolean;
     runChangedSmoke: boolean;
     runControlUiI18n: boolean;

@@ -25,7 +25,6 @@ import { normalizeAgentId } from "../routing/session-key.js";
 import type { SkillScanFinding } from "../skills/security/scanner.js";
 import { shouldIgnoreInstalledPluginDirName } from "./installed-plugin-dirs.js";
 import { extensionUsesSkippedScannerPath, isPathInside } from "./scan-paths.js";
-import type { ExecFn } from "./windows-acl.js";
 
 export type SecurityAuditFinding = {
   checkId: string;
@@ -568,7 +567,6 @@ export async function collectIncludeFilePermFindings(params: {
   configSnapshot: ConfigFileSnapshot;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
-  execIcacls?: ExecFn;
 }): Promise<SecurityAuditFinding[]> {
   const findings: SecurityAuditFinding[] = [];
   if (!params.configSnapshot.exists) {
@@ -591,7 +589,6 @@ export async function collectIncludeFilePermFindings(params: {
     const perms = await inspectPathPermissions(p, {
       env: params.env,
       platform: params.platform,
-      exec: params.execIcacls,
     });
     if (!perms.ok) {
       continue;
@@ -649,7 +646,6 @@ export async function collectStateDeepFilesystemFindings(params: {
   env: NodeJS.ProcessEnv;
   stateDir: string;
   platform?: NodeJS.Platform;
-  execIcacls?: ExecFn;
 }): Promise<SecurityAuditFinding[]> {
   const findings: SecurityAuditFinding[] = [];
   const oauthDir = resolveOAuthDir(params.env, params.stateDir);
@@ -659,7 +655,6 @@ export async function collectStateDeepFilesystemFindings(params: {
   const oauthPerms = await inspectPathPermissions(oauthDir, {
     env: params.env,
     platform: params.platform,
-    exec: params.execIcacls,
   });
   if (oauthPerms.ok && oauthPerms.isDir) {
     if (oauthPerms.worldWritable || oauthPerms.groupWritable) {
@@ -720,7 +715,6 @@ export async function collectStateDeepFilesystemFindings(params: {
       const authPerms = await inspectPathPermissions(authTarget.path, {
         env: params.env,
         platform: params.platform,
-        exec: params.execIcacls,
       });
       if (authPerms.ok) {
         if (authPerms.worldWritable || authPerms.groupWritable) {
@@ -759,7 +753,6 @@ export async function collectStateDeepFilesystemFindings(params: {
     const storePerms = await inspectPathPermissions(storePath, {
       env: params.env,
       platform: params.platform,
-      exec: params.execIcacls,
     });
     if (storePerms.ok) {
       if (storePerms.worldReadable || storePerms.groupReadable) {
@@ -788,7 +781,6 @@ export async function collectStateDeepFilesystemFindings(params: {
       const logPerms = await inspectPathPermissions(logPath, {
         env: params.env,
         platform: params.platform,
-        exec: params.execIcacls,
       });
       if (logPerms.ok) {
         if (logPerms.worldReadable || logPerms.groupReadable) {

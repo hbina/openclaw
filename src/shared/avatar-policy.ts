@@ -37,9 +37,6 @@ export const AVATAR_IMAGE_DATA_RE = /^data:image\//i;
 export const AVATAR_HTTP_RE = /^https?:\/\//i;
 /** Detects URI schemes so non-path avatar values can be rejected or routed. */
 export const AVATAR_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
-/** Detects Windows absolute paths before URI-scheme classification. */
-export const WINDOWS_ABS_RE = /^[a-zA-Z]:[\\/]/;
-
 const AVATAR_PATH_EXT_RE = /\.(png|jpe?g|gif|webp|svg|ico)$/i;
 
 /** Resolves a local avatar file MIME type from its extension. */
@@ -68,11 +65,6 @@ export function hasAvatarUriScheme(value: string): boolean {
   return AVATAR_SCHEME_RE.test(value);
 }
 
-/** Detects Windows absolute paths so they are not mistaken for URI schemes. */
-export function isWindowsAbsolutePath(value: string): boolean {
-  return WINDOWS_ABS_RE.test(value);
-}
-
 /** Accepts workspace-relative avatar paths while rejecting home paths and URI values. */
 export function isWorkspaceRelativeAvatarPath(value: string): boolean {
   if (!value) {
@@ -81,7 +73,7 @@ export function isWorkspaceRelativeAvatarPath(value: string): boolean {
   if (value.startsWith("~")) {
     return false;
   }
-  if (hasAvatarUriScheme(value) && !isWindowsAbsolutePath(value)) {
+  if (hasAvatarUriScheme(value)) {
     return false;
   }
   return true;

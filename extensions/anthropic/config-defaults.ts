@@ -17,11 +17,7 @@ const ANTHROPIC_PROVIDER_API = "anthropic-messages";
 const ANTHROPIC_API_KEY_DEFAULT_ALLOWLIST_REFS = ["anthropic/claude-sonnet-4-6"] as const;
 
 function normalizeProviderId(provider: string): string {
-  const normalized = normalizeLowercaseStringOrEmpty(provider);
-  if (normalized === "bedrock" || normalized === "aws-bedrock") {
-    return "amazon-bedrock";
-  }
-  return normalized;
+  return normalizeLowercaseStringOrEmpty(provider);
 }
 
 function resolveAnthropicDefaultAuthMode(
@@ -122,12 +118,7 @@ function parseProviderModelRef(
 function isAnthropicCacheRetentionTarget(
   parsed: { provider: string; model: string } | null | undefined,
 ): parsed is { provider: string; model: string } {
-  return Boolean(
-    parsed &&
-    (parsed.provider === "anthropic" ||
-      (parsed.provider === "amazon-bedrock" &&
-        normalizeLowercaseStringOrEmpty(parsed.model).includes("anthropic.claude"))),
-  );
+  return Boolean(parsed && parsed.provider === "anthropic");
 }
 
 function usesClaudeCliModelSelection(config: OpenClawConfig): boolean {

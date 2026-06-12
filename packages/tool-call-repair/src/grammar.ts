@@ -40,7 +40,7 @@ export function skipWhitespace(text: string, start: number): number {
   return index;
 }
 
-/** Consumes either Unix or Windows line endings and returns the first offset after them. */
+/** Consumes either POSIX line endings and returns the first offset after them. */
 export function consumeLineBreak(text: string, start: number): number | null {
   if (text[start] === "\r") {
     return text[start + 1] === "\n" ? start + 2 : start + 1;

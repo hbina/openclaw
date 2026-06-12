@@ -9,7 +9,7 @@ import {
 import { resolveStateDir } from "../config/paths.js";
 import { pathExists } from "../utils.js";
 
-export const COMPLETION_SHELLS = ["zsh", "bash", "powershell", "fish"] as const;
+export const COMPLETION_SHELLS = ["zsh", "bash", "fish"] as const;
 export type CompletionShell = (typeof COMPLETION_SHELLS)[number];
 export const COMPLETION_SKIP_PLUGIN_COMMANDS_ENV = "OPENCLAW_COMPLETION_SKIP_PLUGIN_COMMANDS";
 
@@ -18,15 +18,8 @@ export function isCompletionShell(value: string): value is CompletionShell {
   return COMPLETION_SHELLS.includes(value as CompletionShell);
 }
 
-function resolveShellBasename(
-  shellPath: string,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const platformBasename =
-    platform === "win32" ? path.win32.basename(shellPath) : path.basename(shellPath);
-  const winBasename = path.win32.basename(shellPath);
-  const basename = winBasename.length < platformBasename.length ? winBasename : platformBasename;
-  return normalizeLowercaseStringOrEmpty(basename.replace(/\.(?:exe|cmd|bat)$/i, ""));
+function resolveShellBasename(shellPath: string): string {
+  return normalizeLowercaseStringOrEmpty(path.basename(shellPath));
 }
 
 /** Resolves the active shell from environment paths, defaulting to zsh for unknown shells. */
@@ -41,9 +34,6 @@ export function resolveShellFromEnv(env: NodeJS.ProcessEnv = process.env): Compl
   }
   if (shellName === "fish") {
     return "fish";
-  }
-  if (shellName === "pwsh" || shellName === "powershell") {
-    return "powershell";
   }
   return "zsh";
 }
@@ -64,8 +54,7 @@ function resolveCompletionCacheDir(env: NodeJS.ProcessEnv = process.env): string
 /** Returns the per-shell cached completion script path for a sanitized CLI binary name. */
 export function resolveCompletionCachePath(shell: CompletionShell, binName: string): string {
   const basename = sanitizeCompletionBasename(binName);
-  const extension =
-    shell === "powershell" ? "ps1" : shell === "fish" ? "fish" : shell === "bash" ? "bash" : "zsh";
+  const extension = shell === "fish" ? "fish" : shell === "bash" ? "bash" : "zsh";
   return path.join(resolveCompletionCacheDir(), `${basename}.${extension}`);
 }
 
@@ -78,19 +67,12 @@ export async function completionCacheExists(
   return pathExists(cachePath);
 }
 
-function escapePowerShellSingleQuotedString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 /** Formats the profile line that sources the cached completion script for a shell. */
 export function formatCompletionSourceLine(
   shell: CompletionShell,
   _binName: string,
   cachePath: string,
 ): string {
-  if (shell === "powershell") {
-    return `. '${escapePowerShellSingleQuotedString(cachePath)}'`;
-  }
   if (shell === "fish") {
     return `test -f "${cachePath}"; and source "${cachePath}"`;
   }
@@ -99,9 +81,7 @@ export function formatCompletionSourceLine(
 
 /** Formats the command users can run to reload the shell profile after installation. */
 export function formatCompletionReloadCommand(shell: CompletionShell, profilePath: string): string {
-  if (shell === "powershell") {
-    return `. '${escapePowerShellSingleQuotedString(profilePath)}'`;
-  }
+  void shell;
   return `source ${profilePath}`;
 }
 
@@ -164,12 +144,10 @@ export function resolveCompletionProfilePath(
   options: {
     env?: NodeJS.ProcessEnv;
     homeDir?: () => string;
-    platform?: NodeJS.Platform;
   } = {},
 ): string {
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? os.homedir;
-  const platform = options.platform ?? process.platform;
   const home = env.HOME || homeDir();
   if (shell === "zsh") {
     return path.join(home, ".zshrc");
@@ -180,18 +158,7 @@ export function resolveCompletionProfilePath(
   if (shell === "fish") {
     return path.join(home, ".config", "fish", "config.fish");
   }
-  if (platform === "win32") {
-    const shellPath = normalizeOptionalString(env.SHELL) ?? "";
-    const shellName = shellPath ? resolveShellBasename(shellPath, platform) : "";
-    const profileDirectory = shellName === "powershell" ? "WindowsPowerShell" : "PowerShell";
-    return path.win32.join(
-      env.USERPROFILE || home,
-      "Documents",
-      profileDirectory,
-      "Microsoft.PowerShell_profile.ps1",
-    );
-  }
-  return path.join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1");
+  return path.join(home, ".zshrc");
 }
 
 /** Returns whether a shell profile already contains an OpenClaw completion block or source line. */
@@ -273,10 +240,6 @@ export async function installCompletion(shell: string, yes: boolean, binName = "
     case "fish":
       profilePath = resolveCompletionProfilePath("fish");
       sourceLine = formatCompletionSourceLine("fish", binName, cachePath);
-      break;
-    case "powershell":
-      profilePath = resolveCompletionProfilePath("powershell");
-      sourceLine = formatCompletionSourceLine("powershell", binName, cachePath);
       break;
   }
 

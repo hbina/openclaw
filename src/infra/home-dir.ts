@@ -32,12 +32,7 @@ function resolveTermuxHome(env: NodeJS.ProcessEnv): string | undefined {
 }
 
 function resolveRawOsHomeDir(env: NodeJS.ProcessEnv, homedir: () => string): string | undefined {
-  return (
-    normalize(env.HOME) ??
-    normalize(env.USERPROFILE) ??
-    resolveTermuxHome(env) ??
-    normalizeSafe(homedir)
-  );
+  return normalize(env.HOME) ?? resolveTermuxHome(env) ?? normalizeSafe(homedir);
 }
 
 function resolveRawHomeDir(env: NodeJS.ProcessEnv, homedir: () => string): string | undefined {
@@ -45,9 +40,9 @@ function resolveRawHomeDir(env: NodeJS.ProcessEnv, homedir: () => string): strin
   if (!explicitHome) {
     return resolveRawOsHomeDir(env, homedir);
   }
-  if (explicitHome === "~" || explicitHome.startsWith("~/") || explicitHome.startsWith("~\\")) {
+  if (explicitHome === "~" || explicitHome.startsWith("~/")) {
     const fallbackHome = resolveRawOsHomeDir(env, homedir);
-    return fallbackHome ? explicitHome.replace(/^~(?=$|[\\/])/, fallbackHome) : undefined;
+    return fallbackHome ? explicitHome.replace(/^~(?=$|\/)/, fallbackHome) : undefined;
   }
   return explicitHome;
 }
@@ -86,7 +81,7 @@ export function resolveRequiredOsHomeDir(
   return resolveOsHomeDir(env, homedir) ?? path.resolve(process.cwd());
 }
 
-/** Expands leading `~`, `~/`, or `~\` with the effective home when one is known. */
+/** Expands leading `~` or `~/` with the effective home when one is known. */
 export function expandHomePrefix(
   input: string,
   opts?: {

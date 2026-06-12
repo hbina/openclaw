@@ -10,10 +10,7 @@ import {
   type LookupFn,
   type SsrFPolicy,
 } from "../infra/net/ssrf.js";
-import type {
-  ChannelDoctorConfigMutation,
-  ChannelDoctorLegacyConfigRule,
-} from "./channel-contract.js";
+import type { ChannelDoctorConfigMutation } from "./channel-contract.js";
 import type { OpenClawConfig } from "./config-runtime.js";
 
 export { isPrivateIpAddress, mergeSsrFPolicies };
@@ -119,35 +116,12 @@ export function migrateLegacyFlatAllowPrivateNetworkAlias(params: {
   return { entry: nextEntry, changed: true };
 }
 
-function hasLegacyAllowPrivateNetworkInAccounts(value: unknown): boolean {
-  const accounts = asNullableRecord(value);
-  return Boolean(
-    accounts &&
-    Object.values(accounts).some((account) =>
-      hasLegacyFlatAllowPrivateNetworkAlias(asNullableRecord(account) ?? {}),
-    ),
-  );
-}
-
 /** Build doctor rules that migrate legacy private-network aliases for one channel config. */
 export function createLegacyPrivateNetworkDoctorContract(params: { channelKey: string }): {
-  legacyConfigRules: ChannelDoctorLegacyConfigRule[];
   normalizeCompatibilityConfig: (params: { cfg: OpenClawConfig }) => ChannelDoctorConfigMutation;
 } {
   const pathPrefix = `channels.${params.channelKey}`;
   return {
-    legacyConfigRules: [
-      {
-        path: ["channels", params.channelKey],
-        message: `${pathPrefix}.allowPrivateNetwork is legacy; use ${pathPrefix}.network.dangerouslyAllowPrivateNetwork instead. Run "openclaw doctor --fix".`,
-        match: (value) => hasLegacyFlatAllowPrivateNetworkAlias(asNullableRecord(value) ?? {}),
-      },
-      {
-        path: ["channels", params.channelKey, "accounts"],
-        message: `${pathPrefix}.accounts.<id>.allowPrivateNetwork is legacy; use ${pathPrefix}.accounts.<id>.network.dangerouslyAllowPrivateNetwork instead. Run "openclaw doctor --fix".`,
-        match: hasLegacyAllowPrivateNetworkInAccounts,
-      },
-    ],
     normalizeCompatibilityConfig: ({ cfg }) => {
       const channels = asNullableRecord(cfg.channels);
       const channelEntry = asNullableRecord(channels?.[params.channelKey]);

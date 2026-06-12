@@ -191,9 +191,6 @@ function isValidChannelDoctorAdapterValue(
   if (enumValues) {
     return typeof value === "string" && enumValues.has(value);
   }
-  if (key === "legacyConfigRules") {
-    return Array.isArray(value);
-  }
   return false;
 }
 

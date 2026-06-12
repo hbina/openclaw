@@ -1,5 +1,5 @@
 // Classifies closed POSIX shell builtins for exec allowlist checks.
-import { isWindowsPlatform, type ExecCommandSegment } from "./exec-approvals-analysis.js";
+import type { ExecCommandSegment } from "./exec-approvals-analysis.js";
 
 // POSIX shell builtins that cannot execute external code or mutate environment state on their
 // own. Shell allowlist evaluation handles them as a closed internal set instead of path-based
@@ -18,11 +18,6 @@ export function isSafeBuiltinSegment(params: {
   segment: ExecCommandSegment;
   platform?: string | null;
 }): boolean {
-  // Builtin semantics here are POSIX shell. On Windows the host shell is PowerShell, where
-  // these tokens have different meaning (cd is an alias to Set-Location, etc.); defer.
-  if (isWindowsPlatform(params.platform ?? process.platform)) {
-    return false;
-  }
   const head = params.segment.argv[0]?.trim().toLowerCase();
   if (!head) {
     return false;

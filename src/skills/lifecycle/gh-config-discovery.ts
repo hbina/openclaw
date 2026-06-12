@@ -1,8 +1,8 @@
 // GitHub config discovery helpers locate skill config files inside repository archives.
-import { posix as posixPath, win32 as win32Path } from "node:path";
+import { posix as posixPath } from "node:path";
 
-function pathFor(platform: NodeJS.Platform) {
-  return platform === "win32" ? win32Path : posixPath;
+function pathFor(_platform: NodeJS.Platform) {
+  return posixPath;
 }
 
 // Detects the case where `gh` is authenticated under one HOME but the current
@@ -16,10 +16,8 @@ export type GhConfigDiscoveryEnv = {
   HOME?: string;
   XDG_CONFIG_HOME?: string;
   GH_CONFIG_DIR?: string;
-  APPDATA?: string;
   SUDO_USER?: string;
   USER?: string;
-  USERPROFILE?: string;
 };
 
 export type GhConfigDiscoveryInput = {
@@ -66,16 +64,6 @@ function resolveEffectiveGhConfigDir(input: GhConfigDiscoveryInput): string | un
   if (xdg) {
     return pathFor(input.platform).join(xdg, "gh");
   }
-  if (input.platform === "win32") {
-    const appData = env.APPDATA?.trim();
-    if (appData) {
-      return pathFor(input.platform).join(appData, "GitHub CLI");
-    }
-    const profile = env.USERPROFILE?.trim();
-    if (profile) {
-      return pathFor(input.platform).join(profile, "AppData", "Roaming", "GitHub CLI");
-    }
-  }
   const home = env.HOME?.trim();
   if (!home) {
     return undefined;
@@ -87,9 +75,7 @@ function defaultCandidateOperatorHomes(input: GhConfigDiscoveryInput): string[] 
   const env = input.env;
   const homes = new Set<string>();
   // Common operator HOME on Linux servers running gateway as root.
-  if (input.platform !== "win32") {
-    homes.add("/root");
-  }
+  homes.add("/root");
   // sudo invocation: the original shell user's home is exposed through SUDO_USER.
   if (env.SUDO_USER?.trim()) {
     const sudoUser = env.SUDO_USER.trim();
@@ -105,7 +91,7 @@ function defaultCandidateOperatorHomes(input: GhConfigDiscoveryInput): string[] 
     if (user !== "root") {
       if (input.platform === "darwin") {
         homes.add(pathFor(input.platform).join("/Users", user));
-      } else if (input.platform !== "win32") {
+      } else {
         homes.add(pathFor(input.platform).join("/home", user));
       }
     }
@@ -120,9 +106,6 @@ function defaultCandidateOperatorHomes(input: GhConfigDiscoveryInput): string[] 
 }
 
 function ghConfigDirForHome(home: string, platform: NodeJS.Platform): string {
-  // Linux and macOS both put gh's config under <HOME>/.config/gh. Windows is
-  // not a realistic mismatch case for the bug this helper detects; we still
-  // return the POSIX-layout directory so the hint points at a sensible path.
   return pathFor(platform).join(home, ".config", "gh");
 }
 

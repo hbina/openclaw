@@ -3,10 +3,10 @@
 import { getFileExtension, isAudioFileName, kindFromMime } from "@openclaw/media-core/mime";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { MsgContext } from "../auto-reply/templating.js";
-import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../infra/local-file-access.js";
+import { safeFileURLToPath } from "../infra/local-file-access.js";
 import type { MediaAttachment } from "./types.js";
 
-/** Normalizes a local attachment path while rejecting remote file URLs and Windows UNC paths. */
+/** Normalizes a local attachment path while rejecting malformed file URLs. */
 export function normalizeAttachmentPath(raw?: string | null): string | undefined {
   const value = normalizeOptionalString(raw);
   if (!value) {
@@ -18,11 +18,6 @@ export function normalizeAttachmentPath(raw?: string | null): string | undefined
     } catch {
       return undefined;
     }
-  }
-  try {
-    assertNoWindowsNetworkPath(value, "Attachment path");
-  } catch {
-    return undefined;
   }
   return value;
 }

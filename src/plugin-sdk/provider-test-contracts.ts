@@ -2,7 +2,6 @@
  * Test SDK subpath for provider auth, catalog, discovery, runtime, and media contracts.
  */
 export {
-  describeGithubCopilotProviderAuthContract,
   describeOpenAICodexProviderAuthContract,
   type ProviderAuthContractPluginLoader,
 } from "./test-helpers/provider-auth-contract.js";
@@ -22,15 +21,7 @@ export {
   installWebFetchProviderContractSuite,
   installWebSearchProviderContractSuite,
 } from "./test-helpers/provider-contract-suites.js";
-export {
-  describeCloudflareAiGatewayProviderDiscoveryContract,
-  describeGithubCopilotProviderDiscoveryContract,
-  describeMinimaxProviderDiscoveryContract,
-  describeModelStudioProviderDiscoveryContract,
-  describeSglangProviderDiscoveryContract,
-  describeVllmProviderDiscoveryContract,
-  type ProviderDiscoveryContractPluginLoader,
-} from "./test-helpers/provider-discovery-contract.js";
+export { type ProviderDiscoveryContractPluginLoader } from "./test-helpers/provider-discovery-contract.js";
 export {
   EXPECTED_FALLBACKS,
   createConfigWithFallbacks,
@@ -60,12 +51,7 @@ export {
 } from "./test-helpers/provider-onboard.js";
 export {
   describeAnthropicProviderRuntimeContract,
-  describeGithubCopilotProviderRuntimeContract,
-  describeGoogleProviderRuntimeContract,
   describeOpenAIProviderRuntimeContract,
-  describeOpenRouterProviderRuntimeContract,
-  describeVeniceProviderRuntimeContract,
-  describeZAIProviderRuntimeContract,
   type ProviderRuntimeContractPluginLoader,
 } from "./test-helpers/provider-runtime-contract.js";
 export {

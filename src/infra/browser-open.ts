@@ -1,8 +1,6 @@
 // Resolves platform-specific commands for best-effort browser opening.
-import path from "node:path";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { detectBinary } from "./detect-binary.js";
-import { getWindowsInstallRoots } from "./windows-install-roots.js";
 import { isWSL } from "./wsl.js";
 
 // Browser opening is best-effort and platform-specific; callers get a resolved
@@ -26,11 +24,6 @@ function shouldSkipBrowserOpenInTests(): boolean {
   return process.env.NODE_ENV === "test";
 }
 
-function resolveWindowsRundll32Path(): string {
-  const { systemRoot } = getWindowsInstallRoots();
-  return path.win32.join(systemRoot, "System32", "rundll32.exe");
-}
-
 function normalizeBrowserOpenUrl(raw: string): string | null {
   try {
     const parsed = new URL(raw);
@@ -52,16 +45,8 @@ export async function resolveBrowserOpenCommand(): Promise<BrowserOpenCommand> {
     Boolean(process.env.SSH_TTY) ||
     Boolean(process.env.SSH_CONNECTION);
 
-  if (isSsh && !hasDisplay && platform !== "win32" && platform !== "darwin") {
+  if (isSsh && !hasDisplay && platform !== "darwin") {
     return { argv: null, reason: "ssh-no-display" };
-  }
-
-  if (platform === "win32") {
-    const rundll32 = resolveWindowsRundll32Path();
-    return {
-      argv: [rundll32, "url.dll,FileProtocolHandler"],
-      command: rundll32,
-    };
   }
 
   if (platform === "darwin") {

@@ -18,7 +18,7 @@ function normalizePosix(input: string): string {
   if (!input) {
     return input;
   }
-  // Swap Windows-style separators, then collapse `.`/`..` segments so ancestry
+  // Swap backslash separators, then collapse `.`/`..` segments so ancestry
   // checks cannot be bypassed by a path that traverses out of the anchor.
   return path.posix.normalize(input.replaceAll("\\", "/"));
 }

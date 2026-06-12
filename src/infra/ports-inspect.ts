@@ -1,9 +1,7 @@
 // Inspects gateway port listeners and connection state.
 import os from "node:os";
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { isErrno } from "./errors.js";
-import { parseStrictPositiveInteger } from "./parse-finite-number.js";
 import { buildPortHints } from "./ports-format.js";
 import { resolveLsofCommand } from "./ports-lsof.js";
 import { tryListenOnPort } from "./ports-probe.js";
@@ -429,196 +427,6 @@ async function readUnixListeners(
   };
 }
 
-function parseNetstatListeners(output: string, port: number): PortListener[] {
-  const listeners: PortListener[] = [];
-  for (const rawLine of output.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
-    if (!normalizeLowercaseStringOrEmpty(line).includes("listen")) {
-      continue;
-    }
-    const parts = line.split(/\s+/);
-    if (parts.length < 4) {
-      continue;
-    }
-    const localAddr = parts[1];
-    if (!localAddr || parseTcpEndpoint(localAddr)?.port !== port) {
-      continue;
-    }
-    const pidRaw = parts.at(-1);
-    const pid = parseStrictPositiveInteger(pidRaw);
-    const listener: PortListener = {};
-    if (pid !== undefined) {
-      listener.pid = pid;
-    }
-    listener.address = localAddr;
-    listeners.push(listener);
-  }
-  return listeners;
-}
-
-function parseNetstatConnections(output: string, port: number): PortConnection[] {
-  const connections: PortConnection[] = [];
-  const localAddresses = resolveLocalNetworkAddresses();
-  for (const rawLine of output.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || !normalizeLowercaseStringOrEmpty(line).includes("established")) {
-      continue;
-    }
-    const parts = line.split(/\s+/);
-    if (parts.length < 5) {
-      continue;
-    }
-    const local = parts[1];
-    const remote = parts[2];
-    const pidRaw = parts.at(-1);
-    if (!local || !remote || !pidRaw) {
-      continue;
-    }
-    const address = `TCP ${local}->${remote} (ESTABLISHED)`;
-    if (!isGatewayConnectionAddress(address, port, localAddresses)) {
-      continue;
-    }
-    const connection: PortConnection = {
-      address,
-      direction: resolveLsofTcpDirection(address, port),
-    };
-    const pid = parseStrictPositiveInteger(pidRaw);
-    if (pid !== undefined) {
-      connection.pid = pid;
-    }
-    connections.push(connection);
-  }
-  return connections;
-}
-
-async function resolveWindowsImageName(pid: number): Promise<string | undefined> {
-  const res = await runCommandSafe(["tasklist", "/FI", `PID eq ${pid}`, "/FO", "LIST"]);
-  if (res.code !== 0) {
-    return undefined;
-  }
-  for (const rawLine of res.stdout.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!normalizeLowercaseStringOrEmpty(line).startsWith("image name:")) {
-      continue;
-    }
-    const value = line.slice("image name:".length).trim();
-    return value || undefined;
-  }
-  return undefined;
-}
-
-async function resolveWindowsCommandLine(pid: number): Promise<string | undefined> {
-  const powershell = await runCommandSafe([
-    "powershell",
-    "-NoProfile",
-    "-Command",
-    `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object -ExpandProperty CommandLine)`,
-  ]);
-  if (powershell.code === 0) {
-    const value = powershell.stdout.trim();
-    if (value) {
-      return value;
-    }
-  }
-
-  const wmic = await runCommandSafe([
-    "wmic",
-    "process",
-    "where",
-    `ProcessId=${pid}`,
-    "get",
-    "CommandLine",
-    "/value",
-  ]);
-  if (wmic.code !== 0) {
-    return undefined;
-  }
-  for (const rawLine of wmic.stdout.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!normalizeLowercaseStringOrEmpty(line).startsWith("commandline=")) {
-      continue;
-    }
-    const value = line.slice("commandline=".length).trim();
-    return value || undefined;
-  }
-  return undefined;
-}
-
-async function readWindowsListeners(
-  port: number,
-): Promise<{ listeners: PortListener[]; detail?: string; errors: string[] }> {
-  const errors: string[] = [];
-  const res = await runCommandSafe(["netstat", "-ano", "-p", "tcp"]);
-  if (res.code !== 0) {
-    if (res.error) {
-      errors.push(res.error);
-    }
-    const detail = [res.stderr.trim(), res.stdout.trim()].filter(Boolean).join("\n");
-    if (detail) {
-      errors.push(detail);
-    }
-    return { listeners: [], errors };
-  }
-  const listeners = parseNetstatListeners(res.stdout, port);
-  await Promise.all(
-    listeners.map(async (listener) => {
-      if (!listener.pid) {
-        return;
-      }
-      const [imageName, commandLine] = await Promise.all([
-        resolveWindowsImageName(listener.pid),
-        resolveWindowsCommandLine(listener.pid),
-      ]);
-      if (imageName) {
-        listener.command = imageName;
-      }
-      if (commandLine) {
-        listener.commandLine = commandLine;
-      }
-    }),
-  );
-  return { listeners, detail: res.stdout.trim() || undefined, errors };
-}
-
-async function readWindowsEstablishedConnections(
-  port: number,
-): Promise<{ connections: PortConnection[]; detail?: string; errors: string[] }> {
-  const errors: string[] = [];
-  const res = await runCommandSafe(["netstat", "-ano", "-p", "tcp"]);
-  if (res.code !== 0) {
-    if (res.error) {
-      errors.push(res.error);
-    }
-    const detail = [res.stderr.trim(), res.stdout.trim()].filter(Boolean).join("\n");
-    if (detail) {
-      errors.push(detail);
-    }
-    return { connections: [], errors };
-  }
-  const connections = parseNetstatConnections(res.stdout, port);
-  await Promise.all(
-    connections.map(async (connection) => {
-      if (!connection.pid) {
-        return;
-      }
-      const [imageName, commandLine] = await Promise.all([
-        resolveWindowsImageName(connection.pid),
-        resolveWindowsCommandLine(connection.pid),
-      ]);
-      if (imageName) {
-        connection.command = imageName;
-      }
-      if (commandLine) {
-        connection.commandLine = commandLine;
-      }
-    }),
-  );
-  return { connections, detail: res.stdout.trim() || undefined, errors };
-}
-
 async function tryListenOnHost(port: number, host: string): Promise<PortUsageStatus | "skip"> {
   try {
     await tryListenOnPort({ port, host, exclusive: true });
@@ -651,8 +459,7 @@ async function checkPortInUse(port: number): Promise<PortUsageStatus> {
 
 export async function inspectPortUsage(port: number): Promise<PortUsage> {
   const errors: string[] = [];
-  const result =
-    process.platform === "win32" ? await readWindowsListeners(port) : await readUnixListeners(port);
+  const result = await readUnixListeners(port);
   errors.push(...result.errors);
   let listeners = result.listeners;
   let status: PortUsageStatus = listeners.length > 0 ? "busy" : "unknown";
@@ -679,10 +486,7 @@ export async function inspectPortUsage(port: number): Promise<PortUsage> {
 }
 
 export async function inspectPortConnections(port: number): Promise<PortConnections> {
-  const result =
-    process.platform === "win32"
-      ? await readWindowsEstablishedConnections(port)
-      : await readUnixEstablishedConnections(port);
+  const result = await readUnixEstablishedConnections(port);
   return {
     port,
     connections: result.connections,

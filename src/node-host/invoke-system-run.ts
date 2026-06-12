@@ -34,7 +34,6 @@ import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-
 import {
   extractEnvAssignmentKeysFromDispatchWrappers,
   isShellWrapperInvocation,
-  resolveShellWrapperTransportArgv,
 } from "../infra/exec-wrapper-resolution.js";
 import {
   inspectHostExecEnvOverrides,
@@ -130,7 +129,6 @@ type SystemRunPolicyPhase = SystemRunParsePhase & {
   segments: ExecCommandSegment[];
   segmentSatisfiedBy: ExecSegmentSatisfiedBy[];
   plannedAllowlistArgv: string[] | undefined;
-  isWindows: boolean;
   approvedCwdSnapshot: ApprovedCwdSnapshot | undefined;
 };
 
@@ -286,7 +284,6 @@ export type HandleSystemRunInvokeOptions = {
   execHostFallbackAllowed: boolean;
   resolveExecSecurity: (value?: string) => ExecSecurity;
   resolveExecAsk: (value?: string) => ExecAsk;
-  isCmdExeInvocation: (argv: string[]) => boolean;
   sanitizeEnv: (overrides?: Record<string, string> | null) => Record<string, string> | undefined;
   runCommand: (
     argv: string[],
@@ -527,12 +524,6 @@ async function evaluateSystemRunPolicyPhase(
   const strictInlineEval =
     agentExec?.strictInlineEval === true || cfg.tools?.exec?.strictInlineEval === true;
   const inlineEvalHit = strictInlineEval ? detectPolicyInlineEval(segments) : null;
-  const isWindows = process.platform === "win32";
-  // Detect Windows wrapper transport from the same shell-wrapper view used to
-  // derive the inner payload. That keeps `cmd.exe /c` approval-gated even when
-  // dispatch carriers like `env FOO=bar ...` wrap the shell invocation.
-  const cmdDetectionArgv = resolveShellWrapperTransportArgv(parsed.argv) ?? parsed.argv;
-  const cmdInvocation = opts.isCmdExeInvocation(cmdDetectionArgv);
   const durableApprovalSatisfied = hasDurableExecApproval({
     analysisOk,
     segmentAllowlistEntries,
@@ -551,10 +542,6 @@ async function evaluateSystemRunPolicyPhase(
     durableApprovalSatisfied: durableApprovalSatisfied || inlineEvalExecutableTrusted,
     approvalDecision,
     approved: parsed.approved,
-    isWindows,
-    cmdInvocation,
-    // Keep cmd.exe approval gating scoped to inline shell-wrapper transport.
-    // Env sanitization uses broader shell-wrapper detection in parse phase.
     shellWrapperInvocation: parsed.shellPayload !== null,
   });
   const requiresSecurityAuditSuppressionApproval =
@@ -572,7 +559,6 @@ async function evaluateSystemRunPolicyPhase(
       analysisOk: policy.analysisOk,
       allowlistSatisfied: policy.allowlistSatisfied,
       shellWrapperBlocked: policy.shellWrapperBlocked,
-      windowsShellWrapperBlocked: policy.windowsShellWrapperBlocked,
       requiresAsk: true,
       approvalDecision: policy.approvalDecision,
       approvedByAsk: policy.approvedByAsk,
@@ -653,8 +639,6 @@ async function evaluateSystemRunPolicyPhase(
           durableApprovalSatisfied: durableApprovalSatisfied || inlineEvalExecutableTrusted,
           approvalDecision,
           approved: true,
-          isWindows,
-          cmdInvocation,
           shellWrapperInvocation: parsed.shellPayload !== null,
         });
       } else {
@@ -671,7 +655,6 @@ async function evaluateSystemRunPolicyPhase(
     return null;
   }
 
-  // Fail closed if policy/runtime drift re-allows Windows shell wrappers.
   if (policy.shellWrapperBlocked && !policy.approvedByAsk && !durableApprovalSatisfied) {
     await sendSystemRunDenied(opts, parsed.execution, {
       reason: "approval-required",
@@ -738,7 +721,6 @@ async function evaluateSystemRunPolicyPhase(
     segments,
     segmentSatisfiedBy,
     plannedAllowlistArgv: plannedAllowlistArgv ?? undefined,
-    isWindows,
     approvedCwdSnapshot,
   };
 }
@@ -807,7 +789,6 @@ async function executeSystemRunPhase(
     trustedSafeBinDirs: phase.trustedSafeBinDirs,
     skillBins: phase.skillBins,
     autoAllowSkills: phase.autoAllowSkills,
-    isWindows: phase.isWindows,
     policy: phase.policy,
     shellCommand: phase.shellPayload,
     segments: phase.segments,

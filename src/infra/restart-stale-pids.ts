@@ -138,7 +138,7 @@ function readParentPidFromPs(pid: number, spawnTimeoutMs: number): number | null
  *
  * The walk is best-effort. `process.ppid` is provided by Node via a direct
  * syscall and is always available; transitive ancestors are read on Linux via
- * `/proc` and on macOS via `ps`. Windows stops at ppid.
+ * `/proc` and on macOS via `ps`.
  *
  * The function exposes no runtime hooks. Tests exercise the real walk by
  * stubbing `process.ppid` (and, on Linux, by mocking `node:fs` to inject
@@ -184,7 +184,7 @@ export function getSelfAndAncestorPidsSync(spawnTimeoutMs = SPAWN_TIMEOUT_MS): S
  * `MAX_ANCESTOR_WALK_DEPTH` entries from `/proc/<pid>/status`; each read is
  * a virtual-filesystem access (no disk I/O, no external process), wrapped
  * in try/catch and degrades silently. On macOS the lookup shells out to `ps`
- * with the caller's spawn timeout. Windows only uses the in-memory direct
+ * with the caller's spawn timeout. The in-memory direct
  * parent from `process.ppid`.
  */
 function parseLsofEntries(stdout: string): Array<{ pid: number; cmd?: string }> {

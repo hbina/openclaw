@@ -54,9 +54,6 @@ function parsePsPidLine(line: string): LocalTuiProcess | null {
 
 /** Lists local OpenClaw TUI processes that can contend with gateway responsiveness. */
 export function listLocalTuiProcesses(): LocalTuiProcess[] {
-  if (process.platform === "win32") {
-    return [];
-  }
   const ps = spawnSync("ps", ["-axo", "pid=,command="], {
     encoding: "utf8",
     timeout: 1000,

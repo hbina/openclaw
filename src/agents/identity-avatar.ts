@@ -11,7 +11,6 @@ import {
   hasAvatarUriScheme,
   isAvatarDataUrl,
   isAvatarHttpUrl,
-  isWindowsAbsolutePath,
   isPathWithinRoot,
   isSupportedLocalAvatarExtension,
 } from "../shared/avatar-policy.js";
@@ -112,8 +111,7 @@ function isSafeRelativeAvatarSource(source: string): boolean {
     source.length > PUBLIC_AVATAR_SOURCE_MAX_CHARS ||
     source.startsWith("~") ||
     path.isAbsolute(source) ||
-    isWindowsAbsolutePath(source) ||
-    (hasAvatarUriScheme(source) && !isWindowsAbsolutePath(source)) ||
+    hasAvatarUriScheme(source) ||
     source.includes("\0")
   ) {
     return false;

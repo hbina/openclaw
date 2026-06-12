@@ -1,14 +1,9 @@
 // Provides shared replay-policy helpers for provider plugins.
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import type { AgentMessage } from "../agents/runtime/index.js";
-import { isGemma4ModelId } from "../shared/google-models.js";
-import { sanitizeGoogleAssistantFirstOrdering } from "../shared/google-turn-ordering.js";
 import type {
   ProviderReasoningOutputMode,
   ProviderReplayPolicy,
   ProviderReplayPolicyContext,
-  ProviderReplaySessionState,
-  ProviderSanitizeReplayHistoryContext,
 } from "./types.js";
 
 /** @deprecated Provider replay helper; prefer provider-local replay hooks. */
@@ -52,8 +47,7 @@ export function buildOpenAICompatibleReplayPolicy(
           validateGeminiTurns: false,
           validateAnthropicTurns: false,
         }),
-    ...(modelApi === "openai-completions" &&
-    (dropReasoningFromHistory || isGemma4ModelId(options.modelId))
+    ...(modelApi === "openai-completions" && dropReasoningFromHistory
       ? { dropReasoningFromHistory: true }
       : {}),
   };
@@ -144,7 +138,7 @@ export function buildHybridAnthropicOrOpenAIReplayPolicy(
   ctx: ProviderReplayPolicyContext,
   options: { anthropicModelDropThinkingBlocks?: boolean } = {},
 ): ProviderReplayPolicy | undefined {
-  if (ctx.modelApi === "anthropic-messages" || ctx.modelApi === "bedrock-converse-stream") {
+  if (ctx.modelApi === "anthropic-messages") {
     const isClaude = normalizeLowercaseStringOrEmpty(ctx.modelId).includes("claude");
     return buildStrictAnthropicReplayPolicy({
       dropThinkingBlocks:
@@ -155,73 +149,6 @@ export function buildHybridAnthropicOrOpenAIReplayPolicy(
   }
 
   return buildOpenAICompatibleReplayPolicy(ctx.modelApi, { modelId: ctx.modelId });
-}
-
-const GOOGLE_TURN_ORDERING_CUSTOM_TYPE = "google-turn-ordering-bootstrap";
-
-function hasGoogleTurnOrderingMarker(sessionState: ProviderReplaySessionState): boolean {
-  return sessionState
-    .getCustomEntries()
-    .some((entry) => entry.customType === GOOGLE_TURN_ORDERING_CUSTOM_TYPE);
-}
-
-function markGoogleTurnOrderingMarker(sessionState: ProviderReplaySessionState): void {
-  sessionState.appendCustomEntry(GOOGLE_TURN_ORDERING_CUSTOM_TYPE, {
-    timestamp: Date.now(),
-  });
-}
-
-/** @deprecated Google provider replay helper; prefer provider-local replay hooks. */
-export function buildGoogleGeminiReplayPolicy(): ProviderReplayPolicy {
-  return {
-    sanitizeMode: "full",
-    sanitizeToolCallIds: true,
-    toolCallIdMode: "strict",
-    sanitizeThoughtSignatures: {
-      allowBase64Only: true,
-      includeCamelCase: true,
-    },
-    repairToolUseResultPairing: true,
-    applyAssistantFirstOrderingFix: true,
-    validateGeminiTurns: true,
-    validateAnthropicTurns: false,
-    allowSyntheticToolResults: true,
-  };
-}
-
-/** @deprecated Google provider replay helper; prefer provider-local replay hooks. */
-export function buildPassthroughGeminiSanitizingReplayPolicy(
-  modelId?: string,
-): ProviderReplayPolicy {
-  const normalizedModelId = normalizeLowercaseStringOrEmpty(modelId);
-  return {
-    applyAssistantFirstOrderingFix: false,
-    validateGeminiTurns: false,
-    validateAnthropicTurns: false,
-    ...(normalizedModelId.includes("gemini")
-      ? {
-          sanitizeThoughtSignatures: {
-            allowBase64Only: true,
-            includeCamelCase: true,
-          },
-        }
-      : {}),
-  };
-}
-
-/** @deprecated Google provider replay helper; prefer provider-local replay hooks. */
-export function sanitizeGoogleGeminiReplayHistory(
-  ctx: ProviderSanitizeReplayHistoryContext,
-): AgentMessage[] {
-  const messages = sanitizeGoogleAssistantFirstOrdering(ctx.messages);
-  if (
-    messages !== ctx.messages &&
-    ctx.sessionState &&
-    !hasGoogleTurnOrderingMarker(ctx.sessionState)
-  ) {
-    markGoogleTurnOrderingMarker(ctx.sessionState);
-  }
-  return messages;
 }
 
 /** @deprecated Provider replay helper; prefer provider-local replay hooks. */

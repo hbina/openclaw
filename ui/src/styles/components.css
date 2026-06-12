@@ -5992,7 +5992,7 @@ td.data-table-key-col {
   }
 }
 
-.cmd-palette-overlay {
+-palette-overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -6015,11 +6015,11 @@ td.data-table-key-col {
   animation: fade-in 0.12s ease-out;
 }
 
-.cmd-palette-overlay::backdrop {
+-palette-overlay::backdrop {
   background: transparent;
 }
 
-.cmd-palette {
+-palette {
   width: min(560px, 90vw);
   overflow: hidden;
   background: var(--card);
@@ -6029,7 +6029,7 @@ td.data-table-key-col {
   animation: scale-in 0.15s ease-out;
 }
 
-.cmd-palette__label {
+-palette__label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -6042,7 +6042,7 @@ td.data-table-key-col {
   white-space: nowrap;
 }
 
-.cmd-palette__input {
+-palette__input {
   width: 100%;
   padding: 14px 18px;
   background: transparent;
@@ -6053,17 +6053,17 @@ td.data-table-key-col {
   outline: none;
 }
 
-.cmd-palette__input::placeholder {
+-palette__input::placeholder {
   color: var(--muted);
 }
 
-.cmd-palette__results {
+-palette__results {
   max-height: 320px;
   overflow-y: auto;
   padding: 6px 0;
 }
 
-.cmd-palette__group-label {
+-palette__group-label {
   padding: 8px 18px 4px;
   color: var(--muted);
   font-size: 11px;
@@ -6072,7 +6072,7 @@ td.data-table-key-col {
   letter-spacing: 0.05em;
 }
 
-.cmd-palette__item {
+-palette__item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -6082,28 +6082,28 @@ td.data-table-key-col {
   transition: background var(--duration-fast) ease;
 }
 
-.cmd-palette__item:hover,
-.cmd-palette__item--active {
+-palette__item:hover,
+-palette__item--active {
   background: var(--bg-hover);
 }
 
-.cmd-palette__item .nav-item__icon {
+-palette__item .nav-item__icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
 }
 
-.cmd-palette__item .nav-item__icon svg {
+-palette__item .nav-item__icon svg {
   width: 100%;
   height: 100%;
 }
 
-.cmd-palette__item-desc {
+-palette__item-desc {
   margin-left: auto;
   font-size: 12px;
 }
 
-.cmd-palette__empty {
+-palette__empty {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -6112,7 +6112,7 @@ td.data-table-key-col {
   font-size: 13px;
 }
 
-.cmd-palette__footer {
+-palette__footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -6123,7 +6123,7 @@ td.data-table-key-col {
   color: var(--muted);
 }
 
-.cmd-palette__footer kbd {
+-palette__footer kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;

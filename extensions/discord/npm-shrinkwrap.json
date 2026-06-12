@@ -84,10 +84,7 @@
         "@snazzah/davey-linux-arm64-musl": "0.1.11",
         "@snazzah/davey-linux-x64-gnu": "0.1.11",
         "@snazzah/davey-linux-x64-musl": "0.1.11",
-        "@snazzah/davey-wasm32-wasi": "0.1.11",
-        "@snazzah/davey-win32-arm64-msvc": "0.1.11",
-        "@snazzah/davey-win32-ia32-msvc": "0.1.11",
-        "@snazzah/davey-win32-x64-msvc": "0.1.11"
+        "@snazzah/davey-wasm32-wasi": "0.1.11"
       }
     },
     "node_modules/@snazzah/davey-android-arm-eabi": {
@@ -264,54 +261,6 @@
       },
       "engines": {
         "node": ">=14.0.0"
-      }
-    },
-    "node_modules/@snazzah/davey-win32-arm64-msvc": {
-      "version": "0.1.11",
-      "resolved": "https://registry.npmjs.org/@snazzah/davey-win32-arm64-msvc/-/davey-win32-arm64-msvc-0.1.11.tgz",
-      "integrity": "sha512-5fptJU4tX901m3mj0SHiBljMrPT4ZEsynbBhR7bK1yn9TY1jjyhN8EFi7QF5IWtUEni+0mia2BCMHZ5ZkmFZqQ==",
-      "cpu": [
-        "arm64"
-      ],
-      "license": "MIT",
-      "optional": true,
-      "os": [
-        "win32"
-      ],
-      "engines": {
-        "node": ">= 10"
-      }
-    },
-    "node_modules/@snazzah/davey-win32-ia32-msvc": {
-      "version": "0.1.11",
-      "resolved": "https://registry.npmjs.org/@snazzah/davey-win32-ia32-msvc/-/davey-win32-ia32-msvc-0.1.11.tgz",
-      "integrity": "sha512-ualexn8SeLsiMHhWfzVrzRcjHgcBapg++FPaVgJJxoh2S/jCRiklXOu3luqIZdJdNKvhe2V9SwO/cImPeIIBKw==",
-      "cpu": [
-        "ia32"
-      ],
-      "license": "MIT",
-      "optional": true,
-      "os": [
-        "win32"
-      ],
-      "engines": {
-        "node": ">= 10"
-      }
-    },
-    "node_modules/@snazzah/davey-win32-x64-msvc": {
-      "version": "0.1.11",
-      "resolved": "https://registry.npmjs.org/@snazzah/davey-win32-x64-msvc/-/davey-win32-x64-msvc-0.1.11.tgz",
-      "integrity": "sha512-muNhc8UKXtknzsH/w4AIkbPR2I8BuvApn0pDXar0IEvY8PCjqU/M8MPbOOEYwQVvQRMwVTgExtxzrkBPSXB4nA==",
-      "cpu": [
-        "x64"
-      ],
-      "license": "MIT",
-      "optional": true,
-      "os": [
-        "win32"
-      ],
-      "engines": {
-        "node": ">= 10"
       }
     },
     "node_modules/@tybys/wasm-util": {

@@ -5,8 +5,4 @@ export {
   mockNodeChildProcessExecFile,
   mockNodeChildProcessSpawnSync,
 } from "./test-helpers/node-builtin-mocks.js";
-export {
-  withMockedPlatform,
-  withMockedWindowsPlatform,
-  withRestoredMocks,
-} from "../test-utils/vitest-spies.js";
+export { withMockedPlatform, withRestoredMocks } from "../test-utils/vitest-spies.js";

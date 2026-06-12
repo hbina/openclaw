@@ -9,7 +9,6 @@ import {
   installCompletion,
   isCompletionInstalled,
   resolveCompletionCachePath,
-  resolveCompletionProfilePath,
   resolveShellFromEnv,
   usesSlowDynamicCompletion,
 } from "../cli/completion-runtime.js";
@@ -18,14 +17,11 @@ import { resolveOpenClawPackageRoot } from "../infra/openclaw-root.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { DoctorPrompter } from "./doctor-prompter.js";
 
-type CompletionShell = "zsh" | "bash" | "fish" | "powershell";
+type CompletionShell = "zsh" | "bash" | "fish";
 
 const COMPLETION_CACHE_WRITE_TIMEOUT_MS = 30_000;
 
 function resolveCompletionReloadPath(shell: CompletionShell): string {
-  if (shell === "powershell") {
-    return resolveCompletionProfilePath("powershell");
-  }
   return `~/.${shell === "zsh" ? "zshrc" : shell === "bash" ? "bashrc" : "config/fish/config.fish"}`;
 }
 

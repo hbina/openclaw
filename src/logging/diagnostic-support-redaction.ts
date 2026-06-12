@@ -51,7 +51,6 @@ type RedactSupportStringOptions = {
 type PathRedactionPrefix = {
   prefix: string;
   label: string;
-  caseInsensitive: boolean;
 };
 
 type SupportObjectEntry = {
@@ -160,22 +159,17 @@ function supportArrayResult(items: unknown[], count: number): unknown[] | Record
   };
 }
 
-function isWindowsAbsolutePath(value: string): boolean {
-  return /^(?:[A-Za-z]:[\\/]|\\\\)/u.test(value);
-}
-
 function normalizePathPrefix(value: string): string {
-  return isWindowsAbsolutePath(value) ? path.win32.resolve(value) : path.resolve(value);
+  return path.resolve(value);
 }
 
 function addPathPrefix(
   prefixes: Map<string, PathRedactionPrefix>,
   prefix: string,
   label: string,
-  caseInsensitive: boolean,
 ): void {
   if (!prefixes.has(prefix)) {
-    prefixes.set(prefix, { prefix, label, caseInsensitive });
+    prefixes.set(prefix, { prefix, label });
   }
 }
 
@@ -188,33 +182,22 @@ function addPathPrefixVariants(
     return;
   }
   const normalized = normalizePathPrefix(value);
-  const caseInsensitive = isWindowsAbsolutePath(normalized);
-  addPathPrefix(prefixes, normalized, label, caseInsensitive);
-  if (isWindowsAbsolutePath(normalized)) {
-    addPathPrefix(prefixes, normalized.replaceAll("\\", "/"), label, caseInsensitive);
-  }
+  addPathPrefix(prefixes, normalized, label);
 }
 
 function pathRedactionPrefixes(options: SupportRedactionContext): PathRedactionPrefix[] {
   const prefixes = new Map<string, PathRedactionPrefix>();
   addPathPrefixVariants(prefixes, options.stateDir, "$OPENCLAW_STATE_DIR");
   addPathPrefixVariants(prefixes, options.env.HOME, "~");
-  addPathPrefixVariants(prefixes, options.env.USERPROFILE, "~");
   return [...prefixes.values()].toSorted((a, b) => b.prefix.length - a.prefix.length);
 }
 
 function pathCandidates(file: string): string[] {
-  if (!isWindowsAbsolutePath(file)) {
-    return [path.resolve(file)];
-  }
-  const resolved = path.win32.resolve(file);
-  return [resolved, resolved.replaceAll("\\", "/")];
+  return [path.resolve(file)];
 }
 
 function hasPathPrefix(value: string, prefix: PathRedactionPrefix): boolean {
-  return prefix.caseInsensitive
-    ? value.toLowerCase().startsWith(prefix.prefix.toLowerCase())
-    : value.startsWith(prefix.prefix);
+  return value.startsWith(prefix.prefix);
 }
 
 function matchPathPrefix(file: string, prefix: PathRedactionPrefix): string | undefined {
@@ -229,7 +212,7 @@ function matchPathPrefix(file: string, prefix: PathRedactionPrefix): string | un
 }
 
 function isSupportAbsolutePath(value: string): boolean {
-  return path.isAbsolute(value) || isWindowsAbsolutePath(value);
+  return path.isAbsolute(value);
 }
 
 export function redactPathForSupport(
@@ -255,8 +238,8 @@ export function redactPathForSupport(
 }
 
 function replaceKnownPathPrefix(value: string, prefix: PathRedactionPrefix): string {
-  const search = prefix.caseInsensitive ? prefix.prefix.toLowerCase() : prefix.prefix;
-  const haystack = prefix.caseInsensitive ? value.toLowerCase() : value;
+  const search = prefix.prefix;
+  const haystack = value;
   let offset = 0;
   let next = "";
   while (offset < value.length) {

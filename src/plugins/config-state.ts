@@ -35,7 +35,6 @@ export type PluginActivationConfigSource = {
 export type NormalizedPluginsConfig = SharedNormalizedPluginsConfig;
 
 const BUILT_IN_PLUGIN_ALIAS_FALLBACKS: ReadonlyArray<readonly [alias: string, pluginId: string]> = [
-  ["google-gemini-cli", "google"],
   ["minimax-portal", "minimax"],
   ["minimax-portal-auth", "minimax"],
 ] as const;

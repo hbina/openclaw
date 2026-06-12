@@ -54,9 +54,3 @@ export function withMockedPlatform<T>(
 ): T | Promise<T> {
   return withRestoredMocks([mockProcessPlatform(platform)], run);
 }
-
-export function withMockedWindowsPlatform<T>(run: () => Promise<T>): Promise<T>;
-export function withMockedWindowsPlatform<T>(run: () => T): T;
-export function withMockedWindowsPlatform<T>(run: () => T | Promise<T>): T | Promise<T> {
-  return withMockedPlatform("win32", run);
-}

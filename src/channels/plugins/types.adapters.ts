@@ -4,7 +4,6 @@
  * Defines approval, setup, config, outbound, directory, and messaging adapter surfaces.
  */
 import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
-import type { LegacyConfigRule } from "../../config/legacy.shared.js";
 import type { AgentBinding } from "../../config/types.agents.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { GroupToolPolicyConfig } from "../../config/types.tools.js";
@@ -492,8 +491,6 @@ export type ChannelDoctorConfigMutation = {
   warnings?: string[];
 };
 
-export type ChannelDoctorLegacyConfigRule = LegacyConfigRule;
-
 export type ChannelDoctorSequenceResult = {
   changeNotes: string[];
   warningNotes: string[];
@@ -513,7 +510,6 @@ export type ChannelDoctorAdapter = {
   groupModel?: "sender" | "route" | "hybrid";
   groupAllowFromFallbackToAllowFrom?: boolean;
   warnOnEmptyGroupSenderAllowlist?: boolean;
-  legacyConfigRules?: LegacyConfigRule[];
   normalizeCompatibilityConfig?: (params: { cfg: OpenClawConfig }) => ChannelDoctorConfigMutation;
   collectPreviewWarnings?: (params: {
     cfg: OpenClawConfig;

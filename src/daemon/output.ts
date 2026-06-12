@@ -1,7 +1,7 @@
 /** Shared terminal output formatting helpers for daemon install/control commands. */
 import { colorize, isRich, theme } from "../../packages/terminal-core/src/theme.js";
 
-/** Normalizes Windows separators for command output paths. */
+/** Normalizes backslash separators for command output paths. */
 export const toPosixPath = (value: string) => value.replace(/\\/g, "/");
 
 /** Formats a labeled daemon output line with terminal-aware styling. */

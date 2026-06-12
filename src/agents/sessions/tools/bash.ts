@@ -62,10 +62,9 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
         }
         const child = spawn(shell, [...args, command], {
           cwd,
-          detached: process.platform !== "win32",
+          detached: true,
           env: env ?? getShellEnv(),
           stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
         });
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | undefined;

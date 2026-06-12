@@ -45,12 +45,9 @@ import type { DaemonLifecycleOptions } from "./types.js";
 
 const POST_RESTART_HEALTH_ATTEMPTS = DEFAULT_RESTART_HEALTH_ATTEMPTS;
 const POST_RESTART_HEALTH_DELAY_MS = DEFAULT_RESTART_HEALTH_DELAY_MS;
-const WINDOWS_POST_RESTART_HEALTH_TIMEOUT_MS = 180_000;
 
 function postRestartHealthAttempts(): number {
-  return process.platform === "win32"
-    ? Math.ceil(WINDOWS_POST_RESTART_HEALTH_TIMEOUT_MS / POST_RESTART_HEALTH_DELAY_MS)
-    : POST_RESTART_HEALTH_ATTEMPTS;
+  return POST_RESTART_HEALTH_ATTEMPTS;
 }
 
 function formatRestartFailure(params: {
@@ -388,11 +385,10 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
         port: restartPort,
         attempts: restartHealthAttempts,
         delayMs: POST_RESTART_HEALTH_DELAY_MS,
-        includeUnknownListenersAsStale: process.platform === "win32",
       });
 
       if (!health.healthy && health.staleGatewayPids.length > 0) {
-        // On Windows service restarts can leave stale listeners behind; kill verified stale
+        // kill verified stale
         // Gateway pids once, restart again, then re-run the same health proof.
         const staleMsg = `Found stale gateway process(es): ${health.staleGatewayPids.join(", ")}.`;
         warnings.push(staleMsg);
@@ -411,7 +407,6 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
           port: restartPort,
           attempts: restartHealthAttempts,
           delayMs: POST_RESTART_HEALTH_DELAY_MS,
-          includeUnknownListenersAsStale: process.platform === "win32",
         });
       }
 

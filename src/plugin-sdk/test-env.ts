@@ -53,7 +53,6 @@ export type {
 } from "../video-generation/types.js";
 export { jsonResponse, requestBodyText, requestUrl } from "../test-helpers/http.js";
 export { mockPinnedHostnameResolution } from "../test-helpers/ssrf.js";
-export { createWindowsCmdShimFixture } from "../test-helpers/windows-cmd-shim.js";
 export { createProviderUsageFetch, makeResponse } from "../test-utils/provider-usage-fetch.js";
 export { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 export { captureEnv, withEnv, withEnvAsync } from "../test-utils/env.js";

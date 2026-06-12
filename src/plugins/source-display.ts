@@ -15,7 +15,7 @@ function tryRelative(root: string, filePath: string): string | null {
   if (!rel || rel === ".") {
     return null;
   }
-  // Normalize to forward slashes for display (path.relative uses backslashes on Windows)
+  // Normalize to forward slashes for display
   return rel.replaceAll("\\", "/");
 }
 

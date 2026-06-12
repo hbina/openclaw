@@ -207,7 +207,6 @@ export function createProcessSupervisor(): ProcessSupervisor {
               argv: input.argv,
               cwd: input.cwd,
               env: input.env,
-              windowsVerbatimArguments: input.windowsVerbatimArguments,
               input: input.input,
               stdinMode: input.stdinMode,
             });

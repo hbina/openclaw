@@ -823,7 +823,7 @@ function isSafeRelativePath(relPath: string) {
     return false;
   }
   const normalized = path.posix.normalize(relPath);
-  if (path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) {
+  if (path.posix.isAbsolute(normalized)) {
     return false;
   }
   if (normalized.startsWith("../") || normalized === "..") {

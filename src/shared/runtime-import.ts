@@ -1,7 +1,4 @@
-/**
- * Runtime import helpers for lazy modules that may be loaded from file URLs or platform paths.
- * Windows paths need normalization before Node's ESM loader can import them safely.
- */
+/** Runtime import helpers for lazy modules that may be loaded from file URLs or platform paths. */
 import { toSafeImportPath } from "./import-specifier.js";
 
 /** Runtime-facing alias for import specifier normalization helpers. */
@@ -14,8 +11,6 @@ export { toSafeImportPath as toSafeRuntimeImportPath } from "./import-specifier.
 export function resolveRuntimeImportSpecifier(baseUrl: string, parts: readonly string[]): string {
   const joined = parts.join("");
   const safeJoined = toSafeImportPath(joined);
-  // Absolute Windows paths and UNC shares become standalone file URLs instead
-  // of being resolved relative to the caller's module URL.
   if (safeJoined !== joined) {
     return safeJoined;
   }
@@ -24,7 +19,7 @@ export function resolveRuntimeImportSpecifier(baseUrl: string, parts: readonly s
 
 /**
  * Imports a lazy runtime module through the normalized runtime specifier.
- * The injectable importer keeps platform-specific specifier handling unit-testable.
+ * The injectable importer keeps specifier handling unit-testable.
  */
 export async function importRuntimeModule<T>(
   baseUrl: string,

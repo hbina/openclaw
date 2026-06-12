@@ -159,7 +159,6 @@ function getBlockedHostPaths(): string[] {
     home: process.env.HOME,
     openclawHome: process.env.OPENCLAW_HOME,
     osHome: os.homedir(),
-    userProfile: process.env.USERPROFILE,
   });
   if (blockedHostPathsCache?.key === cacheKey) {
     return blockedHostPathsCache.paths;
@@ -179,7 +178,6 @@ function getBlockedHomeRoots(): string[] {
   for (const candidate of [
     process.env.OPENCLAW_HOME,
     process.env.HOME,
-    process.env.USERPROFILE,
     resolveRequiredHomeDir(process.env, os.homedir),
     resolveRequiredOsHomeDir(process.env, os.homedir),
   ]) {
@@ -287,7 +285,7 @@ function formatBindBlockedError(params: { bind: string; reason: BlockedBindReaso
   if (params.reason.kind === "non_absolute") {
     return new Error(
       `Sandbox security: bind mount "${params.bind}" uses a non-absolute source path ` +
-        `"${params.reason.sourcePath}". Only absolute POSIX or Windows drive-letter paths are supported for sandbox binds.`,
+        `"${params.reason.sourcePath}". Only absolute POSIX paths are supported for sandbox binds.`,
     );
   }
   if (params.reason.kind === "outside_allowed_roots") {

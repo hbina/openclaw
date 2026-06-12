@@ -1,9 +1,6 @@
 // Normalizes model input config into provider and model references.
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
-import {
-  normalizeGooglePreviewModelId,
-  normalizeTogetherModelId,
-} from "@openclaw/model-catalog-core/provider-model-id-normalize";
+import { normalizeTogetherModelId } from "@openclaw/model-catalog-core/provider-model-id-normalize";
 import { isRecord as isPlainRecord } from "@openclaw/normalization-core/record-coerce";
 import {
   normalizeLowercaseStringOrEmpty,
@@ -72,8 +69,6 @@ export function toAgentModelListLike(model?: AgentModelConfig): AgentModelListLi
   return model;
 }
 
-const GOOGLE_PROVIDER_IDS = new Set(["google", "google-gemini-cli", "google-vertex"]);
-
 /** Canonicalizes provider/model refs before they are persisted to config. */
 export function normalizeAgentModelRefForConfig(model: string): string {
   const trimmed = model.trim();
@@ -85,11 +80,7 @@ export function normalizeAgentModelRefForConfig(model: string): string {
   const provider = normalizeProviderId(trimmed.slice(0, slash));
   const modelSuffix = trimmed.slice(slash + 1);
   const normalizedModel =
-    GOOGLE_PROVIDER_IDS.has(provider) || modelSuffix.startsWith("google/")
-      ? normalizeGooglePreviewModelId(modelSuffix)
-      : provider === "together"
-        ? normalizeTogetherModelId(modelSuffix)
-        : modelSuffix;
+    provider === "together" ? normalizeTogetherModelId(modelSuffix) : modelSuffix;
   return modelKeyForConfig(provider, normalizedModel);
 }
 

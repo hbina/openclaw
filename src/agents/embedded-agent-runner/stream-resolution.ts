@@ -3,7 +3,6 @@
  */
 import { getApiProvider } from "../../llm/api-registry.js";
 import { streamSimple } from "../../llm/stream.js";
-import { createAnthropicVertexStreamFnForModel } from "../anthropic-vertex-stream.js";
 import { createBoundaryAwareStreamFnForModel } from "../provider-transport-stream.js";
 import type { StreamFn } from "../runtime/index.js";
 import { stripSystemPromptCacheBoundary } from "../system-prompt-cache-boundary.js";
@@ -78,9 +77,6 @@ export function describeEmbeddedAgentStreamStrategy(params: {
   if (params.providerStreamFn) {
     return "provider";
   }
-  if (params.model.provider === "anthropic-vertex") {
-    return "anthropic-vertex";
-  }
   if (
     resolveOpenClawNativeCodexResponsesStreamFn({
       model: params.model,
@@ -145,10 +141,6 @@ export function resolveEmbeddedAgentStreamFn(params: {
   }
 
   const currentStreamFn = params.currentStreamFn ?? streamSimple;
-  if (params.model.provider === "anthropic-vertex") {
-    return createAnthropicVertexStreamFnForModel(params.model);
-  }
-
   const openClawNativeCodexResponsesStreamFn = resolveOpenClawNativeCodexResponsesStreamFn({
     model: params.model,
     currentStreamFn: params.currentStreamFn,

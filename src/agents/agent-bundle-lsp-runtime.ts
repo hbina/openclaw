@@ -4,10 +4,6 @@ import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/s
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import { logDebug, logWarn } from "../logger.js";
-import {
-  materializeWindowsSpawnProgram,
-  resolveWindowsSpawnProgram,
-} from "../plugin-sdk/windows-spawn.js";
 import { setPluginToolMeta } from "../plugins/tools.js";
 import { killProcessTree } from "../process/kill-tree.js";
 import { loadEmbeddedAgentLspConfig } from "./embedded-agent-lsp.js";
@@ -71,22 +67,14 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-/** Spawns one LSP server process using sanitized host env and Windows shim handling. */
+/** Spawns one LSP server process using sanitized host env. */
 export function spawnLspServerProcess(config: StdioMcpServerLaunchConfig): ChildProcess {
   const mergedEnv = sanitizeHostExecEnv({ baseEnv: process.env, overrides: config.env ?? null });
-  const program = resolveWindowsSpawnProgram({
-    command: config.command,
-    env: mergedEnv,
-    allowShellFallback: true,
-  });
-  const invocation = materializeWindowsSpawnProgram(program, config.args ?? []);
-  return spawn(invocation.command, invocation.argv, {
+  return spawn(config.command, config.args ?? [], {
     stdio: ["pipe", "pipe", "pipe"],
     env: mergedEnv,
     cwd: config.cwd,
-    detached: process.platform !== "win32",
-    windowsHide: invocation.windowsHide ?? process.platform === "win32",
-    shell: invocation.shell,
+    detached: true,
   });
 }
 

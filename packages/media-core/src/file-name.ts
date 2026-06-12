@@ -1,9 +1,9 @@
 // Media Core module implements file name behavior.
 import path from "node:path";
 
-/** Returns the final filename segment for either POSIX or Windows-style paths. */
+/** Returns the final filename segment for POSIX paths. */
 export function basenameFromAnyPath(value: string): string {
-  return path.win32.basename(path.posix.basename(value));
+  return path.posix.basename(value);
 }
 
 /** Returns the extension from the final filename segment of any path flavor. */

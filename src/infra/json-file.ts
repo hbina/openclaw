@@ -42,10 +42,7 @@ export function repairJsonFilePermissions(pathname: string): void {
   try {
     fd = fs.openSync(
       target,
-      fs.constants.O_RDONLY |
-        (process.platform !== "win32" && "O_NOFOLLOW" in fs.constants
-          ? fs.constants.O_NOFOLLOW
-          : 0),
+      fs.constants.O_RDONLY | ("O_NOFOLLOW" in fs.constants ? fs.constants.O_NOFOLLOW : 0),
     );
     fs.fchmodSync(fd, 0o600);
   } catch {

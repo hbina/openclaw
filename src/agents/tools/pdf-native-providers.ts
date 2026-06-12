@@ -3,7 +3,6 @@
  * This bypasses shared model runtime's content type system which does not have a "document" type.
  */
 
-import { normalizeProviderTransportWithPlugin } from "../../plugins/provider-runtime.js";
 import { isRecord } from "../../utils.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import { resolveAnthropicMessagesUrl } from "../anthropic-transport-stream.js";
@@ -156,89 +155,6 @@ export async function anthropicAnalyzePdf(params: {
 
   if (!text.trim()) {
     throw new Error("Anthropic PDF returned no text.");
-  }
-
-  return text.trim();
-}
-
-// ---------------------------------------------------------------------------
-// Google Gemini – native PDF via generateContent API
-// ---------------------------------------------------------------------------
-
-type GeminiPart = { inline_data: { mime_type: string; data: string } } | { text: string };
-
-type GeminiCandidate = {
-  content?: { parts?: Array<{ text?: string }> };
-};
-
-export async function geminiAnalyzePdf(params: {
-  apiKey: string;
-  modelId: string;
-  prompt: string;
-  pdfs: PdfInput[];
-  baseUrl?: string;
-}): Promise<string> {
-  const apiKey = normalizeSecretInput(params.apiKey);
-  if (!apiKey) {
-    throw new Error("Gemini PDF: apiKey required");
-  }
-
-  const parts: GeminiPart[] = [];
-  for (const pdf of params.pdfs) {
-    parts.push({
-      inline_data: {
-        mime_type: "application/pdf",
-        data: pdf.base64,
-      },
-    });
-  }
-  parts.push({ text: params.prompt });
-
-  const transport = normalizeProviderTransportWithPlugin({
-    provider: "google",
-    context: {
-      provider: "google",
-      api: "google-generative-ai",
-      baseUrl: params.baseUrl,
-    },
-  }) ?? { baseUrl: params.baseUrl };
-  const baseUrl = (transport.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta").replace(
-    /\/v1beta$/i,
-    "",
-  );
-  const url = `${baseUrl}/v1beta/models/${encodeURIComponent(params.modelId)}:generateContent`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts }],
-    }),
-    signal: AbortSignal.timeout(NATIVE_PDF_PROVIDER_FETCH_TIMEOUT_MS),
-  });
-
-  if (!res.ok) {
-    const body = await readErrorBodySnippet(res);
-    throw new Error(
-      `Gemini PDF request failed (${res.status} ${res.statusText})${body ? `: ${body}` : ""}`,
-    );
-  }
-
-  const json = (await res.json().catch(() => null)) as unknown;
-  if (!isRecord(json)) {
-    throw new Error("Gemini PDF response was not JSON.");
-  }
-
-  const candidates = json.candidates as GeminiCandidate[] | undefined;
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    throw new Error("Gemini PDF returned no candidates.");
-  }
-
-  const textParts = candidates[0].content?.parts?.filter((p) => typeof p.text === "string") ?? [];
-  const text = textParts.map((p) => p.text!).join("");
-
-  if (!text.trim()) {
-    throw new Error("Gemini PDF returned no text.");
   }
 
   return text.trim();

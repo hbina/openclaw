@@ -92,12 +92,6 @@ export function buildBackupArchiveBasename(nowMs = Date.now()): string {
 /** Encode an absolute or relative source path into a traversal-safe archive payload path. */
 export function encodeAbsolutePathForBackupArchive(sourcePath: string): string {
   const normalized = sourcePath.replaceAll("\\", "/");
-  const windowsMatch = normalized.match(/^([A-Za-z]):\/(.*)$/);
-  if (windowsMatch) {
-    const drive = windowsMatch[1]?.toUpperCase() ?? "UNKNOWN";
-    const rest = windowsMatch[2] ?? "";
-    return path.posix.join("windows", drive, rest);
-  }
   if (normalized.startsWith("/")) {
     return path.posix.join("posix", normalized.slice(1));
   }

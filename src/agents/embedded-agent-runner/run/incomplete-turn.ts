@@ -12,10 +12,7 @@ import {
 import type { EmbeddedAgentExecutionContract } from "../../../config/types.agent-defaults.js";
 import { hasAcceptedSessionSpawn } from "../../accepted-session-spawn.js";
 import { collectTextContentBlocks } from "../../content-blocks.js";
-import {
-  isStrictAgenticSupportedProviderModel,
-  stripProviderPrefix,
-} from "../../execution-contract.js";
+import { isStrictAgenticSupportedProviderModel } from "../../execution-contract.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import { isLikelyMutatingToolName } from "../../tool-mutation.js";
 import {
@@ -142,13 +139,6 @@ const SINGLE_ACTION_RETRY_SAFE_TOOL_NAMES = new Set([
   "glob",
   "ls",
 ]);
-const GEMINI_INCOMPLETE_TURN_PROVIDER_IDS = new Set([
-  "google",
-  "google-vertex",
-  "google-antigravity",
-  "google-gemini-cli",
-]);
-const GEMINI_INCOMPLETE_TURN_MODEL_ID_PATTERN = /^gemini(?:[.-]|$)/;
 // Ollama native `/api/chat` can finish with only thinking/internal blocks when
 // constrained, but it should not inherit the stricter planning-only/ack prompts.
 const OLLAMA_INCOMPLETE_TURN_PROVIDER_ID_PATTERN = /^ollama(?:-|$)/;
@@ -158,7 +148,6 @@ const OLLAMA_INCOMPLETE_TURN_PROVIDER_ID_PATTERN = /^ollama(?:-|$)/;
 const RETRY_GUARD_MODEL_APIS = new Set([
   "openai-completions",
   "anthropic-messages",
-  "bedrock-converse-stream",
   "openai-responses",
   "openai-chatgpt-responses",
   "azure-openai-responses",
@@ -800,12 +789,7 @@ function isIncompleteTurnRecoverySupportedProviderModel(params: {
   ) {
     return true;
   }
-  const provider = normalizeLowercaseStringOrEmpty(params.provider ?? "");
-  if (!GEMINI_INCOMPLETE_TURN_PROVIDER_IDS.has(provider)) {
-    return false;
-  }
-  const modelId = typeof params.modelId === "string" ? params.modelId : "";
-  return GEMINI_INCOMPLETE_TURN_MODEL_ID_PATTERN.test(stripProviderPrefix(modelId));
+  return false;
 }
 
 function normalizeAckPrompt(text: string): string {

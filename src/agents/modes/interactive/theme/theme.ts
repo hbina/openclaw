@@ -1172,7 +1172,6 @@ export function getLanguageFromPath(filePath: string): string | undefined {
     bash: "bash",
     zsh: "bash",
     fish: "fish",
-    ps1: "powershell",
     sql: "sql",
     html: "html",
     htm: "html",

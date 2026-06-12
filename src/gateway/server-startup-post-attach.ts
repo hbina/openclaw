@@ -525,7 +525,7 @@ async function resolveRestartSentinelPathFast(
     const trimmed = value?.trim();
     return trimmed && trimmed !== "undefined" && trimmed !== "null" ? trimmed : undefined;
   };
-  const resolveRawOsHome = () => normalizePathEnv(env.HOME) ?? normalizePathEnv(env.USERPROFILE);
+  const resolveRawOsHome = () => normalizePathEnv(env.HOME);
   const expandHomePrefix = (input: string, home: string) => input.replace(/^~(?=$|[\\/])/, home);
   const resolveHome = () => {
     const explicitHome = normalizePathEnv(env.OPENCLAW_HOME);

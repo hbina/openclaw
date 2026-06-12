@@ -18,7 +18,6 @@ export {
   isShellWrapperExecutable,
   isShellWrapperInvocation,
   POSIX_SHELL_WRAPPERS,
-  POWERSHELL_WRAPPERS,
   resolveShellWrapperTransportArgv,
   unwrapKnownShellMultiplexerInvocation,
 } from "./shell-wrapper-resolution.js";

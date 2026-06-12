@@ -313,9 +313,8 @@ function createTelegramDispatcher(policy: PinnedDispatcherPolicy): {
   mode: TelegramDispatcherMode;
   effectivePolicy: PinnedDispatcherPolicy;
 } {
-  // Telegram polling uses long-lived connections. Undici 8 enables HTTP/2 ALPN
-  // by default, which can stall Telegram long-polling on Windows/IPv6 networks.
-  // Force HTTP/1.1 for every dispatcher while keeping bounded pool defaults.
+  // Telegram polling uses long-lived connections. Force HTTP/1.1 for every
+  // dispatcher while keeping bounded pool defaults.
   const poolOptions = telegramAgentPoolOptions();
 
   if (policy.mode === "explicit-proxy") {
