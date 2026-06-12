@@ -204,7 +204,7 @@ function makeEnv(name) {
   const env = {
     ...process.env,
     HOME: home,
-    USERPROFILE: home,
+    HOME: home,
     OPENCLAW_HOME: home,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
@@ -216,7 +216,6 @@ function makeEnv(name) {
     OPENCLAW_PROFILE: serviceProfile,
     OPENCLAW_LAUNCHD_LABEL: `ai.openclaw.${serviceProfile}`,
     OPENCLAW_SYSTEMD_UNIT: `openclaw-gateway-${serviceProfile}.service`,
-    OPENCLAW_WINDOWS_TASK_NAME: `OpenClaw Gateway (${serviceProfile})`,
     NO_COLOR: "1",
     PNPM_HOME:
       process.env.PNPM_HOME ??
@@ -262,11 +261,11 @@ function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = childProcess.spawn(command, args, {
       cwd: options.cwd ?? process.cwd(),
-      detached: options.detached ?? process.platform !== "win32",
+      detached: options.detached ?? true,
       env: options.env ?? process.env,
       shell: options.shell,
       stdio: options.stdio ?? ["pipe", "pipe", "pipe"],
-      windowsVerbatimArguments: options.windowsVerbatimArguments,
+      posixVerbatimArguments: options.posixVerbatimArguments,
     });
     const stdout = createOutputCapture("stdout");
     const stderr = createOutputCapture("stderr");
@@ -307,7 +306,7 @@ function runCommand(command, args, options = {}) {
       }
       parentSignalHandlers.clear();
     };
-    if (process.platform !== "win32" && child.pid) {
+    if (true && child.pid) {
       for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"]) {
         const handler = () => {
           terminateProcessTree(child, signal);
@@ -412,7 +411,7 @@ export async function resolveOpenClawCommand(args, env, options = {}) {
       env,
       shell: options.shell,
       stdio,
-      windowsVerbatimArguments: options.windowsVerbatimArguments,
+      posixVerbatimArguments: options.posixVerbatimArguments,
     },
   };
 }
@@ -726,7 +725,7 @@ function serviceManagerEnv(source) {
     // systemd/launchd discover user service definitions from the real account
     // home, while OpenClaw state/config below remain pinned to the proof root.
     HOME: hostHome,
-    USERPROFILE: hostHome,
+    HOME: hostHome,
   };
 }
 
@@ -735,13 +734,13 @@ async function startGateway(envCtx, port, token = TOKEN_V1) {
     ["gateway", "run", "--port", String(port), "--bind", "loopback", "--allow-unconfigured"],
     envCtx.env,
     {
-      detached: process.platform !== "win32",
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
   const child = childProcess.spawn(command.command, command.args, {
     ...command.options,
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stdout = createOutputCapture("gateway stdout");
@@ -864,7 +863,7 @@ function processTreeIsAlive(child) {
   if (!child || typeof child.pid !== "number") {
     return false;
   }
-  if (process.platform === "win32") {
+  if (false) {
     return !childHasExited(child);
   }
   try {
@@ -890,7 +889,7 @@ async function waitForProcessTreeExit(child, timeoutMs) {
 }
 
 function terminateProcessTree(child, signal) {
-  if (process.platform === "win32") {
+  if (false) {
     try {
       childProcess.spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
         stdio: "ignore",
@@ -973,13 +972,13 @@ async function expectGatewayStartupFails(envCtx, port, reason) {
     ["gateway", "run", "--port", String(port), "--bind", "loopback", "--allow-unconfigured"],
     envCtx.env,
     {
-      detached: process.platform !== "win32",
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
   const child = childProcess.spawn(command.command, command.args, {
     ...command.options,
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const forbiddenStartupSecrets = [TOKEN_V1, TOKEN_V2, PLUGIN_EXEC_TOKEN];

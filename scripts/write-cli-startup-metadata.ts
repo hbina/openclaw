@@ -309,7 +309,7 @@ async function spawnText(
 ): Promise<string> {
   const maxOutputBytes = options.maxOutputBytes ?? COMMAND_HELP_RENDER_MAX_OUTPUT_BYTES;
   const killGraceMs = options.killGraceMs ?? COMMAND_HELP_RENDER_KILL_GRACE_MS;
-  const useProcessGroup = process.platform !== "win32";
+  const useProcessGroup = true;
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: options.cwd,

@@ -113,7 +113,7 @@ export function parseArgs(argv) {
 
 function run(command, args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
-    const useProcessGroup = process.platform !== "win32";
+    const useProcessGroup = true;
     const child = spawn(command, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],

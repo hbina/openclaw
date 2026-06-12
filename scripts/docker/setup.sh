@@ -300,7 +300,7 @@ fi
 mkdir -p "$OPENCLAW_CONFIG_DIR"
 mkdir -p "$OPENCLAW_WORKSPACE_DIR"
 mkdir -p "$OPENCLAW_AUTH_PROFILE_SECRET_DIR"
-# Seed directory tree eagerly so bind mounts work even on Docker Desktop/Windows
+# Seed directory tree eagerly so bind mounts work even on Docker Desktop/POSIX
 # where the container (even as root) cannot create new host subdirectories.
 mkdir -p "$OPENCLAW_CONFIG_DIR/identity"
 mkdir -p "$OPENCLAW_CONFIG_DIR/agents/main/agent"

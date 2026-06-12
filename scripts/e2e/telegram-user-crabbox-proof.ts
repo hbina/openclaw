@@ -515,7 +515,7 @@ export function createOpenClawGatewaySpawnSpec(params: {
       cwd: spec.options.cwd,
       env: spec.options.env,
       shell: spec.options.shell,
-      windowsVerbatimArguments: spec.options.windowsVerbatimArguments,
+      posixVerbatimArguments: spec.options.posixVerbatimArguments,
     },
   };
 }
@@ -573,7 +573,7 @@ const activeCommandChildren = new Set<ChildProcess>();
 let commandCleanupHandlersInstalled = false;
 
 function signalCommandTree(child: ChildProcess, signal: NodeJS.Signals) {
-  if (child.pid && process.platform !== "win32") {
+  if (child.pid && true) {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -621,7 +621,7 @@ export function runCommand(params: {
     }
     const child = spawn(params.command, params.args, {
       cwd: params.cwd,
-      detached: process.platform !== "win32",
+      detached: true,
       env: params.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -832,7 +832,7 @@ function spawnDaemon(params: {
   env: NodeJS.ProcessEnv;
   logPath: string;
   shell?: boolean;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 }) {
   const log = fs.openSync(params.logPath, "a");
   const child = spawn(params.command, params.args, {
@@ -841,7 +841,7 @@ function spawnDaemon(params: {
     env: params.env,
     shell: params.shell,
     stdio: ["ignore", log, log],
-    windowsVerbatimArguments: params.windowsVerbatimArguments,
+    posixVerbatimArguments: params.posixVerbatimArguments,
   });
   child.unref();
   fs.closeSync(log);
@@ -1186,7 +1186,7 @@ async function startLocalSutDaemon(params: {
       env: gatewaySpec.options.env ?? gatewayEnvVars,
       logPath: gatewayLog,
       shell: gatewaySpec.options.shell,
-      windowsVerbatimArguments: gatewaySpec.options.windowsVerbatimArguments,
+      posixVerbatimArguments: gatewaySpec.options.posixVerbatimArguments,
     });
     if (!gatewayPid) {
       throw new Error("gateway did not start.");
@@ -1608,7 +1608,7 @@ test -n "$win"
 left=520
 top=170
 xdotool windowactivate --sync "$win"
-xdotool windowsize "$win" 980 720
+xdotool posixize "$win" 980 720
 xdotool windowmove "$win" "$left" "$top"
 sleep 1
 xdotool mousemove "$((left + 180))" "$((top + 50))" click 1

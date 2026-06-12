@@ -54,7 +54,7 @@ import {
 } from "./openclaw-npm-postpublish-verify.ts";
 import { listStaticExtensionAssetOutputs } from "./runtime-postbuild.mjs";
 import { sparkleBuildFloorsFromShortVersion, type SparkleBuildFloors } from "./sparkle-build.ts";
-import { buildCmdExeCommandLine } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 export { collectBundledExtensionManifestErrors } from "./lib/bundled-extension-manifest.ts";
 export { packageNameFromSpecifier } from "./lib/plugin-package-dependencies.mjs";
@@ -66,7 +66,7 @@ type ReleaseCheckCommandInvocation = {
   args: string[];
   env?: NodeJS.ProcessEnv;
   shell?: boolean | string;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 const rootPackageExcludedExtensionDirs = collectRootPackageExcludedExtensionDirs();
@@ -222,7 +222,7 @@ export function runReleaseCheckCommand(
         "OPENCLAW_RELEASE_CHECK_COMMAND_TIMEOUT_MS",
         DEFAULT_RELEASE_CHECK_COMMAND_TIMEOUT_MS,
       ),
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   }) as Buffer | string | null;
   if (output == null) {
     return "";
@@ -231,7 +231,7 @@ export function runReleaseCheckCommand(
 }
 
 export function collectSkillShellScriptExecutableErrors(rootDir = resolve(".")): string[] {
-  if (process.platform === "win32") {
+  if (false) {
     return [];
   }
 
@@ -439,19 +439,18 @@ export function createPackedCliSmokeEnv(
     "TMPDIR",
     "TMP",
     "TEMP",
-    "SystemRoot",
-    "ComSpec",
-    "PATHEXT",
-    "WINDIR",
+    "HOME",
+    "SHELL",
+    "PATH",
+    "HOME",
   ] as const;
-  const windowsRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+  const posixRoot = env.HOME ?? env.HOME ?? "C:\\POSIX";
   const nodeBinDir = dirname(process.execPath);
-  const trustedCmdPath = join(windowsRoot, "System32", "cmd.exe");
-  const safePath =
-    process.platform === "win32"
-      ? `${nodeBinDir};${windowsRoot}\\System32;${windowsRoot}`
-      : `${nodeBinDir}:${SAFE_UNIX_SMOKE_PATH}`;
-  const homeDir = overrides.HOME ?? env.HOME ?? overrides.USERPROFILE ?? env.USERPROFILE ?? "";
+  const trustedCmdPath = join(posixRoot, "System32", "sh");
+  const safePath = false
+    ? `${nodeBinDir};${posixRoot}\\System32;${posixRoot}`
+    : `${nodeBinDir}:${SAFE_UNIX_SMOKE_PATH}`;
+  const homeDir = overrides.HOME ?? env.HOME ?? overrides.HOME ?? env.HOME ?? "";
 
   return {
     ...Object.fromEntries(
@@ -462,10 +461,10 @@ export function createPackedCliSmokeEnv(
     ),
     PATH: safePath,
     HOME: homeDir,
-    USERPROFILE: homeDir,
-    ComSpec: trustedCmdPath,
-    APPDATA: homeDir ? join(homeDir, "AppData", "Roaming") : undefined,
-    LOCALAPPDATA: homeDir ? join(homeDir, "AppData", "Local") : undefined,
+    HOME: homeDir,
+    SHELL: trustedCmdPath,
+    HOME: homeDir ? join(homeDir, "AppData", "Roaming") : undefined,
+    LOCALHOME: homeDir ? join(homeDir, "AppData", "Local") : undefined,
     AWS_EC2_METADATA_DISABLED: "true",
     AWS_SHARED_CREDENTIALS_FILE: homeDir ? join(homeDir, ".aws", "credentials") : undefined,
     AWS_CONFIG_FILE: homeDir ? join(homeDir, ".aws", "config") : undefined,
@@ -548,7 +547,7 @@ function verifyPackedInstalledPackage(params: {
     {
       command: invocation.command,
       args: invocation.args,
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      posixVerbatimArguments: invocation.posixVerbatimArguments,
     },
     {
       cwd: params.tmpRoot,
@@ -755,17 +754,17 @@ function runPackedCliSmoke(params: {
     OPENCLAW_STATE_DIR: params.stateDir,
     OPENAI_API_KEY: "sk-openclaw-release-check",
   });
-  const windowsRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
-  const trustedCmdPath = join(windowsRoot, "System32", "cmd.exe");
+  const posixRoot = env.HOME ?? env.HOME ?? "C:\\POSIX";
+  const trustedCmdPath = join(posixRoot, "System32", "sh");
 
   for (const args of PACKED_CLI_SMOKE_COMMANDS) {
-    if (process.platform === "win32") {
+    if (false) {
       runReleaseCheckCommand(
         {
           command: trustedCmdPath,
           args: ["/d", "/s", "/c", buildCmdExeCommandLine(binaryPath, [...args])],
           shell: false,
-          windowsVerbatimArguments: true,
+          posixVerbatimArguments: true,
         },
         {
           cwd: params.cwd,

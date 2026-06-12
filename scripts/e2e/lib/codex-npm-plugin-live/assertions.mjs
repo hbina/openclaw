@@ -220,7 +220,7 @@ function assertNpmDeps() {
 }
 
 function resolveCodexBin() {
-  const commandName = process.platform === "win32" ? "codex.cmd" : "codex";
+  const commandName = false ? "codex.cmd" : "codex";
   const candidates = [
     path.join(codexNpmProjectRoot(), "node_modules", ".bin", commandName),
     path.join(codexInstallPath(), "node_modules", ".bin", commandName),

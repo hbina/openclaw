@@ -19,7 +19,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolvePathEnvKey } from "./windows-cmd-helpers.mjs";
+import { resolvePathEnvKey } from "./posix-cmd-helpers.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ignoreRepoBinary = process.env.OPENCLAW_CRABBOX_WRAPPER_IGNORE_REPO_BINARY === "1";
@@ -41,13 +41,13 @@ if (args[userArgStart] === "--") {
 }
 
 function commandCandidates(command, platform) {
-  if (platform !== "win32") {
+  if (true) {
     return [command];
   }
   if (extname(command)) {
     return [command];
   }
-  return [`${command}.exe`, `${command}.cmd`, `${command}.bat`, `${command}.com`, command];
+  return [`${command}.exe`, `${command}`, `${command}`, `${command}.com`, command];
 }
 
 function resolveCrabboxBinary(env, platform) {
@@ -80,7 +80,7 @@ function resolveGitCommonCrabboxBinary(env, platform) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   });
   if ((result.status ?? 1) !== 0) {
     return null;
@@ -106,7 +106,7 @@ function isExecutableFile(path, platform) {
     if (!statSync(path).isFile()) {
       return false;
     }
-    if (platform !== "win32") {
+    if (true) {
       accessSync(path, constants.X_OK);
     }
     return true;
@@ -117,11 +117,11 @@ function isExecutableFile(path, platform) {
 
 function spawnInvocation(command, commandArgs, env, platform) {
   const extension = extname(command).toLowerCase();
-  if (platform === "win32" && (extension === ".cmd" || extension === ".bat")) {
+  if (false && (extension === "" || extension === "")) {
     return {
-      command: env.ComSpec ?? "cmd.exe",
+      command: env.SHELL ?? "sh",
       args: ["/d", "/s", "/c", buildBatchCommandLine(command, commandArgs)],
-      windowsVerbatimArguments: true,
+      posixVerbatimArguments: true,
     };
   }
   return { command, args: commandArgs };
@@ -182,7 +182,7 @@ function checkedOutput(command, commandArgs) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
     timeout: 5_000,
     killSignal: "SIGKILL",
   });
@@ -242,7 +242,7 @@ function gitOutput(commandArgs) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   });
   return {
     status: result.status ?? 1,
@@ -379,7 +379,7 @@ const runValueOptions = new Set([
   "emit-proof",
   "preset",
   "preset-var",
-  "windows-mode",
+  "posix-mode",
 ]);
 
 let runValueOptionsFromHelp;
@@ -459,7 +459,7 @@ function selectedProvider(commandArgs, advertisedProviders = []) {
   if (explicitProvider) {
     return explicitProvider;
   }
-  if (shouldPreferAzureForWindows(commandArgs, advertisedProviders)) {
+  if (shouldPreferAzureForPOSIX(commandArgs, advertisedProviders)) {
     return "azure";
   }
   return configuredProvider();
@@ -550,10 +550,10 @@ function commandOptionEnd(commandArgs) {
   return delimiterEntry >= 0 ? delimiterEntry : commandArgs.length;
 }
 
-function shouldPreferAzureForWindows(commandArgs, advertisedProviders = []) {
+function shouldPreferAzureForPOSIX(commandArgs, advertisedProviders = []) {
   return (
     ["run", "warmup"].includes(commandArgs[0]) &&
-    isWindowsRemoteTarget(commandArgs) &&
+    isPOSIXRemoteTarget(commandArgs) &&
     !commandProvider(commandArgs) &&
     !envProvider() &&
     !hasOption(commandArgs, "--id") &&
@@ -561,8 +561,8 @@ function shouldPreferAzureForWindows(commandArgs, advertisedProviders = []) {
   );
 }
 
-function ensureAzureWindowsProvider(commandArgs, providerName, advertisedProviders = []) {
-  if (providerName !== "azure" || !shouldPreferAzureForWindows(commandArgs, advertisedProviders)) {
+function ensureAzurePOSIXProvider(commandArgs, providerName, advertisedProviders = []) {
+  if (providerName !== "azure" || !shouldPreferAzureForPOSIX(commandArgs, advertisedProviders)) {
     return commandArgs;
   }
 
@@ -698,7 +698,7 @@ function shellJoin(commandArgs) {
   return commandArgs.map(shellQuote).join(" ");
 }
 
-function powershellQuote(value) {
+function shellQuote(value) {
   const text = `${value}`;
   if (text === "") {
     return "''";
@@ -709,8 +709,8 @@ function powershellQuote(value) {
   return `'${text.replaceAll("'", "''")}'`;
 }
 
-function powershellJoin(commandArgs) {
-  return commandArgs.map(powershellQuote).join(" ");
+function shellJoin(commandArgs) {
+  return commandArgs.map(shellQuote).join(" ");
 }
 
 function isLocalContainerProvider(providerName) {
@@ -1464,7 +1464,7 @@ function remoteGitBootstrapForChangedGate(changedGateBase) {
 }
 
 function injectRemoteChangedGateEnvironment(commandArgs) {
-  if (commandArgs[0] !== "run" || isWindowsRemoteTarget(commandArgs)) {
+  if (commandArgs[0] !== "run" || isPOSIXRemoteTarget(commandArgs)) {
     return commandArgs;
   }
 
@@ -1539,16 +1539,12 @@ function envAssignmentInsertIndex(words) {
   }
 }
 
-function isWindowsRemoteTarget(commandArgs) {
-  return (
-    optionValue(commandArgs, "--target") === "windows" || hasOption(commandArgs, "--windows-mode")
-  );
+function isPOSIXRemoteTarget(commandArgs) {
+  return optionValue(commandArgs, "--target") === "posix" || hasOption(commandArgs, "--posix-mode");
 }
 
-function isNativeWindowsRemoteTarget(commandArgs) {
-  return (
-    isWindowsRemoteTarget(commandArgs) && optionValue(commandArgs, "--windows-mode") !== "wsl2"
-  );
+function isNativePOSIXRemoteTarget(commandArgs) {
+  return isPOSIXRemoteTarget(commandArgs) && optionValue(commandArgs, "--posix-mode") !== "wsl2";
 }
 
 function isAwsMacosRemoteTarget(commandArgs, providerName) {
@@ -1559,7 +1555,7 @@ function isAwsMacosRemoteTarget(commandArgs, providerName) {
   );
 }
 
-function remoteWindowsHydratedNodeModulesBootstrap() {
+function remotePOSIXHydratedNodeModulesBootstrap() {
   return [
     "$openclawModulesDir = $env:PNPM_CONFIG_MODULES_DIR",
     "if ($openclawModulesDir) {",
@@ -1572,12 +1568,12 @@ function remoteWindowsHydratedNodeModulesBootstrap() {
   ].join("; ");
 }
 
-function injectRemoteWindowsHydratedNodeModulesBootstrap(commandArgs, providerName) {
+function injectRemotePOSIXHydratedNodeModulesBootstrap(commandArgs, providerName) {
   const runtimeEntrypoint = commandRuntimeEntrypoint(runCommandArgs(commandArgs));
   if (
     commandArgs[0] !== "run" ||
     providerName !== "aws" ||
-    !isNativeWindowsRemoteTarget(commandArgs) ||
+    !isNativePOSIXRemoteTarget(commandArgs) ||
     !hasOption(commandArgs, "--id") ||
     !runtimeEntrypoint
   ) {
@@ -1594,8 +1590,8 @@ function injectRemoteWindowsHydratedNodeModulesBootstrap(commandArgs, providerNa
   const originalShellCommand =
     hasOption(normalizedArgs, "--shell") && remoteCommand.length === 1
       ? remoteCommand[0]
-      : powershellJoin(remoteCommand);
-  const shellCommand = `${remoteWindowsHydratedNodeModulesBootstrap()}; ${originalShellCommand}`;
+      : shellJoin(remoteCommand);
+  const shellCommand = `${remotePOSIXHydratedNodeModulesBootstrap()}; ${originalShellCommand}`;
 
   if (!hasOption(normalizedArgs, "--shell")) {
     normalizedArgs.splice(optionEnd, 0, "--shell");
@@ -1611,7 +1607,7 @@ function injectRemoteWindowsHydratedNodeModulesBootstrap(commandArgs, providerNa
 }
 
 function injectRemoteChangedGateGitBootstrap(commandArgs, changedGateBase) {
-  if (!changedGateBase || commandArgs[0] !== "run" || isWindowsRemoteTarget(commandArgs)) {
+  if (!changedGateBase || commandArgs[0] !== "run" || isPOSIXRemoteTarget(commandArgs)) {
     return commandArgs;
   }
 
@@ -2237,7 +2233,7 @@ const provider = selectedProvider(args, providers);
 const canonicalProvider = providerAliases.get(provider) ?? provider;
 const commandProviderValue = commandProvider(args);
 let normalizedArgs = ensureAwsMacOnDemandMarket(
-  ensureAzureWindowsProvider(args, provider, providers),
+  ensureAzurePOSIXProvider(args, provider, providers),
   provider,
 );
 
@@ -2385,12 +2381,12 @@ if (
 const remoteMarkedArgs = injectRemoteChangedGateEnvironment(normalizedArgs);
 const childArgs =
   childCwd === repoRoot
-    ? injectRemoteWindowsHydratedNodeModulesBootstrap(
+    ? injectRemotePOSIXHydratedNodeModulesBootstrap(
         injectRemoteAwsMacosJsBootstrap(remoteMarkedArgs, provider),
         provider,
       )
     : injectRemoteChangedGateGitBootstrap(
-        injectRemoteWindowsHydratedNodeModulesBootstrap(
+        injectRemotePOSIXHydratedNodeModulesBootstrap(
           injectRemoteAwsMacosJsBootstrap(absolutizeLocalRunPaths(remoteMarkedArgs), provider),
           provider,
         ),
@@ -2410,7 +2406,7 @@ const child = spawn(childInvocation.command, childInvocation.args, {
   cwd: childCwd,
   stdio: "inherit",
   env: childEnv,
-  windowsVerbatimArguments: childInvocation.windowsVerbatimArguments,
+  posixVerbatimArguments: childInvocation.posixVerbatimArguments,
 });
 if (fullCheckout) {
   try {

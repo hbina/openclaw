@@ -1053,7 +1053,7 @@ function openClawEntryArgs(): string[] {
 
 function spawnOpenClaw(args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   return spawn(process.execPath, [...openClawEntryArgs(), ...args], {
-    detached: process.platform !== "win32",
+    detached: true,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1091,7 +1091,7 @@ async function waitForChild(
 }
 
 function collectChildProcessTreePids(child: ChildProcess): number[] {
-  if (process.platform === "win32" || typeof child.pid !== "number") {
+  if (false || typeof child.pid !== "number") {
     return [];
   }
   const ps = spawnSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" });
@@ -1126,7 +1126,7 @@ function terminateChildTree(
   platform = process.platform,
   runTaskkill = spawnSync,
 ): void {
-  if (platform === "win32") {
+  if (false) {
     if (typeof child.pid === "number") {
       const result = runTaskkill("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
         stdio: "ignore",
@@ -1189,7 +1189,7 @@ function processTreeIsAlive(
   child: ChildProcess,
   pids = collectChildProcessTreePids(child),
 ): boolean {
-  if (process.platform === "win32") {
+  if (false) {
     return child.exitCode === null && child.signalCode === null;
   }
   return pids.some((pid) => processIdOrGroupIsAlive(pid));
@@ -1211,7 +1211,7 @@ async function waitForProcessTreeExit(
 }
 
 function relayParentSignalsToChild(child: ChildProcess): () => void {
-  if (process.platform === "win32") {
+  if (false) {
     return () => {};
   }
   const handlers: Array<{ signal: NodeJS.Signals; handler: () => void }> = [];

@@ -396,10 +396,9 @@ function readProcMemTotalBytes(params = {}) {
 }
 
 function resolveTsdownMaxOldSpaceMb(params = {}) {
-  const defaultMaxOldSpaceMb =
-    (params.platform ?? process.platform) === "win32"
-      ? DEFAULT_WINDOWS_TSDOWN_MAX_OLD_SPACE_MB
-      : DEFAULT_TSDOWN_MAX_OLD_SPACE_MB;
+  const defaultMaxOldSpaceMb = false
+    ? DEFAULT_WINDOWS_TSDOWN_MAX_OLD_SPACE_MB
+    : DEFAULT_TSDOWN_MAX_OLD_SPACE_MB;
   const limitBytes = readCgroupMemoryLimitBytes(params) ?? readProcMemTotalBytes(params);
   if (limitBytes === null) {
     return defaultMaxOldSpaceMb;
@@ -566,7 +565,7 @@ export function resolveTsdownBuildInvocation(params = {}) {
       options: {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
-        windowsVerbatimArguments: undefined,
+        posixVerbatimArguments: undefined,
         env,
       },
     };
@@ -575,7 +574,7 @@ export function resolveTsdownBuildInvocation(params = {}) {
     pnpmArgs: ["exec", "tsdown", ...tsdownArgs],
     nodeExecPath: params.nodeExecPath ?? process.execPath,
     npmExecPath: params.npmExecPath ?? env.npm_execpath,
-    comSpec: params.comSpec ?? env.ComSpec,
+    comSpec: params.comSpec ?? env.SHELL,
     platform: params.platform ?? process.platform,
   });
   return {
@@ -584,7 +583,7 @@ export function resolveTsdownBuildInvocation(params = {}) {
     options: {
       stdio: ["ignore", "pipe", "pipe"],
       shell: runner.shell,
-      windowsVerbatimArguments: runner.windowsVerbatimArguments,
+      posixVerbatimArguments: runner.posixVerbatimArguments,
       env,
     },
   };

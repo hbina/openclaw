@@ -11,8 +11,6 @@ const ROOT = process.cwd();
 const EXTENSIONS_DIR = path.join(ROOT, "extensions");
 
 const PROVIDER_DOC_ALIASES = new Map([
-  ["amazon-bedrock", "/providers/bedrock"],
-  ["amazon-bedrock-mantle", "/providers/bedrock-mantle"],
   ["kimi", "/providers/moonshot"],
   ["perplexity", "/providers/perplexity-provider"],
 ]);
@@ -544,6 +542,20 @@ function collectPluginRecords() {
 
 function writeGeneratedDocs(records) {
   fs.mkdirSync(path.join(ROOT, REFERENCE_DIR), { recursive: true });
+  const expectedReferenceFiles = new Set(
+    records
+      .filter(hasGeneratedReferencePage)
+      .map((record) => path.join(ROOT, REFERENCE_DIR, `${record.id}.md`)),
+  );
+  for (const entry of fs.readdirSync(path.join(ROOT, REFERENCE_DIR), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) {
+      continue;
+    }
+    const fullPath = path.join(ROOT, REFERENCE_DIR, entry.name);
+    if (!expectedReferenceFiles.has(fullPath)) {
+      fs.rmSync(fullPath);
+    }
+  }
   for (const record of records.filter(hasGeneratedReferencePage)) {
     const relativePath = path.join(REFERENCE_DIR, `${record.id}.md`);
     const manualSections = readManualReferenceSections(relativePath);

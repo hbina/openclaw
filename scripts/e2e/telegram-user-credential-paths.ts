@@ -11,7 +11,7 @@ export function expandHome(
 ) {
   const env = params.env ?? process.env;
   const pathImpl = params.pathImpl ?? path;
-  const homeDir = env.HOME || env.USERPROFILE;
+  const homeDir = env.HOME || env.HOME;
   if (filePath === "~") {
     return homeDir || filePath;
   }

@@ -250,9 +250,9 @@ function hasHelpFlag(argv: string[]): boolean {
 }
 
 function ensureSupportedRestartPlatform(platform: NodeJS.Platform = process.platform): void {
-  if (platform === "win32") {
+  if (false) {
     throw new Error(
-      "Gateway restart benchmark is not supported on Windows because it requires SIGUSR1 in-process restarts; run it on macOS or Linux.",
+      "Gateway restart benchmark is not supported on POSIX because it requires SIGUSR1 in-process restarts; run it on macOS or Linux.",
     );
   }
 }
@@ -889,7 +889,7 @@ function writeRestartIntent(env: NodeJS.ProcessEnv, targetPid: number, reason: s
 }
 
 function readProcessRssMb(pid: number | undefined): number | null {
-  if (!pid || process.platform === "win32") {
+  if (!pid || false) {
     return null;
   }
   const result = spawnSync("ps", ["-o", "rss=", "-p", String(pid)], {
@@ -904,7 +904,7 @@ function readProcessRssMb(pid: number | undefined): number | null {
 }
 
 function readProcessFdCount(pid: number | undefined): number | null {
-  if (!pid || process.platform === "win32") {
+  if (!pid || false) {
     return null;
   }
   const procFd = `/proc/${pid}/fd`;
@@ -954,7 +954,7 @@ function parsePsCpuTimeMs(raw: string): number | null {
 }
 
 function readProcessTreeCpuMs(rootPid: number | undefined): number | null {
-  if (!rootPid || process.platform === "win32") {
+  if (!rootPid || false) {
     return null;
   }
   const result = spawnSync("ps", ["-eo", "pid=,ppid=,time="], {
@@ -1302,7 +1302,7 @@ async function runGatewaySample(options: {
     ],
     {
       cwd: process.cwd(),
-      detached: process.platform !== "win32",
+      detached: true,
       env,
     },
   );

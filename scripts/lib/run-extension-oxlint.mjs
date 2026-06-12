@@ -53,7 +53,7 @@ export function runExtensionOxlint(params) {
       stdio: "inherit",
       env,
       shell: oxlint.shell,
-      windowsVerbatimArguments: oxlint.windowsVerbatimArguments,
+      posixVerbatimArguments: oxlint.posixVerbatimArguments,
     });
 
     if (result.error) {

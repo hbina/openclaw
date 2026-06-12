@@ -34,7 +34,7 @@ function listGraphFiles(graph) {
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
     shell: tsgo.shell,
-    windowsVerbatimArguments: tsgo.windowsVerbatimArguments,
+    posixVerbatimArguments: tsgo.posixVerbatimArguments,
   });
   if (result.error) {
     throw result.error;

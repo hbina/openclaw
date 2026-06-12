@@ -156,8 +156,8 @@ function spawnNpmSync(args, options = {}) {
     ...options,
     ...(invocation.env ? { env: invocation.env } : {}),
     ...(invocation.shell !== undefined ? { shell: invocation.shell } : {}),
-    ...(invocation.windowsVerbatimArguments !== undefined
-      ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments }
+    ...(invocation.posixVerbatimArguments !== undefined
+      ? { posixVerbatimArguments: invocation.posixVerbatimArguments }
       : {}),
   });
 }

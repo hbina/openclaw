@@ -57,10 +57,6 @@ async function loadFallbackBackend(id: string) {
       const mod = await import("../extensions/anthropic/cli-backend.ts");
       return mod.buildAnthropicCliBackend();
     }
-    case "google-gemini-cli": {
-      const mod = await import("../extensions/google/cli-backend.ts");
-      return mod.buildGoogleGeminiCliBackend();
-    }
     default:
       return null;
   }

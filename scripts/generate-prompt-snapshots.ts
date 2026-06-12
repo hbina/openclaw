@@ -15,12 +15,7 @@ import {
 } from "./prompt-snapshot-files.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const oxfmtPath = path.resolve(
-  repoRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "oxfmt.cmd" : "oxfmt",
-);
+const oxfmtPath = path.resolve(repoRoot, "node_modules", ".bin", false ? "oxfmt" : "oxfmt");
 const execFileAsync = promisify(execFile);
 
 type PromptSnapshotFile = Awaited<ReturnType<typeof createHappyPathPromptSnapshotFiles>>[number];

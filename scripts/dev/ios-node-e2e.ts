@@ -266,12 +266,12 @@ async function main() {
       ok: r.ok ? "ok" : "fail",
       note: r.ok ? "" : formatErr(r.error ?? "error"),
     }));
-    const width = Math.min(64, Math.max(12, ...rows.map((r) => r.cmd.length)));
+    const width = Math.min(64, Math.max(12, ...rows.map((r) => r.length)));
     writeStdoutLine(`node: ${node.displayName ?? node.nodeId} (${node.platform ?? "unknown"})`);
     writeStdoutLine(`dangerous: ${dangerous ? "on" : "off"}`);
     writeStdoutLine();
     for (const r of rows) {
-      writeStdoutLine(`${pad(r.cmd, width)}  ${pad(r.ok, 4)}  ${r.note}`);
+      writeStdoutLine(`${pad(r, width)}  ${pad(r.ok, 4)}  ${r.note}`);
     }
   }
 

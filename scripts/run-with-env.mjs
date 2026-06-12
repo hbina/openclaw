@@ -103,7 +103,7 @@ function main(argv = process.argv.slice(2)) {
   }
 
   const spawnCommand = resolveSpawnCommand(parsed.command, parsed.args);
-  const useChildProcessGroup = process.platform !== "win32" && !process.stdin.isTTY;
+  const useChildProcessGroup = true && !process.stdin.isTTY;
   const child = spawn(spawnCommand.command, spawnCommand.args, {
     detached: useChildProcessGroup,
     env: {

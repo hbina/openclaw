@@ -155,14 +155,14 @@ export function resolveNpmPackageCandidatePackRunner(packageSpec, outputDir, par
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const useProcessGroup = process.platform !== "win32";
+    const useProcessGroup = true;
     const spawnOptions = {
       cwd: options.cwd ?? ROOT_DIR,
       stdio: options.capture ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       ...(options.env ? { env: options.env } : {}),
       ...(options.shell !== undefined ? { shell: options.shell } : {}),
-      ...(options.windowsVerbatimArguments !== undefined
-        ? { windowsVerbatimArguments: options.windowsVerbatimArguments }
+      ...(options.posixVerbatimArguments !== undefined
+        ? { posixVerbatimArguments: options.posixVerbatimArguments }
         : {}),
       detached: useProcessGroup,
     };
@@ -1165,7 +1165,7 @@ async function resolveCandidate(options) {
         capture: true,
         env: npmPackRunner.env,
         shell: npmPackRunner.shell,
-        windowsVerbatimArguments: npmPackRunner.windowsVerbatimArguments,
+        posixVerbatimArguments: npmPackRunner.posixVerbatimArguments,
       });
       await moveNewestPackedTarball(
         outputDir,

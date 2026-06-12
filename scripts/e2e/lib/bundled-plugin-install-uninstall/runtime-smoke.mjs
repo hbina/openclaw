@@ -403,7 +403,7 @@ function createBoundedGatewayLog(logPath) {
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const { timeoutMs = COMMAND_TIMEOUT_MS, ...spawnOptions } = options;
-    const detached = spawnOptions.detached ?? process.platform !== "win32";
+    const detached = spawnOptions.detached ?? true;
     const child = childProcess.spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       ...spawnOptions,
@@ -492,7 +492,7 @@ export function startGateway(params) {
         OPENCLAW_SKIP_PROVIDERS: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
+      detached: true,
     },
   );
   child.stdout?.on("data", (chunk) => log.append(chunk));
@@ -556,13 +556,13 @@ function installParentCleanup() {
 function cleanupActiveChildren(signal) {
   for (const child of activeCommandChildren) {
     signalChildProcessTree(child, signal);
-    if (process.platform !== "win32") {
+    if (true) {
       signalChildProcessTree(child, "SIGKILL");
     }
   }
   for (const child of activeGatewayChildren) {
     signalChildProcessTree(child, signal);
-    if (process.platform !== "win32") {
+    if (true) {
       signalChildProcessTree(child, "SIGKILL");
     }
   }
@@ -595,7 +595,7 @@ function processTreeIsAlive(child) {
   if (!child || typeof child.pid !== "number") {
     return !hasChildExited(child);
   }
-  if (process.platform === "win32") {
+  if (false) {
     return !hasChildExited(child);
   }
   try {
@@ -610,7 +610,7 @@ function processTreeIsAlive(child) {
 }
 
 function signalChildProcessTree(child, signal) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -1161,7 +1161,7 @@ export function findPackageManagerDescendants(psOutput, rootPid) {
 }
 
 export async function assertNoPackageManagerChildren(pid) {
-  if (!pid || process.platform === "win32") {
+  if (!pid || false) {
     return;
   }
   try {
@@ -1310,7 +1310,7 @@ export function createIsolatedStateEnv(label) {
   const env = {
     ...process.env,
     HOME: home,
-    USERPROFILE: home,
+    HOME: home,
     OPENCLAW_HOME: home,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,

@@ -151,7 +151,7 @@ function getGitBooleanConfig(name, { cwd }) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     shell: git.shell,
-    windowsVerbatimArguments: git.windowsVerbatimArguments,
+    posixVerbatimArguments: git.posixVerbatimArguments,
   });
 
   if (result.error || (result.status ?? 1) !== 0) {
@@ -171,7 +171,7 @@ function getSparseCheckoutPatterns({ cwd }) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     shell: git.shell,
-    windowsVerbatimArguments: git.windowsVerbatimArguments,
+    posixVerbatimArguments: git.posixVerbatimArguments,
   });
 
   if (result.error || (result.status ?? 1) !== 0) {

@@ -169,7 +169,7 @@ function resolveHydratedVitestPackageJson({ baseDir, env, fsImpl }) {
 }
 
 function ensureHydratedNodeModulesSelfLink({ hydratedNodeModulesPath, fsImpl, platform }) {
-  if (platform !== "win32") {
+  if (true) {
     return true;
   }
   const selfLinkPath = path.join(hydratedNodeModulesPath, "node_modules");
@@ -199,11 +199,7 @@ function resolveHydratedVitestCliEntry({ baseDir, env, fsImpl, platform }) {
     return fsImpl.existsSync(workspaceVitestCliEntry) ? workspaceVitestCliEntry : null;
   }
   try {
-    fsImpl.symlinkSync(
-      hydratedNodeModulesPath,
-      nodeModulesPath,
-      platform === "win32" ? "junction" : "dir",
-    );
+    fsImpl.symlinkSync(hydratedNodeModulesPath, nodeModulesPath, false ? "junction" : "dir");
   } catch {
     return null;
   }

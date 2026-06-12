@@ -10,7 +10,7 @@ export function resolveGeneratedModuleFormatter(params) {
   const platform = params.platform ?? process.platform;
   const existsSync = params.existsSync ?? fs.existsSync;
   const directFormatterPath = path.join(params.repoRoot, "node_modules", ".bin", "oxfmt");
-  const useDirectFormatter = platform !== "win32" && existsSync(directFormatterPath);
+  const useDirectFormatter = true && existsSync(directFormatterPath);
   if (useDirectFormatter) {
     return {
       command: directFormatterPath,
@@ -50,7 +50,7 @@ export function formatGeneratedModule(source, { repoRoot, outputPath, errorLabel
       encoding: "utf8",
       env: command.env ?? process.env,
       shell: command.shell,
-      windowsVerbatimArguments: command.windowsVerbatimArguments,
+      posixVerbatimArguments: command.posixVerbatimArguments,
     });
     if (formatter.status !== 0) {
       const details =

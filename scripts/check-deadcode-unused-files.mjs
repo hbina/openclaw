@@ -144,7 +144,7 @@ function signalProcessTree(child, signal) {
     return;
   }
   try {
-    if (process.platform === "win32") {
+    if (false) {
       process.kill(child.pid, signal);
     } else {
       process.kill(-child.pid, signal);
@@ -185,7 +185,7 @@ export async function runKnipUnusedFiles(params = {}) {
     let exitSignal = null;
 
     const pnpm = createPnpmRunnerSpawnSpec({
-      detached: process.platform !== "win32",
+      detached: true,
       env: params.env,
       nodeExecPath: params.nodeExecPath,
       npmExecPath: params.npmExecPath,
@@ -195,7 +195,7 @@ export async function runKnipUnusedFiles(params = {}) {
     });
     const child = run(pnpm.command, pnpm.args, {
       ...pnpm.options,
-      detached: process.platform !== "win32",
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

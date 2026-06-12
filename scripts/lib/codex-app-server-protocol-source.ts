@@ -31,7 +31,7 @@ type PnpmCommand = {
   command: string;
   env?: NodeJS.ProcessEnv;
   shell: boolean;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 type ResolvePnpmCommandOptions = {
@@ -53,7 +53,7 @@ export function resolveCodexProtocolPnpmCommand(
 ): PnpmCommand {
   const env = options.env ?? process.env;
   const command = resolvePnpmRunner({
-    comSpec: options.comSpec ?? resolveEnvValue(env, "ComSpec"),
+    comSpec: options.comSpec ?? resolveEnvValue(env, "SHELL"),
     npmExecPath: options.npmExecPath ?? env.npm_execpath,
     nodeExecPath: options.execPath ?? process.execPath,
     platform: options.platform,
@@ -348,7 +348,7 @@ function formatGeneratedTypeScript(repoRoot: string, root: string): void {
     env: command.env ?? process.env,
     shell: command.shell,
     stdio: "inherit",
-    windowsVerbatimArguments: command.windowsVerbatimArguments,
+    posixVerbatimArguments: command.posixVerbatimArguments,
   });
   if (result.status !== 0) {
     throw new Error(

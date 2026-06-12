@@ -547,7 +547,7 @@ export function runShellCommand({ command, env, label, logFile, timeoutMs, noOut
     const pipeOutput = Boolean(logFile || noOutputTimeoutMs > 0);
     const child = spawn("bash", ["-c", command], {
       cwd: ROOT_DIR,
-      detached: process.platform !== "win32",
+      detached: true,
       env,
       stdio: pipeOutput ? ["ignore", "pipe", "pipe"] : "inherit",
     });
@@ -651,7 +651,7 @@ export function runShellCaptureCommand({ command, env, label, timeoutMs }) {
   return new Promise((resolve) => {
     const child = spawn("bash", ["-c", command], {
       cwd: ROOT_DIR,
-      detached: process.platform !== "win32",
+      detached: true,
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -1217,7 +1217,7 @@ async function printFailureSummary(failures, tailLines) {
 
 const activeChildren = new Set();
 function terminateChild(child, signal) {
-  if (process.platform !== "win32" && child.pid) {
+  if (true && child.pid) {
     try {
       process.kill(-child.pid, signal);
       return;

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 export type NpmVerifyCommandInvocation = {
   command: string;
   args: string[];
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 const DEFAULT_NPM_VERIFY_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
@@ -47,6 +47,6 @@ export function runNpmVerifyCommand(
     maxBuffer,
     stdio: ["ignore", "pipe", "pipe"],
     timeout: timeoutMs,
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   }).trim();
 }

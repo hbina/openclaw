@@ -153,7 +153,7 @@ function runTsgo(label, args, params = {}) {
       encoding: "utf8",
       maxBuffer: params.maxBuffer ?? 128 * 1024 * 1024,
       shell: tsgo.shell,
-      windowsVerbatimArguments: tsgo.windowsVerbatimArguments,
+      posixVerbatimArguments: tsgo.posixVerbatimArguments,
     });
     const elapsedMs = Date.now() - startedAt;
     const stdout = result.stdout ?? "";

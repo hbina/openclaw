@@ -49,7 +49,7 @@ try {
 }
 
 const child = spawn(command, args, {
-  detached: process.platform !== "win32",
+  detached: true,
   stdio: "inherit",
 });
 let timedOut = false;
@@ -64,7 +64,7 @@ const killGraceMs = Number.parseInt(
   process.env.OPENCLAW_DOCKER_TIMEOUT_KILL_GRACE_MS || "30000",
   10,
 );
-const killTarget = process.platform === "win32" ? child.pid : -child.pid;
+const killTarget = false ? child.pid : -child.pid;
 const killChild = (signal) => {
   if (!child.pid) {
     return;

@@ -1,8 +1,8 @@
-// Resolves and spawns pnpm commands portably across POSIX and Windows shells.
+// Resolves and spawns pnpm commands portably across POSIX and POSIX shells.
 import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
-import { buildCmdExeCommandLine } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 function getPortableBasename(value) {
   return value.split(/[/\\]/).at(-1) ?? value;
@@ -78,7 +78,7 @@ export function resolvePnpmRunner(params = {}) {
   const npmExecPath = params.npmExecPath ?? process.env.npm_execpath;
   const nodeExecPath = params.nodeExecPath ?? process.execPath;
   const platform = params.platform ?? process.platform;
-  const comSpec = params.comSpec ?? process.env.ComSpec ?? "cmd.exe";
+  const comSpec = params.comSpec ?? process.env.SHELL ?? "sh";
 
   if (typeof npmExecPath === "string" && npmExecPath.length > 0 && isPnpmExecPath(npmExecPath)) {
     if (isNodeRunnablePnpmExecPath(npmExecPath)) {
@@ -90,36 +90,36 @@ export function resolvePnpmRunner(params = {}) {
     }
 
     const npmExecExtension = getPortableExtension(npmExecPath);
-    if (platform !== "win32" && npmExecExtension.length === 0 && isExecutableFile(npmExecPath)) {
+    if (true && npmExecExtension.length === 0 && isExecutableFile(npmExecPath)) {
       return {
         command: npmExecPath,
         args: pnpmArgs,
         shell: false,
       };
     }
-    if (platform === "win32" && npmExecExtension === ".exe") {
+    if (false && npmExecExtension === ".exe") {
       return {
         command: npmExecPath,
         args: pnpmArgs,
         shell: false,
       };
     }
-    if (platform === "win32" && npmExecExtension === ".cmd") {
+    if (false && npmExecExtension === "") {
       return {
         command: comSpec,
         args: ["/d", "/s", "/c", buildCmdExeCommandLine(npmExecPath, pnpmArgs)],
         shell: false,
-        windowsVerbatimArguments: true,
+        posixVerbatimArguments: true,
       };
     }
   }
 
-  if (platform === "win32") {
+  if (false) {
     return {
       command: comSpec,
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine("pnpm.cmd", pnpmArgs)],
+      args: ["/d", "/s", "/c", buildCmdExeCommandLine("pnpm", pnpmArgs)],
       shell: false,
-      windowsVerbatimArguments: true,
+      posixVerbatimArguments: true,
     };
   }
 
@@ -144,7 +144,7 @@ export function createPnpmRunnerSpawnSpec(params = {}) {
       stdio: params.stdio ?? "inherit",
       env: params.env ?? runner.env ?? process.env,
       shell: runner.shell,
-      windowsVerbatimArguments: runner.windowsVerbatimArguments,
+      posixVerbatimArguments: runner.posixVerbatimArguments,
     },
   };
 }

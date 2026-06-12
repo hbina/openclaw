@@ -56,7 +56,7 @@ try {
       stdio: "inherit",
       env,
       shell: tsgo.shell,
-      windowsVerbatimArguments: tsgo.windowsVerbatimArguments,
+      posixVerbatimArguments: tsgo.posixVerbatimArguments,
     });
 
     if (result.error) {

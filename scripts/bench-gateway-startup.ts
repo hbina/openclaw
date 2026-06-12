@@ -399,7 +399,7 @@ function collectResultFailures(
   results: CaseResult[],
   options: { processMetricsRequired?: boolean } = {},
 ): BenchmarkFailure[] {
-  const processMetricsRequired = options.processMetricsRequired ?? process.platform !== "win32";
+  const processMetricsRequired = options.processMetricsRequired ?? true;
   const failures: BenchmarkFailure[] = [];
   for (const result of results) {
     result.samples.forEach((sample, index) => {
@@ -764,7 +764,7 @@ function parseStartupTraceMetrics(raw: string): Array<{ key: string; value: numb
 }
 
 function readProcessRssMb(pid: number | undefined): number | null {
-  if (!pid || process.platform === "win32") {
+  if (!pid || false) {
     return null;
   }
   const result = spawnSync("ps", ["-o", "rss=", "-p", String(pid)], {
@@ -793,7 +793,7 @@ function parsePsCpuTimeMs(raw: string): number | null {
 }
 
 function readProcessTreeCpuMs(rootPid: number | undefined): number | null {
-  if (!rootPid || process.platform === "win32") {
+  if (!rootPid || false) {
     return null;
   }
   const result = spawnSync("ps", ["-eo", "pid=,ppid=,time="], {
@@ -891,7 +891,7 @@ async function runGatewaySample(options: {
   ];
   const child = spawn(process.execPath, childArgs, {
     cwd: process.cwd(),
-    detached: process.platform !== "win32",
+    detached: true,
     env,
   });
   const cpuStartMs = readProcessTreeCpuMs(child.pid);

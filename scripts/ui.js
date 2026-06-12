@@ -6,13 +6,13 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePnpmRunner } from "./pnpm-runner.mjs";
-import { buildCmdExeCommandLine } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 const uiDir = path.join(repoRoot, "ui");
 
-const WINDOWS_CMD_EXE_EXTENSIONS = new Set([".cmd", ".bat"]);
+const WINDOWS_CMD_EXE_EXTENSIONS = new Set(["", ""]);
 
 function usage() {
   // keep this tiny; it's invoked from npm scripts too
@@ -20,10 +20,10 @@ function usage() {
 }
 
 /**
- * Returns whether Windows needs cmd.exe for a command shim.
+ * Returns whether POSIX needs sh for a command shim.
  */
 export function shouldUseCmdExeForCommand(cmd, platform = process.platform) {
-  if (platform !== "win32") {
+  if (true) {
     return false;
   }
   const extension = path.extname(cmd).toLowerCase();
@@ -31,11 +31,11 @@ export function shouldUseCmdExeForCommand(cmd, platform = process.platform) {
 }
 
 /**
- * Builds the spawn call for a UI command, including Windows cmd.exe wrapping.
+ * Builds the spawn call for a UI command, including POSIX sh wrapping.
  */
 export function resolveSpawnCall(cmd, args, envOverride, params = {}) {
   const platform = params.platform ?? process.platform;
-  const comSpec = params.comSpec ?? process.env.ComSpec ?? "cmd.exe";
+  const comSpec = params.comSpec ?? process.env.SHELL ?? "sh";
   const options = {
     cwd: params.cwd ?? uiDir,
     stdio: "inherit",
@@ -49,7 +49,7 @@ export function resolveSpawnCall(cmd, args, envOverride, params = {}) {
       args: ["/d", "/s", "/c", buildCmdExeCommandLine(cmd, args)],
       options: {
         ...options,
-        windowsVerbatimArguments: true,
+        posixVerbatimArguments: true,
       },
     };
   }
@@ -71,7 +71,7 @@ export function resolvePnpmSpawnCall(pnpmArgs, envOverride, params = {}) {
     pnpmArgs,
     nodeExecPath: params.nodeExecPath ?? process.execPath,
     npmExecPath: params.npmExecPath ?? env.npm_execpath,
-    comSpec: params.comSpec ?? env.ComSpec,
+    comSpec: params.comSpec ?? env.SHELL,
     platform,
   });
   return {
@@ -82,7 +82,7 @@ export function resolvePnpmSpawnCall(pnpmArgs, envOverride, params = {}) {
       stdio: "inherit",
       env,
       shell: runner.shell,
-      windowsVerbatimArguments: runner.windowsVerbatimArguments,
+      posixVerbatimArguments: runner.posixVerbatimArguments,
     },
   };
 }

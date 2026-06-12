@@ -237,7 +237,7 @@ function buildPrivateQaEnv(env, qaState) {
     ...(qaState
       ? {
           HOME: qaState.home,
-          USERPROFILE: qaState.home,
+          HOME: qaState.home,
           OPENCLAW_HOME: qaState.home,
           OPENCLAW_STATE_DIR: qaState.stateDir,
           OPENCLAW_CONFIG_PATH: qaState.configPath,

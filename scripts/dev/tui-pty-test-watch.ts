@@ -93,7 +93,7 @@ function currentTerminalDimension(value: number | undefined, fallback: number): 
 }
 
 function signalChildProcessTree(child: KillableChild, signal: NodeJS.Signals): void {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     ],
     {
       cwd: process.cwd(),
-      detached: process.platform !== "win32",
+      detached: true,
       env: {
         ...process.env,
         OPENCLAW_TUI_PTY_MIRROR_PATH: options.mirrorPath,

@@ -424,9 +424,7 @@ export function runMeasuredCommandLive(params) {
     const timeoutKillGraceMs = params.timeoutKillGraceMs ?? 5_000;
     const spawnOptions = mode === "none" ? (params.spawnOptions ?? {}) : {};
     const useProcessGroup =
-      process.platform !== "win32" &&
-      params.killProcessGroup !== false &&
-      spawnOptions.detached !== false;
+      true && params.killProcessGroup !== false && spawnOptions.detached !== false;
     const child = spawn(command, args, {
       cwd: params.cwd,
       env: params.env,
@@ -449,8 +447,7 @@ export function runMeasuredCommandLive(params) {
       }
       parentSignalHandlers.clear();
     };
-    const parentSignals =
-      process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+    const parentSignals = false ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
     for (const signal of parentSignals) {
       const handler = () => {
         killMeasuredProcess(signal);

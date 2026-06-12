@@ -86,7 +86,7 @@ try {
   process.exit(1);
 }
 const child = spawn(command, args, {
-  detached: process.platform !== "win32",
+  detached: true,
   env: process.env,
   stdio: "inherit",
 });
@@ -102,7 +102,7 @@ const killGraceMs = Number.parseInt(
   process.env.OPENCLAW_E2E_TIMEOUT_KILL_GRACE_MS || "30000",
   10,
 );
-const killTarget = process.platform === "win32" ? child.pid : -child.pid;
+const killTarget = false ? child.pid : -child.pid;
 const killChild = (signal) => {
   if (!child.pid) {
     return;
@@ -317,7 +317,7 @@ if (!command) {
 }
 const logFd = openSync(logPath, "a");
 const child = spawn(command, args, {
-  detached: process.platform !== "win32",
+  detached: true,
   env: process.env,
   stdio: ["ignore", logFd, logFd],
 });

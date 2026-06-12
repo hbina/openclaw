@@ -155,7 +155,7 @@ function getSparseCheckoutEnabled({ cwd }) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     shell: git.shell,
-    windowsVerbatimArguments: git.windowsVerbatimArguments,
+    posixVerbatimArguments: git.posixVerbatimArguments,
   });
 
   return result.status === 0 && result.stdout.trim() === "true";
@@ -171,7 +171,7 @@ function hasTrackedPath({ cwd, target }) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     shell: git.shell,
-    windowsVerbatimArguments: git.windowsVerbatimArguments,
+    posixVerbatimArguments: git.posixVerbatimArguments,
   });
 
   return result.status === 0 && result.stdout.trim().length > 0;

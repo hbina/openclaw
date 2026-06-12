@@ -88,9 +88,6 @@ openclaw_live_should_include_auth_dir_for_provider() {
     droid | factory | factory-droid)
       printf '%s\n' ".factory"
       ;;
-    gemini | gemini-cli | google-gemini-cli)
-      printf '%s\n' ".gemini"
-      ;;
     minimax | minimax-portal)
       printf '%s\n' ".minimax"
       ;;

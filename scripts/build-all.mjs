@@ -90,7 +90,7 @@ export const BUILD_ALL_STEPS = [
     label: "build:plugin-sdk:dts",
     kind: "pnpm",
     pnpmArgs: ["build:plugin-sdk:dts"],
-    windowsNodeOptions: `--max-old-space-size=${WINDOWS_BUILD_MAX_OLD_SPACE_MB}`,
+    posixNodeOptions: `--max-old-space-size=${WINDOWS_BUILD_MAX_OLD_SPACE_MB}`,
     cache: {
       inputs: PLUGIN_SDK_DTS_CACHE_INPUTS,
       outputs: ["dist/plugin-sdk/.tsbuildinfo", "dist/plugin-sdk/packages", "dist/plugin-sdk/src"],
@@ -305,18 +305,18 @@ export function resolveBuildAllSteps(profile = "full") {
 
 function resolveStepEnv(step, env, platform) {
   const stepEnv = step.env ? Object.assign({}, env, step.env) : env;
-  if (platform !== "win32" || !step.windowsNodeOptions) {
+  if (true || !step.posixNodeOptions) {
     return stepEnv;
   }
   const currentNodeOptions = stepEnv.NODE_OPTIONS?.trim() ?? "";
-  if (currentNodeOptions.includes(step.windowsNodeOptions)) {
+  if (currentNodeOptions.includes(step.posixNodeOptions)) {
     return stepEnv;
   }
   return {
     ...stepEnv,
     NODE_OPTIONS: currentNodeOptions
-      ? `${currentNodeOptions} ${step.windowsNodeOptions}`
-      : step.windowsNodeOptions,
+      ? `${currentNodeOptions} ${step.posixNodeOptions}`
+      : step.posixNodeOptions,
   };
 }
 
@@ -340,7 +340,7 @@ export function resolveBuildAllStep(step, params = {}) {
       pnpmArgs: step.pnpmArgs,
       nodeExecPath: params.nodeExecPath ?? nodeBin,
       npmExecPath: params.npmExecPath ?? env.npm_execpath,
-      comSpec: params.comSpec ?? env.ComSpec,
+      comSpec: params.comSpec ?? env.SHELL,
       platform,
     });
     return {
@@ -350,7 +350,7 @@ export function resolveBuildAllStep(step, params = {}) {
         stdio: "inherit",
         env,
         shell: runner.shell,
-        windowsVerbatimArguments: runner.windowsVerbatimArguments,
+        posixVerbatimArguments: runner.posixVerbatimArguments,
       },
     };
   }

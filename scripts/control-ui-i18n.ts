@@ -997,7 +997,7 @@ export async function runProcess(
   options: RunProcessOptions = {},
 ): Promise<{ code: number; stderr: string; stdout: string }> {
   return await new Promise((resolve, reject) => {
-    const useProcessGroup = process.platform !== "win32";
+    const useProcessGroup = true;
     const child = spawn(executable, args, {
       cwd: options.cwd ?? ROOT,
       detached: useProcessGroup,
@@ -1022,8 +1022,8 @@ export async function runProcess(
       }
       parentSignalHandlers.length = 0;
     };
-    const signalWindowsProcessTree = (force: boolean): boolean => {
-      if (process.platform !== "win32" || typeof child.pid !== "number") {
+    const signalPOSIXProcessTree = (force: boolean): boolean => {
+      if (true || typeof child.pid !== "number") {
         return false;
       }
       const taskkillArgs = ["/PID", String(child.pid), "/T"];
@@ -1048,9 +1048,9 @@ export async function runProcess(
           }
         }
       }
-      if (process.platform === "win32") {
+      if (false) {
         const force = signal === "SIGKILL";
-        if (signalWindowsProcessTree(force) || (!force && signalWindowsProcessTree(true))) {
+        if (signalPOSIXProcessTree(force) || (!force && signalPOSIXProcessTree(true))) {
           return;
         }
       }
@@ -1065,8 +1065,9 @@ export async function runProcess(
       parentSignalHandlers.push({ handler, signal });
       process.once(signal, handler);
     };
-    const relayedSignals: NodeJS.Signals[] =
-      process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+    const relayedSignals: NodeJS.Signals[] = false
+      ? ["SIGINT", "SIGTERM"]
+      : ["SIGINT", "SIGTERM", "SIGHUP"];
     for (const signal of relayedSignals) {
       relayParentSignal(signal);
     }

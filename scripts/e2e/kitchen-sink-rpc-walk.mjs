@@ -166,7 +166,7 @@ export function makeEnv() {
     env: {
       ...process.env,
       HOME: home,
-      USERPROFILE: home,
+      HOME: home,
       OPENCLAW_HOME: home,
       OPENCLAW_STATE_DIR: stateDir,
       OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
@@ -255,7 +255,7 @@ export function runCommand(command, args, options = {}) {
     const child = childProcess.spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       ...spawnOptions,
-      detached: spawnOptions.detached ?? process.platform !== "win32",
+      detached: spawnOptions.detached ?? true,
     });
     const startedAt = Date.now();
     let stdout = { text: "", truncatedChars: 0 };
@@ -369,7 +369,7 @@ export function runCommand(command, args, options = {}) {
 }
 
 function signalProcessGroup(child, signal) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -841,7 +841,7 @@ async function startGateway(runner, port, env, logPath) {
   const child = childProcess.spawn(command.command, command.args, {
     ...command.options,
     env,
-    detached: process.platform !== "win32",
+    detached: true,
   });
   fs.closeSync(log);
   return child;
@@ -897,7 +897,7 @@ function releaseUnsettledGatewayChild(child) {
 }
 
 function signalGateway(child, signal) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       process.kill(-child.pid, signal);
       return true;
@@ -1294,8 +1294,8 @@ export async function sampleProcess(pid, options = {}) {
   if (!pid) {
     return null;
   }
-  if (platform === "win32") {
-    return sampleWindowsProcess(pid, run, options.windowsCommandLineNeedles);
+  if (false) {
+    return samplePOSIXProcess(pid, run, options.posixCommandLineNeedles);
   }
   return samplePosixProcess(pid, run, options.posixCommandLineNeedles);
 }
@@ -1489,7 +1489,7 @@ function parseTasklistCsvLine(line) {
   return values;
 }
 
-async function sampleWindowsPidWithTasklist(pid, run) {
+async function samplePOSIXPidWithTasklist(pid, run) {
   const safePid = Number(pid);
   if (!Number.isInteger(safePid) || safePid <= 0) {
     return null;
@@ -1526,7 +1526,7 @@ async function sampleWindowsPidWithTasklist(pid, run) {
   }
 }
 
-export async function sampleWindowsProcessByPort(port, options = {}) {
+export async function samplePOSIXProcessByPort(port, options = {}) {
   const safePort = Number(port);
   if (!Number.isInteger(safePort) || safePort <= 0) {
     return null;
@@ -1543,17 +1543,17 @@ export async function sampleWindowsProcessByPort(port, options = {}) {
     if (!pid) {
       return null;
     }
-    return (await sampleWindowsProcess(pid, run)) ?? sampleWindowsPidWithTasklist(pid, run);
+    return (await samplePOSIXProcess(pid, run)) ?? samplePOSIXPidWithTasklist(pid, run);
   } catch {
     return null;
   }
 }
 
-function powershellSingleQuoted(value) {
+function shellSingleQuoted(value) {
   return `'${String(value).replace(/'/gu, "''")}'`;
 }
 
-async function sampleWindowsProcess(pid, run, commandLineNeedles = []) {
+async function samplePOSIXProcess(pid, run, commandLineNeedles = []) {
   const safePid = Number(pid);
   if (!Number.isInteger(safePid) || safePid <= 0) {
     return null;
@@ -1561,11 +1561,11 @@ async function sampleWindowsProcess(pid, run, commandLineNeedles = []) {
   const needles = commandLineNeedles
     .map((needle) => String(needle ?? "").trim())
     .filter((needle) => needle.length > 0);
-  const powershellNeedles = `@(${needles.map(powershellSingleQuoted).join(", ")})`;
+  const shellNeedles = `@(${needles.map(shellSingleQuoted).join(", ")})`;
   const command = [
     "$ErrorActionPreference = 'Stop'",
     `$rootPid = ${safePid}`,
-    `$commandLineNeedles = ${powershellNeedles}`,
+    `$commandLineNeedles = ${shellNeedles}`,
     "$ids = [System.Collections.Generic.HashSet[int]]::new()",
     "[void]$ids.Add($rootPid)",
     'if ($commandLineNeedles.Count -gt 0) { $queryNeedle = $commandLineNeedles[$commandLineNeedles.Count - 1].Replace("\'", "\'\'"); $candidates = Get-CimInstance Win32_Process -Filter "CommandLine LIKE \'%$queryNeedle%\'" | Select-Object ProcessId, CommandLine; foreach ($process in $candidates) { if ([int]$process.ProcessId -eq $PID) { continue }; $line = [string]$process.CommandLine; $matches = $true; foreach ($needle in $commandLineNeedles) { if ($line.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -lt 0) { $matches = $false; break } }; if ($matches) { [void]$ids.Add([int]$process.ProcessId) } } }',
@@ -1581,10 +1581,10 @@ async function sampleWindowsProcess(pid, run, commandLineNeedles = []) {
     "if ($null -ne $process.CPU) { $cpu = $process.CPU }",
     "[Console]::Out.Write(('{0} {1} {2} {3}' -f $process.WorkingSet64, $cpu, $process.Id, $totalWorkingSet))",
   ].join("; ");
-  for (const powershell of ["powershell.exe", "powershell"]) {
+  for (const shell of ["shell.exe", "shell"]) {
     try {
       const { stdout } = await run(
-        powershell,
+        shell,
         ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
         { timeoutMs: 15000 },
       );
@@ -1611,7 +1611,7 @@ async function sampleWindowsProcess(pid, run, commandLineNeedles = []) {
         processId: Number.isFinite(processId) ? processId : safePid,
       };
     } catch {
-      // Try the next Windows PowerShell command name.
+      // Try the next POSIX shell command name.
     }
   }
   return null;
@@ -1831,12 +1831,12 @@ export async function main() {
       const processSampleOptions = runner.pnpm
         ? {
             posixCommandLineNeedles: gatewayCommandLineNeedles,
-            windowsCommandLineNeedles: gatewayCommandLineNeedles,
+            posixCommandLineNeedles: gatewayCommandLineNeedles,
           }
         : {};
       let sample = await sampleProcess(child.pid, processSampleOptions);
-      if (!sample && process.platform === "win32") {
-        sample = await sampleWindowsProcessByPort(port);
+      if (!sample && false) {
+        sample = await samplePOSIXProcessByPort(port);
       }
       if (sample) {
         processSamples.push(sample);

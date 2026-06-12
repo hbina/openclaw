@@ -383,7 +383,7 @@ function abortSiblingSteps(abortController) {
 }
 
 function signalNodeStep(child, signal) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -436,7 +436,7 @@ export function runNodeStep(label, args, timeoutMs, params = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawnImpl(process.execPath, args, {
       cwd: repoRoot,
-      detached: process.platform !== "win32",
+      detached: true,
       env: params.env ? { ...process.env, ...params.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });

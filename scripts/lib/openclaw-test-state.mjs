@@ -301,7 +301,7 @@ function buildCreatePlan(options = {}) {
   const config = scenarioConfig(scenario, options);
   const env = {
     HOME: home,
-    USERPROFILE: home,
+    HOME: home,
     OPENCLAW_HOME: home,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
@@ -355,7 +355,7 @@ export function renderShellSnippet(options = {}) {
     'mkdir -p "$OPENCLAW_TEST_STATE_TMP_ROOT"',
     `OPENCLAW_TEST_STATE_HOME="$(mktemp -d "$OPENCLAW_TEST_STATE_TMP_ROOT/${homeTemplate}")"`,
     'export HOME="$OPENCLAW_TEST_STATE_HOME"',
-    'export USERPROFILE="$OPENCLAW_TEST_STATE_HOME"',
+    'export HOME="$OPENCLAW_TEST_STATE_HOME"',
     'export OPENCLAW_HOME="$OPENCLAW_TEST_STATE_HOME"',
     'export OPENCLAW_STATE_DIR="$OPENCLAW_TEST_STATE_HOME/.openclaw"',
     'export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"',
@@ -402,7 +402,7 @@ export function renderShellFunction() {
       ;;
   esac
   export HOME="$OPENCLAW_TEST_STATE_HOME"
-  export USERPROFILE="$OPENCLAW_TEST_STATE_HOME"
+  export HOME="$OPENCLAW_TEST_STATE_HOME"
   export OPENCLAW_HOME="$OPENCLAW_TEST_STATE_HOME"
   export OPENCLAW_STATE_DIR="$OPENCLAW_TEST_STATE_HOME/.openclaw"
   export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"

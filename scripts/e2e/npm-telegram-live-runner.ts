@@ -42,7 +42,7 @@ async function resolveTrustedOpenClawCommand(rawCommand: string) {
     throw new Error("OPENCLAW_NPM_TELEGRAM_SUT_COMMAND must be an absolute path.");
   }
   const commandName = path.basename(rawCommand);
-  if (commandName !== "openclaw" && commandName !== "openclaw.cmd") {
+  if (commandName !== "openclaw" && commandName !== "openclaw") {
     throw new Error(
       `OPENCLAW_NPM_TELEGRAM_SUT_COMMAND must point to openclaw; got: ${commandName}`,
     );

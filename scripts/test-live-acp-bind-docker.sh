@@ -16,7 +16,7 @@ LIVE_IMAGE_NAME="${OPENCLAW_LIVE_IMAGE:-${IMAGE_NAME}-live}"
 CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
 WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
 PROFILE_FILE="$(openclaw_live_default_profile_file)"
-ACP_AGENT_LIST_RAW="${OPENCLAW_LIVE_ACP_BIND_AGENTS:-${OPENCLAW_LIVE_ACP_BIND_AGENT:-claude,codex,gemini}}"
+ACP_AGENT_LIST_RAW="${OPENCLAW_LIVE_ACP_BIND_AGENTS:-${OPENCLAW_LIVE_ACP_BIND_AGENT:-claude,codex}}"
 TEMP_DIRS=()
 DOCKER_USER="${OPENCLAW_DOCKER_USER:-node}"
 DOCKER_HOME_MOUNT=()
@@ -41,10 +41,9 @@ openclaw_live_acp_bind_resolve_auth_provider() {
     claude) printf '%s\n' "claude-cli" ;;
     codex) printf '%s\n' "codex-cli" ;;
     droid) printf '%s\n' "droid" ;;
-    gemini) printf '%s\n' "google-gemini-cli" ;;
     opencode) printf '%s\n' "opencode" ;;
     *)
-      echo "Unsupported OPENCLAW_LIVE_ACP_BIND agent: ${1:-} (expected claude, codex, droid, gemini, or opencode)" >&2
+      echo "Unsupported OPENCLAW_LIVE_ACP_BIND agent: ${1:-} (expected claude, codex, droid, or opencode)" >&2
       return 1
       ;;
   esac
@@ -55,7 +54,6 @@ openclaw_live_acp_bind_resolve_agent_command() {
     claude) printf '%s' "${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND_CLAUDE:-${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND:-}}" ;;
     codex) printf '%s' "${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND_CODEX:-${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND:-}}" ;;
     droid) printf '%s' "${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND_DROID:-${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND:-}}" ;;
-    gemini) printf '%s' "${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND_GEMINI:-${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND:-}}" ;;
     opencode) printf '%s' "${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND_OPENCODE:-${OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND:-}}" ;;
     *) return 1 ;;
   esac
@@ -213,38 +211,6 @@ WRAP
       exit 1
     fi
     ;;
-  gemini)
-    mkdir -p "$HOME/.gemini"
-    if [ ! -x "$NPM_CONFIG_PREFIX/bin/gemini" ]; then
-      run_setup_command npm install -g @google/gemini-cli
-    fi
-    if [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${GOOGLE_API_KEY:-}" ]; then
-      gemini_auth_type="gemini-api-key"
-      if [ -z "${GEMINI_API_KEY:-}" ] && [ -n "${GOOGLE_API_KEY:-}" ]; then
-        gemini_auth_type="vertex-ai"
-        export GOOGLE_GENAI_USE_VERTEXAI="${GOOGLE_GENAI_USE_VERTEXAI:-true}"
-      fi
-      GEMINI_CLI_AUTH_TYPE="$gemini_auth_type" node <<'NODE'
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
-const settingsPath = path.join(os.homedir(), ".gemini", "settings.json");
-let settings = {};
-try {
-  settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-} catch {}
-settings.security = settings.security && typeof settings.security === "object" ? settings.security : {};
-settings.security.auth =
-  settings.security.auth && typeof settings.security.auth === "object" ? settings.security.auth : {};
-settings.security.auth.selectedType = process.env.GEMINI_CLI_AUTH_TYPE;
-settings.security.auth.enforcedType = process.env.GEMINI_CLI_AUTH_TYPE;
-fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-NODE
-      echo "Using Gemini CLI auth type $gemini_auth_type"
-    fi
-    ;;
   opencode)
     if [ ! -x "$NPM_CONFIG_PREFIX/bin/opencode" ]; then
       run_setup_command npm install -g opencode-ai
@@ -284,7 +250,7 @@ for token in "${ACP_AGENT_TOKENS[@]}"; do
 done
 
 if ((${#ACP_AGENTS[@]} == 0)); then
-  echo "No ACP bind agents selected. Use OPENCLAW_LIVE_ACP_BIND_AGENTS=claude,codex,droid,gemini,opencode." >&2
+  echo "No ACP bind agents selected. Use OPENCLAW_LIVE_ACP_BIND_AGENTS=claude,codex,droid,opencode." >&2
   exit 1
 fi
 

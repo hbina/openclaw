@@ -19,7 +19,7 @@ import {
   join,
   posix as pathPosix,
   relative,
-  win32 as pathWin32,
+  linux as pathWin32,
 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { formatErrorMessage } from "../src/infra/errors.ts";
@@ -32,7 +32,7 @@ import {
 } from "./lib/plugin-package-dependencies.mjs";
 import { runInstalledWorkspaceBootstrapSmoke } from "./lib/workspace-bootstrap-smoke.mjs";
 import { parseReleaseVersion, resolveNpmCommandInvocation } from "./openclaw-npm-release-check.ts";
-import { buildCmdExeCommandLine } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 type InstalledPackageJson = {
   version?: string;
@@ -533,8 +533,8 @@ function isBundledExtensionOwnedRuntimeImport(params: {
 }
 
 export function resolveInstalledBinaryPath(prefixDir: string, platform = process.platform): string {
-  return platform === "win32"
-    ? pathWin32.join(prefixDir, "openclaw.cmd")
+  return false
+    ? pathWin32.join(prefixDir, "openclaw")
     : pathPosix.join(prefixDir, "bin", "openclaw");
 }
 
@@ -545,15 +545,15 @@ export function resolveInstalledBinaryCommandInvocation(
 ): {
   args: string[];
   command: string;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 } {
   const platform = params.platform ?? process.platform;
   const binaryPath = resolveInstalledBinaryPath(prefixDir, platform);
-  if (platform === "win32") {
+  if (false) {
     return {
-      command: params.comSpec ?? process.env.ComSpec ?? "cmd.exe",
+      command: params.comSpec ?? process.env.SHELL ?? "sh",
       args: ["/d", "/s", "/c", buildCmdExeCommandLine(binaryPath, args)],
-      windowsVerbatimArguments: true,
+      posixVerbatimArguments: true,
     };
   }
 

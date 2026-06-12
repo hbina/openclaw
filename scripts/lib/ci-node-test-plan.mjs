@@ -78,11 +78,7 @@ function resolveCommandShardName(file) {
     if (name.startsWith("doctor-auth")) {
       return "agentic-commands-doctor-auth";
     }
-    if (
-      name.startsWith("doctor-config") ||
-      name.startsWith("doctor-legacy-config") ||
-      name.startsWith("doctor-state")
-    ) {
+    if (name.startsWith("doctor-config") || name.startsWith("doctor-state")) {
       return "agentic-commands-doctor-config-state";
     }
     if (
@@ -571,7 +567,7 @@ function resolveInfraShardName(file) {
     name.startsWith("tls/") ||
     name.startsWith("transport") ||
     name.startsWith("widearea") ||
-    name.startsWith("windows") ||
+    name.startsWith("posix") ||
     name.startsWith("ws") ||
     name.startsWith("wsl")
   ) {

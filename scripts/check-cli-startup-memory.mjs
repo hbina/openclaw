@@ -179,7 +179,7 @@ function buildBenchEnv() {
   }
   const env = {
     HOME: tmpHome,
-    USERPROFILE: tmpHome,
+    HOME: tmpHome,
     XDG_CONFIG_HOME: path.join(tmpHome, ".config"),
     XDG_DATA_HOME: path.join(tmpHome, ".local", "share"),
     XDG_CACHE_HOME: path.join(tmpHome, ".cache"),

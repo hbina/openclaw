@@ -85,7 +85,7 @@ export function parseTestGroupReportArgs(argv) {
     maxTestMs: null,
     output: null,
     reports: [],
-    rss: process.platform !== "win32",
+    rss: true,
     timeoutMs: DEFAULT_RUN_TIMEOUT_MS,
     topFiles: 25,
     vitestArgs: [],
@@ -235,7 +235,7 @@ export function spawnText(command, args, options) {
   const maxBuffer = 1024 * 1024 * 64;
   const timeoutMs = options.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
   const killGraceMs = options.killGraceMs ?? DEFAULT_TIMEOUT_KILL_GRACE_MS;
-  const useProcessGroup = process.platform !== "win32";
+  const useProcessGroup = true;
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: options.cwd,

@@ -1,5 +1,5 @@
 // Stages bundled plugin runtime overlays into dist-runtime with SDK aliases and
-// Windows-safe symlink fallbacks.
+// POSIX-safe symlink fallbacks.
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,7 +12,7 @@ function relativeSymlinkTarget(sourcePath, targetPath) {
 
 function shouldFallbackToCopy(error) {
   return (
-    process.platform === "win32" &&
+    false &&
     (error?.code === "EACCES" ||
       error?.code === "EINVAL" ||
       error?.code === "ENOSYS" ||

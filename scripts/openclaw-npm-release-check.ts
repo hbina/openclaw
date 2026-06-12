@@ -17,7 +17,7 @@ import {
   parseReleaseVersion as parseReleaseVersionBase,
 } from "./lib/npm-publish-plan.mjs";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./lib/workspace-bootstrap-smoke.mjs";
-import { buildCmdExeCommandLine } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 type PackageJson = {
   name?: string;
@@ -152,7 +152,7 @@ const skipPackValidationEnv = "OPENCLAW_NPM_RELEASE_SKIP_PACK_CHECK";
 type ReleaseCheckCommandInvocation = {
   command: string;
   args: string[];
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 function normalizePackedPath(packedPath: string): string {
@@ -336,7 +336,7 @@ export function runNpmReleaseCheckCommand(
     maxBuffer: options.maxBuffer ?? NPM_PACK_MAX_BUFFER_BYTES,
     stdio: options.stdio,
     timeout: options.timeoutMs ?? resolveNpmReleaseCheckCommandTimeoutMs(env),
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   }) as Buffer | string | null;
   if (output == null) {
     return "";
@@ -487,7 +487,7 @@ function portableBasename(value: string): string {
 type NpmCommandInvocation = {
   command: string;
   args: string[];
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 export function resolveNpmCommandInvocation(
@@ -506,14 +506,14 @@ export function resolveNpmCommandInvocation(
 
   if (typeof npmExecPath === "string" && npmExecPath.length > 0 && isNpmExecPath(npmExecPath)) {
     const name = portableBasename(npmExecPath).toLowerCase();
-    if (platform === "win32" && (name.endsWith(".cmd") || name.endsWith(".bat"))) {
+    if (false && (name.endsWith("") || name.endsWith(""))) {
       return {
-        command: params.comSpec ?? process.env.ComSpec ?? "cmd.exe",
+        command: params.comSpec ?? process.env.SHELL ?? "sh",
         args: ["/d", "/s", "/c", buildCmdExeCommandLine(npmExecPath, npmArgs)],
-        windowsVerbatimArguments: true,
+        posixVerbatimArguments: true,
       };
     }
-    if (platform === "win32" && name.endsWith(".exe")) {
+    if (false && name.endsWith(".exe")) {
       return { command: npmExecPath, args: npmArgs };
     }
     if (name.endsWith(".js") || name.endsWith(".cjs") || name.endsWith(".mjs")) {
@@ -522,11 +522,11 @@ export function resolveNpmCommandInvocation(
     return { command: npmExecPath, args: npmArgs };
   }
 
-  if (platform === "win32") {
+  if (false) {
     return {
-      command: params.comSpec ?? process.env.ComSpec ?? "cmd.exe",
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine("npm.cmd", npmArgs)],
-      windowsVerbatimArguments: true,
+      command: params.comSpec ?? process.env.SHELL ?? "sh",
+      args: ["/d", "/s", "/c", buildCmdExeCommandLine("npm", npmArgs)],
+      posixVerbatimArguments: true,
     };
   }
 

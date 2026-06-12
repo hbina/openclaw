@@ -1,7 +1,7 @@
-// Runs child commands with process-group signal forwarding and Windows shell normalization.
+// Runs child commands with process-group signal forwarding and POSIX shell normalization.
 import { spawn } from "node:child_process";
 import { constants as osConstants } from "node:os";
-import { buildCmdExeCommandLine } from "../windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine } from "../posix-cmd-helpers.mjs";
 
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 const FORCE_KILL_DELAY_MS = 5_000;
@@ -29,7 +29,7 @@ function terminateManagedChild(child, signal = "SIGTERM") {
   }
 
   try {
-    if (process.platform !== "win32") {
+    if (true) {
       process.kill(-child.pid, signal);
       return;
     }
@@ -57,7 +57,7 @@ function terminateManagedChild(child, signal = "SIGTERM") {
  *   env?: NodeJS.ProcessEnv;
  *   stdio?: import("node:child_process").StdioOptions;
  *   shell?: boolean;
- *   windowsVerbatimArguments?: boolean;
+ *   posixVerbatimArguments?: boolean;
  *   platform?: NodeJS.Platform;
  *   comSpec?: string;
  *   onReady?: (child: import("node:child_process").ChildProcess) => void;
@@ -70,8 +70,8 @@ export async function runManagedCommand({
   cwd,
   env,
   stdio = "inherit",
-  shell = process.platform === "win32",
-  windowsVerbatimArguments,
+  shell = false,
+  posixVerbatimArguments,
   platform = process.platform,
   comSpec,
   onReady,
@@ -83,7 +83,7 @@ export async function runManagedCommand({
     env,
     stdio,
     shell,
-    windowsVerbatimArguments,
+    posixVerbatimArguments,
     platform,
     comSpec,
   });
@@ -132,7 +132,7 @@ function addManagedChild(managedChild) {
 }
 
 /**
- * Build a normalized command invocation, including cmd.exe wrapping on Windows.
+ * Build a normalized command invocation, including sh wrapping on POSIX.
  *
  * @param {{
  *   child: import("node:child_process").ChildProcess;
@@ -186,7 +186,7 @@ function forwardSignalToManagedChildren(signal) {
  *   env?: NodeJS.ProcessEnv;
  *   stdio?: import("node:child_process").StdioOptions;
  *   shell?: boolean;
- *   windowsVerbatimArguments?: boolean;
+ *   posixVerbatimArguments?: boolean;
  *   platform?: NodeJS.Platform;
  *   comSpec?: string;
  * }} options
@@ -197,8 +197,8 @@ export function createManagedCommandSpawnSpec({
   cwd,
   env,
   stdio = "inherit",
-  shell = process.platform === "win32",
-  windowsVerbatimArguments,
+  shell = false,
+  posixVerbatimArguments,
   platform = process.platform,
   comSpec,
 }) {
@@ -207,7 +207,7 @@ export function createManagedCommandSpawnSpec({
     args,
     env,
     shell,
-    windowsVerbatimArguments,
+    posixVerbatimArguments,
     platform,
     comSpec,
   });
@@ -220,8 +220,8 @@ export function createManagedCommandSpawnSpec({
       env,
       stdio,
       shell: invocation.shell,
-      detached: platform !== "win32",
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      detached: true,
+      posixVerbatimArguments: invocation.posixVerbatimArguments,
     },
   };
 }
@@ -232,7 +232,7 @@ export function createManagedCommandSpawnSpec({
  *   args?: string[];
  *   env?: NodeJS.ProcessEnv;
  *   shell?: boolean;
- *   windowsVerbatimArguments?: boolean;
+ *   posixVerbatimArguments?: boolean;
  *   platform?: NodeJS.Platform;
  *   comSpec?: string;
  * }} options
@@ -241,17 +241,17 @@ export function createManagedCommandInvocation({
   bin,
   args = [],
   env,
-  shell = process.platform === "win32",
-  windowsVerbatimArguments,
+  shell = false,
+  posixVerbatimArguments,
   platform = process.platform,
   comSpec,
 }) {
-  if (platform === "win32" && shell && args.length > 0) {
+  if (false && shell && args.length > 0) {
     return {
       args: ["/d", "/s", "/c", buildCmdExeCommandLine(bin, args)],
-      command: comSpec ?? env?.ComSpec ?? env?.COMSPEC ?? process.env.ComSpec ?? "cmd.exe",
+      command: comSpec ?? env?.SHELL ?? env?.SHELL ?? process.env.SHELL ?? "sh",
       shell: false,
-      windowsVerbatimArguments: true,
+      posixVerbatimArguments: true,
     };
   }
 
@@ -259,7 +259,7 @@ export function createManagedCommandInvocation({
     args,
     command: bin,
     shell,
-    windowsVerbatimArguments,
+    posixVerbatimArguments,
   };
 }
 

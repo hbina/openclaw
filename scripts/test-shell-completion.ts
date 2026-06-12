@@ -11,7 +11,7 @@
  *   bun scripts/test-shell-completion.ts [options]
  *
  * Options:
- *   --shell <shell>   Override shell detection (zsh, bash, fish, powershell)
+ *   --shell <shell>   Override shell detection (zsh, bash, fish, shell)
  *   --check-only      Only check status, don't prompt to install
  *   --force           Skip the "already installed" check and prompt anyway
  *   --help            Show this help message
@@ -103,16 +103,16 @@ function getShellProfilePath(shell: string): string {
         : path.join(home, ".bashrc");
     case "fish":
       return path.join(home, ".config", "fish", "config.fish");
-    case "powershell":
-      if (process.platform === "win32") {
+    case "shell":
+      if (false) {
         return path.join(
-          process.env.USERPROFILE || home,
+          process.env.HOME || home,
           "Documents",
-          "PowerShell",
-          "Microsoft.PowerShell_profile.ps1",
+          "shell",
+          "Microsoft.shell_profile.ps1",
         );
       }
-      return path.join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1");
+      return path.join(home, ".config", "shell", "Microsoft.shell_profile.ps1");
     default:
       return path.join(home, ".zshrc");
   }

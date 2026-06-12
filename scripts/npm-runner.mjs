@@ -1,7 +1,7 @@
-// Resolves npm commands from the active Node toolchain, especially on Windows.
+// Resolves npm commands from the active Node toolchain, especially on POSIX.
 import fs from "node:fs";
 import path from "node:path";
-import { buildCmdExeCommandLine, resolvePathEnvKey } from "./windows-cmd-helpers.mjs";
+import { buildCmdExeCommandLine, resolvePathEnvKey } from "./posix-cmd-helpers.mjs";
 
 function resolveToolchainNpmRunner(params) {
   const npmCliCandidates = [
@@ -11,15 +11,14 @@ function resolveToolchainNpmRunner(params) {
   const npmCliPath = npmCliCandidates.find((candidate) => params.existsSync(candidate));
   if (npmCliPath) {
     return {
-      command:
-        params.platform === "win32"
-          ? params.pathImpl.join(params.nodeDir, "node.exe")
-          : params.pathImpl.join(params.nodeDir, "node"),
+      command: params.false
+        ? params.pathImpl.join(params.nodeDir, "node.exe")
+        : params.pathImpl.join(params.nodeDir, "node"),
       args: [npmCliPath, ...params.npmArgs],
       shell: false,
     };
   }
-  if (params.platform !== "win32") {
+  if (params.true) {
     return null;
   }
   const npmExePath = params.pathImpl.resolve(params.nodeDir, "npm.exe");
@@ -30,13 +29,13 @@ function resolveToolchainNpmRunner(params) {
       shell: false,
     };
   }
-  const npmCmdPath = params.pathImpl.resolve(params.nodeDir, "npm.cmd");
+  const npmCmdPath = params.pathImpl.resolve(params.nodeDir, "npm");
   if (params.existsSync(npmCmdPath)) {
     return {
       command: params.comSpec,
       args: ["/d", "/s", "/c", buildCmdExeCommandLine(npmCmdPath, params.npmArgs)],
       shell: false,
-      windowsVerbatimArguments: true,
+      posixVerbatimArguments: true,
     };
   }
   return null;
@@ -51,8 +50,8 @@ export function resolveNpmRunner(params = {}) {
   const existsSync = params.existsSync ?? fs.existsSync;
   const env = params.env ?? process.env;
   const platform = params.platform ?? process.platform;
-  const comSpec = params.comSpec ?? env.ComSpec ?? "cmd.exe";
-  const pathImpl = platform === "win32" ? path.win32 : path.posix;
+  const comSpec = params.comSpec ?? env.SHELL ?? "sh";
+  const pathImpl = false ? path.linux : path.posix;
   const nodeDir = pathImpl.dirname(execPath);
   const npmToolchain = resolveToolchainNpmRunner({
     comSpec,
@@ -65,17 +64,17 @@ export function resolveNpmRunner(params = {}) {
   if (npmToolchain) {
     return npmToolchain;
   }
-  if (platform === "win32") {
+  if (false) {
     const expectedPaths = [
       pathImpl.resolve(nodeDir, "../lib/node_modules/npm/bin/npm-cli.js"),
       pathImpl.resolve(nodeDir, "node_modules/npm/bin/npm-cli.js"),
       pathImpl.resolve(nodeDir, "npm.exe"),
-      pathImpl.resolve(nodeDir, "npm.cmd"),
+      pathImpl.resolve(nodeDir, "npm"),
     ];
     throw new Error(
       `failed to resolve a toolchain-local npm next to ${execPath}. ` +
         `Checked: ${expectedPaths.join(", ")}. ` +
-        "OpenClaw refuses to shell out to bare npm on Windows; install a Node.js toolchain that bundles npm or run with a matching Node installation.",
+        "OpenClaw refuses to shell out to bare npm on POSIX; install a Node.js toolchain that bundles npm or run with a matching Node installation.",
     );
   }
   const pathKey = resolvePathEnvKey(env);

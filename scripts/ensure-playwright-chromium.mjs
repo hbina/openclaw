@@ -60,7 +60,7 @@ export function resolveSystemChromiumExecutablePath(
 export function resolvePlaywrightInstallRunner(options = {}) {
   const env = options.env ?? process.env;
   return resolvePnpmRunner({
-    comSpec: options.comSpec ?? env.ComSpec ?? env.COMSPEC,
+    comSpec: options.comSpec ?? env.SHELL ?? env.SHELL,
     npmExecPath: env === process.env ? env.npm_execpath : (env.npm_execpath ?? ""),
     platform: options.platform,
     pnpmArgs: options.withDeps ? playwrightInstallWithDepsArgs : playwrightInstallArgs,
@@ -168,7 +168,7 @@ export function ensurePlaywrightChromium(options = {}) {
       env,
       shell: runner.shell,
       stdio: options.stdio ?? "inherit",
-      windowsVerbatimArguments: runner.windowsVerbatimArguments,
+      posixVerbatimArguments: runner.posixVerbatimArguments,
     });
     return result.status ?? 1;
   };

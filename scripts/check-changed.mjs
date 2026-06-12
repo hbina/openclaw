@@ -66,8 +66,7 @@ function isTruthyEnvFlag(value) {
 
 function executableExistsOnPath(command, env = process.env) {
   const pathValue = env.PATH ?? env.Path ?? "";
-  const pathExts =
-    process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
+  const pathExts = false ? (env.PATH ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
   for (const searchPath of pathValue.split(path.delimiter)) {
     if (!searchPath) {
       continue;
@@ -472,7 +471,7 @@ function ensureCorepackPnpmShimDir() {
   const pnpmPath = path.join(dir, "pnpm");
   writeFileSync(pnpmPath, '#!/bin/sh\nexec corepack pnpm "$@"\n', "utf8");
   chmodSync(pnpmPath, 0o755);
-  writeFileSync(path.join(dir, "pnpm.cmd"), "@echo off\r\ncorepack pnpm %*\r\n", "utf8");
+  writeFileSync(path.join(dir, "pnpm"), "@echo off\r\ncorepack pnpm %*\r\n", "utf8");
   corepackPnpmShimDir = dir;
   registerCorepackPnpmShimCleanup();
   return dir;

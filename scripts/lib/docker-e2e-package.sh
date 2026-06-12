@@ -149,7 +149,7 @@ docker_e2e_harness_mount_args() {
   DOCKER_E2E_HARNESS_ARGS=(
     -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro"
     -v "$ROOT_DIR/scripts/lib:/app/scripts/lib:ro"
-    -v "$ROOT_DIR/scripts/windows-cmd-helpers.mjs:/app/scripts/windows-cmd-helpers.mjs:ro"
+    -v "$ROOT_DIR/scripts/posix-cmd-helpers.mjs:/app/scripts/posix-cmd-helpers.mjs:ro"
   )
 }
 

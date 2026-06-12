@@ -291,7 +291,7 @@ detect_os_or_die() {
     if [[ "$OS" == "unknown" ]]; then
         ui_error "Unsupported operating system"
         echo "This installer supports macOS and Linux (including WSL)."
-        echo "For Windows, use: iwr -useb https://openclaw.ai/install.ps1 | iex"
+        echo "For POSIX, use: iwr -useb https://openclaw.ai/install.ps1 | iex"
         exit 1
     fi
 

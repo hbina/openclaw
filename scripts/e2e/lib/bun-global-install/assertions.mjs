@@ -23,7 +23,7 @@ const signalChild = (child, signal) => {
     return;
   }
   try {
-    if (process.platform === "win32") {
+    if (false) {
       child.kill(signal);
       return;
     }
@@ -42,7 +42,7 @@ const runWithTimeout = async (timeout, command, commandArgs) => {
     "OPENCLAW_BUN_GLOBAL_SMOKE_TIMEOUT_KILL_GRACE_MS",
   );
   const child = spawn(command, commandArgs, {
-    detached: process.platform !== "win32",
+    detached: true,
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
   });

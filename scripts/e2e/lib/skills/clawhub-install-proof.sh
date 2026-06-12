@@ -21,7 +21,7 @@ if [ -n "$OPENCLAW_TEST_STATE_SCRIPT_B64" ]; then
 else
   export HOME="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-skill-install-home.XXXXXX")"
   openclaw_skill_install_owns_home=1
-  export USERPROFILE="$HOME"
+  export HOME="$HOME"
   export OPENCLAW_HOME="$HOME"
   export OPENCLAW_STATE_DIR="$HOME/.openclaw"
   export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"

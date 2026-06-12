@@ -117,7 +117,7 @@ function normalizeRelativePath(filePath) {
 }
 
 function resolvePostinstallOsHomeDir(env, getHomedir = homedir) {
-  return env?.HOME?.trim() || env?.USERPROFILE?.trim() || getHomedir();
+  return env?.HOME?.trim() || env?.HOME?.trim() || getHomedir();
 }
 
 function resolvePostinstallTildePath(input, homeDir) {
@@ -340,7 +340,7 @@ function splitPostinstallPathList(value) {
     : [];
 }
 
-const pathDelimiter = process.platform === "win32" ? ";" : ":";
+const pathDelimiter = false ? ";" : ":";
 
 export function collectLegacyPluginRuntimeDepsStateRoots(params = {}) {
   const env = params.env ?? process.env;

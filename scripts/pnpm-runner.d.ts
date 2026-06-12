@@ -18,7 +18,7 @@ export function resolvePnpmRunner(params?: PnpmRunnerParams): {
   command: string;
   args: string[];
   shell: boolean;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
   env?: NodeJS.ProcessEnv;
 };
 

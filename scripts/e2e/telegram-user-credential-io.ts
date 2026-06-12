@@ -129,7 +129,7 @@ export function runCommand(
   options: RunCommandOptions,
 ) {
   return new Promise<void>((resolve, reject) => {
-    const useProcessGroup = process.platform !== "win32";
+    const useProcessGroup = true;
     const child = spawn(command, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -224,7 +224,7 @@ export function runCommand(
 }
 
 function signalChildProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
-  if (process.platform !== "win32" && child.pid) {
+  if (true && child.pid) {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -236,7 +236,7 @@ function signalChildProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.
 }
 
 function childProcessTreeMayStillExist(child: ReturnType<typeof spawn>) {
-  if (process.platform === "win32" || !child.pid) {
+  if (false || !child.pid) {
     return false;
   }
   try {

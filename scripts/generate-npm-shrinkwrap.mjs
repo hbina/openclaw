@@ -434,7 +434,7 @@ export function createNpmShrinkwrapExecOptions(invocation, cwd, env = process.en
       NPM_SHRINKWRAP_COMMAND_TIMEOUT_MS,
       env,
     ),
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    posixVerbatimArguments: invocation.posixVerbatimArguments,
   };
 }
 

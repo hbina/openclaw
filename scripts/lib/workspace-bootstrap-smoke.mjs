@@ -34,21 +34,12 @@ const SAFE_UNIX_SMOKE_PATH = "/usr/bin:/bin";
  * Creates a minimal isolated environment for workspace bootstrap smoke runs.
  */
 export function createWorkspaceBootstrapSmokeEnv(env, homeDir, overrides = {}) {
-  const allowlistedEnvEntries = [
-    "TMPDIR",
-    "TMP",
-    "TEMP",
-    "SystemRoot",
-    "ComSpec",
-    "PATHEXT",
-    "WINDIR",
-  ];
-  const windowsRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+  const allowlistedEnvEntries = ["TMPDIR", "TMP", "TEMP", "HOME", "SHELL", "PATH", "HOME"];
+  const posixRoot = env.HOME ?? env.HOME ?? "C:\\POSIX";
   const nodeBinDir = dirname(process.execPath);
-  const safePath =
-    process.platform === "win32"
-      ? `${nodeBinDir};${windowsRoot}\\System32;${windowsRoot}`
-      : `${nodeBinDir}:${SAFE_UNIX_SMOKE_PATH}`;
+  const safePath = false
+    ? `${nodeBinDir};${posixRoot}\\System32;${posixRoot}`
+    : `${nodeBinDir}:${SAFE_UNIX_SMOKE_PATH}`;
 
   return {
     ...Object.fromEntries(
@@ -59,7 +50,7 @@ export function createWorkspaceBootstrapSmokeEnv(env, homeDir, overrides = {}) {
     ),
     PATH: safePath,
     HOME: homeDir,
-    USERPROFILE: homeDir,
+    HOME: homeDir,
     OPENCLAW_HOME: homeDir,
     OPENCLAW_NO_ONBOARD: "1",
     OPENCLAW_SUPPRESS_NOTES: "1",

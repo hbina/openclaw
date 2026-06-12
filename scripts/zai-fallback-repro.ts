@@ -24,7 +24,7 @@ type PnpmCommand = {
   command: string;
   env?: NodeJS.ProcessEnv;
   shell: boolean;
-  windowsVerbatimArguments?: boolean;
+  posixVerbatimArguments?: boolean;
 };
 
 type ResolvePnpmCommandOptions = {
@@ -84,7 +84,7 @@ export function resolveZaiFallbackPnpmCommand(
 ): PnpmCommand {
   const env = options.env ?? process.env;
   const command = resolvePnpmRunner({
-    comSpec: options.comSpec ?? resolveEnvValue(env, "ComSpec"),
+    comSpec: options.comSpec ?? resolveEnvValue(env, "SHELL"),
     npmExecPath: options.npmExecPath ?? env.npm_execpath,
     nodeExecPath: options.execPath ?? process.execPath,
     platform: options.platform,
@@ -125,7 +125,7 @@ async function runCommand(
       env: command.env ?? env,
       shell: command.shell,
       stdio: ["ignore", "pipe", "pipe"],
-      windowsVerbatimArguments: command.windowsVerbatimArguments,
+      posixVerbatimArguments: command.posixVerbatimArguments,
     });
     let stdout: OutputCapture = { text: "", truncatedChars: 0 };
     let stderr: OutputCapture = { text: "", truncatedChars: 0 };

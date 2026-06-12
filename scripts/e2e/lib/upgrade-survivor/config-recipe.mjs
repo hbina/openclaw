@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildCmdExeCommandLine } from "../../../windows-cmd-helpers.mjs";
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -201,17 +200,6 @@ function adaptStepForBaseline(step, baselineVersion, summary) {
 }
 
 export function resolveUpgradeSurvivorOpenClawCommand(argv, params = {}) {
-  const platform = params.platform ?? process.platform;
-  if (platform === "win32") {
-    const comSpec = params.comSpec ?? process.env.ComSpec ?? "cmd.exe";
-    return {
-      command: comSpec,
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine("openclaw.cmd", argv)],
-      commandLabel: ["openclaw", ...argv].join(" "),
-      shell: false,
-      windowsVerbatimArguments: true,
-    };
-  }
   return {
     command: "openclaw",
     args: argv,
@@ -236,7 +224,6 @@ export function runUpgradeSurvivorOpenClawStep(step, params = {}) {
     maxBuffer,
     shell: invocation.shell,
     timeout: timeoutMs,
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
   const code = errorCode(result.error);
   return {

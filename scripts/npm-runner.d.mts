@@ -12,5 +12,4 @@ export function resolveNpmRunner(params?: NpmRunnerParams): {
   command: string;
   env?: NodeJS.ProcessEnv;
   shell: boolean;
-  windowsVerbatimArguments?: boolean;
 };

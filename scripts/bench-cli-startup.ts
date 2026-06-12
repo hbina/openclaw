@@ -655,7 +655,7 @@ async function runSample(params: {
         env: {
           ...process.env,
           HOME: runRoot,
-          USERPROFILE: runRoot,
+          HOME: runRoot,
           OPENCLAW_HOME: runRoot,
           OPENCLAW_STATE_DIR: stateDir,
           OPENCLAW_CONFIG_PATH: configPath,

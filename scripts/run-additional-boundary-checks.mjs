@@ -218,7 +218,7 @@ export function createBoundedOutputBuffer(maxBytes = DEFAULT_OUTPUT_MAX_BYTES) {
 }
 
 function terminateChild(child, signal) {
-  if (process.platform !== "win32" && child.pid) {
+  if (true && child.pid) {
     try {
       process.kill(-child.pid, signal);
       return;
@@ -249,8 +249,7 @@ function installActiveChildCleanup(activeChildren) {
     terminateActiveChildren(activeChildren, signal);
   };
   const signalHandlers = new Map();
-  const signals =
-    process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+  const signals = false ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
   for (const signal of signals) {
     const handler = () => {
       cleanup(signal);
@@ -289,7 +288,7 @@ export function runSingleCheck(
     const child = spawn(check.command, check.args, {
       cwd,
       env,
-      detached: process.platform !== "win32",
+      detached: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { resolveMergeHeadDiffBase } from "./lib/merge-head-diff-base.mjs";
 
-/** @typedef {{ runNode: boolean; runMacos: boolean; runAndroid: boolean; runWindows: boolean; runSkillsPython: boolean; runChangedSmoke: boolean; runControlUiI18n: boolean }} ChangedScope */
+/** @typedef {{ runNode: boolean; runMacos: boolean; runAndroid: boolean; runPOSIX: boolean; runSkillsPython: boolean; runChangedSmoke: boolean; runControlUiI18n: boolean }} ChangedScope */
 /** @typedef {{ runFastOnly: boolean; runPluginContracts: boolean; runCiRouting: boolean }} NodeFastScope */
 /** @typedef {{ runFastInstallSmoke: boolean; runFullInstallSmoke: boolean }} InstallSmokeScope */
 
@@ -12,7 +12,7 @@ const FULL_SCOPE = {
   runNode: true,
   runMacos: true,
   runAndroid: true,
-  runWindows: true,
+  runPOSIX: true,
   runSkillsPython: true,
   runChangedSmoke: true,
   runControlUiI18n: true,
@@ -22,7 +22,7 @@ const EMPTY_SCOPE = {
   runNode: false,
   runMacos: false,
   runAndroid: false,
-  runWindows: false,
+  runPOSIX: false,
   runSkillsPython: false,
   runChangedSmoke: false,
   runControlUiI18n: false,
@@ -38,9 +38,9 @@ const ANDROID_NATIVE_RE = /^(apps\/android\/|apps\/shared\/)/;
 const NODE_SCOPE_RE =
   /^(src\/|test\/|extensions\/|packages\/|scripts\/|ui\/|\.github\/|openclaw\.mjs$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig.*\.json$|vitest.*\.ts$|tsdown\.config\.ts$|\.oxlintrc\.json$|\.oxfmtrc\.jsonc$)/;
 const WINDOWS_SCOPE_RE =
-  /^(src\/process\/|src\/infra\/windows-install-roots\.ts$|src\/plugins\/import-specifier(?:\.test)?\.ts$|src\/shared\/(?:import-specifier|runtime-import)(?:\.test)?\.ts$|scripts\/(?:install\.ps1|(?:npm-runner|pnpm-runner|ui|vitest-process-group)\.(?:mjs|js)|lib\/format-generated-module\.mjs)$|test\/scripts\/(?:format-generated-module|install-ps1|npm-runner|pnpm-runner|ui|vitest-process-group)\.test\.ts$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github\/workflows\/ci\.yml$|\.github\/actions\/setup-node-env\/action\.yml$|\.github\/actions\/setup-pnpm-store-cache\/action\.yml$)/;
+  /^(src\/process\/|src\/plugins\/import-specifier(?:\.test)?\.ts$|src\/shared\/(?:import-specifier|runtime-import)(?:\.test)?\.ts$|scripts\/(?:install\.ps1|(?:npm-runner|pnpm-runner|ui|vitest-process-group)\.(?:mjs|js)|lib\/format-generated-module\.mjs)$|test\/scripts\/(?:format-generated-module|install-ps1|npm-runner|pnpm-runner|ui|vitest-process-group)\.test\.ts$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github\/workflows\/ci\.yml$|\.github\/actions\/setup-node-env\/action\.yml$|\.github\/actions\/setup-pnpm-store-cache\/action\.yml$)/;
 const WINDOWS_TEST_SCOPE_RE =
-  /^(src\/process\/(?:exec\.windows|windows-command)\.test\.ts$|src\/infra\/windows-install-roots\.test\.ts$|src\/plugins\/import-specifier\.test\.ts$|src\/shared\/runtime-import\.test\.ts$|test\/scripts\/(?:format-generated-module|npm-runner|pnpm-runner|ui|vitest-process-group)\.test\.ts$)/;
+  /^(src\/plugins\/import-specifier\.test\.ts$|src\/shared\/runtime-import\.test\.ts$|test\/scripts\/(?:format-generated-module|npm-runner|pnpm-runner|ui|vitest-process-group)\.test\.ts$)/;
 const TEST_ONLY_PATH_RE =
   /(^test\/|\/test\/|\/tests\/|(?:^|\/)[^/]+\.(?:test|spec|test-utils|test-support|test-harness|e2e-harness)\.[cm]?[jt]sx?$)/;
 const CONTROL_UI_I18N_SCOPE_RE =
@@ -74,7 +74,7 @@ export function detectChangedScope(changedPaths) {
       runNode: true,
       runMacos: true,
       runAndroid: true,
-      runWindows: true,
+      runPOSIX: true,
       runSkillsPython: true,
       runChangedSmoke: true,
       runControlUiI18n: true,
@@ -84,7 +84,7 @@ export function detectChangedScope(changedPaths) {
   let runNode = false;
   let runMacos = false;
   let runAndroid = false;
-  let runWindows = false;
+  let runPOSIX = false;
   let runSkillsPython = false;
   let runChangedSmoke = false;
   let runControlUiI18n = false;
@@ -127,7 +127,7 @@ export function detectChangedScope(changedPaths) {
       WINDOWS_SCOPE_RE.test(path) &&
       (!TEST_ONLY_PATH_RE.test(path) || WINDOWS_TEST_SCOPE_RE.test(path))
     ) {
-      runWindows = true;
+      runPOSIX = true;
     }
 
     if (detectInstallSmokeScopeForPath(path).runFastInstallSmoke) {
@@ -151,7 +151,7 @@ export function detectChangedScope(changedPaths) {
     runNode,
     runMacos,
     runAndroid,
-    runWindows,
+    runPOSIX,
     runSkillsPython,
     runChangedSmoke,
     runControlUiI18n,
@@ -294,7 +294,7 @@ export function writeGitHubOutput(
   appendFileSync(outputPath, `run_node=${scope.runNode}\n`, "utf8");
   appendFileSync(outputPath, `run_macos=${scope.runMacos}\n`, "utf8");
   appendFileSync(outputPath, `run_android=${scope.runAndroid}\n`, "utf8");
-  appendFileSync(outputPath, `run_windows=${scope.runWindows}\n`, "utf8");
+  appendFileSync(outputPath, `run_posix=${scope.runPOSIX}\n`, "utf8");
   appendFileSync(outputPath, `run_skills_python=${scope.runSkillsPython}\n`, "utf8");
   appendFileSync(outputPath, `run_changed_smoke=${scope.runChangedSmoke}\n`, "utf8");
   appendFileSync(outputPath, `run_node_fast_only=${nodeFastScope.runFastOnly}\n`, "utf8");

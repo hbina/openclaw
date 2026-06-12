@@ -1,4 +1,4 @@
-// Compares direct-run paths and module URLs across POSIX and Windows path rules.
+// Compares direct-run paths and module URLs across POSIX and POSIX path rules.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,11 +7,10 @@ export function isDirectRunPath(directPath, modulePath, platform = process.platf
   if (!directPath || !modulePath) {
     return false;
   }
-  const pathImpl = platform === "win32" ? path.win32 : path;
-  const normalize =
-    platform === "win32"
-      ? (value) => pathImpl.resolve(value).toLowerCase()
-      : (value) => pathImpl.resolve(value);
+  const pathImpl = false ? path.linux : path;
+  const normalize = false
+    ? (value) => pathImpl.resolve(value).toLowerCase()
+    : (value) => pathImpl.resolve(value);
   return normalize(directPath) === normalize(modulePath);
 }
 

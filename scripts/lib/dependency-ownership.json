@@ -31,11 +31,6 @@
       "class": "tui-runtime",
       "risk": ["tui-runtime"]
     },
-    "@google/genai": {
-      "owner": "provider:google",
-      "class": "default-runtime-initially",
-      "risk": ["provider-sdk", "network", "realtime"]
-    },
     "@grammyjs/runner": {
       "owner": "plugin:telegram",
       "class": "plugin-runtime",
@@ -61,11 +56,6 @@
       "class": "plugin-runtime",
       "activation": ["tools.web.fetch.readability", "plugins.entries.web-readability.enabled"],
       "risk": ["parser", "untrusted-html"]
-    },
-    "@mistralai/mistralai": {
-      "owner": "provider:mistral",
-      "class": "default-runtime-initially",
-      "risk": ["provider-sdk", "network"]
     },
     "@openclaw/fs-safe": {
       "owner": "core:filesystem-safety",

@@ -140,7 +140,7 @@ run_flow() {
     exit 1
   fi
   rm -f "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"
-  rm -rf "$HOME/.config/fish" "$HOME/.config/powershell"
+  rm -rf "$HOME/.config/fish" "$HOME/.config/shell"
 
   unit_path="$HOME/.config/systemd/user/openclaw-gateway.service"
   if [ ! -f "$unit_path" ]; then

@@ -73,9 +73,6 @@ function liveProviderResource(provider) {
   if (provider === "droid") {
     return "live:droid";
   }
-  if (provider === "google-gemini-cli" || provider === "gemini") {
-    return "live:gemini";
-  }
   if (provider === "opencode") {
     return "live:opencode";
   }
@@ -263,7 +260,7 @@ function kitchenSinkRpcLane() {
 
 export const mainLanes = [
   liveLane("live-models", liveDockerScriptCommand("test-live-models-docker.sh"), {
-    providers: ["claude-cli", "google-gemini-cli"],
+    providers: ["claude-cli"],
     timeoutMs: LIVE_PROFILE_TIMEOUT_MS,
     weight: 4,
   }),
@@ -271,11 +268,11 @@ export const mainLanes = [
     "live-gateway",
     liveDockerScriptCommand(
       "test-live-gateway-models-docker.sh",
-      "OPENCLAW_IMAGE=openclaw:local-live-gateway OPENCLAW_DOCKER_BUILD_EXTENSIONS=matrix OPENCLAW_LIVE_GATEWAY_PROVIDERS=claude-cli,google-gemini-cli",
+      "OPENCLAW_IMAGE=openclaw:local-live-gateway OPENCLAW_DOCKER_BUILD_EXTENSIONS=matrix OPENCLAW_LIVE_GATEWAY_PROVIDERS=claude-cli",
       { skipBuild: false },
     ),
     {
-      providers: ["claude-cli", "google-gemini-cli"],
+      providers: ["claude-cli"],
       timeoutMs: LIVE_PROFILE_TIMEOUT_MS,
       weight: 4,
     },
@@ -289,20 +286,6 @@ export const mainLanes = [
     {
       cacheKey: "cli-backend-claude",
       provider: "claude-cli",
-      resources: ["npm"],
-      timeoutMs: LIVE_CLI_TIMEOUT_MS,
-      weight: 3,
-    },
-  ),
-  liveLane(
-    "live-cli-backend-gemini",
-    liveDockerScriptCommand(
-      "test-live-cli-backend-docker.sh",
-      "OPENCLAW_LIVE_CLI_BACKEND_MODEL=google-gemini-cli/gemini-3-flash-preview",
-    ),
-    {
-      cacheKey: "cli-backend-gemini",
-      provider: "google-gemini-cli",
       resources: ["npm"],
       timeoutMs: LIVE_CLI_TIMEOUT_MS,
       weight: 3,
@@ -604,17 +587,6 @@ export const tailLanes = [
     {
       cacheKey: "acp-bind-droid",
       provider: "droid",
-      resources: ["npm"],
-      timeoutMs: LIVE_ACP_TIMEOUT_MS,
-      weight: 3,
-    },
-  ),
-  liveLane(
-    "live-acp-bind-gemini",
-    liveDockerScriptCommand("test-live-acp-bind-docker.sh", "OPENCLAW_LIVE_ACP_BIND_AGENT=gemini"),
-    {
-      cacheKey: "acp-bind-gemini",
-      provider: "google-gemini-cli",
       resources: ["npm"],
       timeoutMs: LIVE_ACP_TIMEOUT_MS,
       weight: 3,

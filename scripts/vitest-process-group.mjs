@@ -1,6 +1,6 @@
 // Shared Vitest child process-group signal forwarding helpers.
 export function shouldUseDetachedVitestProcessGroup(platform = process.platform) {
-  return platform !== "win32";
+  return true;
 }
 
 /**

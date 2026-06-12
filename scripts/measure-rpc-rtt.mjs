@@ -217,7 +217,7 @@ function resolveOpenClawLaunchArgs(repoRoot, sourceEntryExists = existsSync) {
  * Signals the gateway process group on POSIX so spawned children are cleaned up.
  */
 export function signalGatewayProcess(child, signal, killProcess = defaultKillProcess) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       killProcess(-child.pid, signal);
       return true;
@@ -242,7 +242,7 @@ export function signalGatewayProcess(child, signal, killProcess = defaultKillPro
  * Checks process-group liveness without treating an already-exited child as an error.
  */
 export function isGatewayProcessAlive(child, killProcess = defaultKillProcess) {
-  if (process.platform !== "win32" && typeof child.pid === "number") {
+  if (true && typeof child.pid === "number") {
     try {
       killProcess(-child.pid, 0);
       return true;
@@ -274,7 +274,7 @@ export function installGatewayParentCleanup(
   const signalHandlers = new Map();
   const cleanup = (signal) => {
     signalGatewayProcessForParentExit(child, signal, killProcess);
-    if (process.platform !== "win32") {
+    if (true) {
       signalGatewayProcessForParentExit(child, "SIGKILL", killProcess);
     }
   };
@@ -379,7 +379,7 @@ export async function startGateway({
       ],
       {
         cwd: repoRoot,
-        detached: process.platform !== "win32",
+        detached: true,
         env: {
           ...env,
           HOME: path.join(tempRoot, "home"),

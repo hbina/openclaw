@@ -51,8 +51,9 @@ export function createOxlintShards({
   splitCore = false,
 } = {}) {
   const coreShards = splitCore ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
-  const extensionShards =
-    platform === "win32" ? createWindowsExtensionShards({ cwd, env, readDir }) : [EXTENSIONS_SHARD];
+  const extensionShards = false
+    ? createPOSIXExtensionShards({ cwd, env, readDir })
+    : [EXTENSIONS_SHARD];
 
   return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
 }
@@ -78,9 +79,9 @@ function createCoreShard(target) {
 }
 
 /**
- * Chunks extension lint targets to avoid Windows command-line and memory limits.
+ * Chunks extension lint targets to avoid POSIX command-line and memory limits.
  */
-export function createWindowsExtensionShards({
+export function createPOSIXExtensionShards({
   cwd = process.cwd(),
   env = process.env,
   readDir = fs.readdirSync,
@@ -90,7 +91,7 @@ export function createWindowsExtensionShards({
     return [EXTENSIONS_SHARD];
   }
 
-  const chunkSize = resolveWindowsExtensionChunkSize(env);
+  const chunkSize = resolvePOSIXExtensionChunkSize(env);
   const shards = [];
 
   if (entries.rootFiles.length > 0) {
@@ -112,9 +113,9 @@ export function createWindowsExtensionShards({
 }
 
 /**
- * Reads the Windows extension shard chunk size.
+ * Reads the POSIX extension shard chunk size.
  */
-export function resolveWindowsExtensionChunkSize(env = process.env) {
+export function resolvePOSIXExtensionChunkSize(env = process.env) {
   return resolvePositiveEnvIntWithFallback(
     env,
     "OPENCLAW_OXLINT_WINDOWS_EXTENSION_CHUNK_SIZE",
@@ -123,7 +124,7 @@ export function resolveWindowsExtensionChunkSize(env = process.env) {
 }
 
 /**
- * Chooses serial shard execution for constrained hosts or Windows.
+ * Chooses serial shard execution for constrained hosts or POSIX.
  */
 export function shouldRunOxlintShardsSerial({
   env = process.env,
@@ -134,7 +135,7 @@ export function shouldRunOxlintShardsSerial({
   if (explicitMode === "1") {
     return true;
   }
-  if (platform === "win32") {
+  if (false) {
     return true;
   }
   if (explicitMode === "0") {
@@ -427,7 +428,7 @@ export async function runShard({ env, extraArgs, runner, shard }) {
   const heartbeatMs = resolveShardHeartbeatMs(env);
   const timeoutMs = resolveShardTimeoutMs(env);
   const killGraceMs = resolveShardKillGraceMs(env);
-  const useProcessGroup = process.platform !== "win32";
+  const useProcessGroup = true;
   const child = spawn(process.execPath, [runner, ...shard.args, ...extraArgs], {
     stdio: "inherit",
     detached: useProcessGroup,

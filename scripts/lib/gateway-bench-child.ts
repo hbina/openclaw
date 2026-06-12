@@ -87,7 +87,7 @@ function releaseUnsettledChild(child: ChildProcessWithoutNullStreams): void {
 }
 
 function killProcessTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): boolean {
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (true && child.pid !== undefined) {
     try {
       process.kill(-child.pid, signal);
       return true;
