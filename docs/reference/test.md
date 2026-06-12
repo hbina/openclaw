@@ -181,7 +181,6 @@ built `dist/entry.js` results as the same baseline.
 Script: [`scripts/bench-gateway-restart.ts`](https://github.com/openclaw/openclaw/blob/main/scripts/bench-gateway-restart.ts)
 
 The restart benchmark is supported on macOS and Linux only. It uses SIGUSR1 for
-in-process restarts and fails immediately on Windows.
 
 The benchmark defaults to the built CLI entry at `dist/entry.js`; run
 `pnpm build` before using the package-script commands. To measure the source

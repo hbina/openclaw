@@ -67,8 +67,6 @@ Config merge order:
 
 ### `contextPruning.mode: "cache-ttl"`
 
-Prunes old tool-result context after cache TTL windows so post-idle requests do not re-cache oversized history.
-
 ```yaml
 agents:
   defaults:
@@ -80,8 +78,6 @@ agents:
 See [Session Pruning](/concepts/session-pruning) for full behavior.
 
 ### Heartbeat keep-warm
-
-Heartbeat can keep cache windows warm and reduce repeated cache writes after idle gaps.
 
 ```yaml
 agents:

@@ -46,16 +46,16 @@ See [Active Memory](/concepts/active-memory) for the activation model, plugin-ow
 
 ## Provider selection
 
-| Key        | Type      | Default          | Description                                                                                                                                                                                                                                                                                 |
-| ---------- | --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider` | `string`  | `"openai"`       | Embedding adapter ID such as `bedrock`, `deepinfra`, `gemini`, `github-copilot`, `local`, `mistral`, `ollama`, `openai`, `openai-compatible`, or `voyage`; may also be a configured `models.providers.<id>` whose `api` points at a memory embedding adapter or OpenAI-compatible model API |
-| `model`    | `string`  | provider default | Embedding model name                                                                                                                                                                                                                                                                        |
-| `fallback` | `string`  | `"none"`         | Fallback adapter ID when the primary fails                                                                                                                                                                                                                                                  |
-| `enabled`  | `boolean` | `true`           | Enable or disable memory search                                                                                                                                                                                                                                                             |
+| Key        | Type      | Default          | Description                                                                                                                                                                |
+| ---------- | --------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider` | `string`  | `"openai"`       | Embedding adapter ID: `openai`, `openai-compatible`, or `local`; may also be a configured `models.providers.<id>` whose `api` points at an OpenAI-compatible embedding API |
+| `model`    | `string`  | provider default | Embedding model name                                                                                                                                                       |
+| `fallback` | `string`  | `"none"`         | Fallback adapter ID when the primary fails                                                                                                                                 |
+| `enabled`  | `boolean` | `true`           | Enable or disable memory search                                                                                                                                            |
 
 When `provider` is not set, OpenClaw uses OpenAI embeddings. Set `provider`
-explicitly to use Gemini, Voyage, Mistral, DeepInfra, Bedrock, GitHub Copilot,
-Ollama, a local GGUF model, or an OpenAI-compatible `/v1/embeddings` endpoint.
+explicitly to use a local GGUF model or an OpenAI-compatible `/v1/embeddings`
+endpoint.
 Legacy configs that still say `provider: "auto"` resolve to `openai`.
 
 <Warning>
@@ -72,10 +72,9 @@ When `provider` is unset, legacy `provider: "auto"` is present, or
 use lexical FTS ranking when embeddings are unavailable.
 
 Explicit non-local providers fail closed. If you set `memorySearch.provider` to
-a concrete remote-backed provider such as OpenAI, Gemini, Voyage, Mistral,
-Bedrock, GitHub Copilot, DeepInfra, Ollama, LM Studio, or an OpenAI-compatible
-custom provider, and that provider is unavailable at runtime, `memory_search`
-returns an unavailable result instead of silently using FTS-only recall. Fix the
+a concrete remote-backed provider such as OpenAI or an OpenAI-compatible custom
+provider, and that provider is unavailable at runtime, `memory_search` returns
+an unavailable result instead of silently using FTS-only recall. Fix the
 provider/auth configuration, switch to a reachable provider, or set
 `provider: "none"` if you want deliberate FTS-only recall.
 
@@ -108,18 +107,12 @@ provider/auth configuration, switch to a reachable provider, or set
 
 ### API key resolution
 
-Remote embeddings require an API key. Bedrock uses the AWS SDK default credential chain instead (instance roles, SSO, access keys).
+Remote embeddings require an API key.
 
-| Provider       | Env var                                            | Config key                          |
-| -------------- | -------------------------------------------------- | ----------------------------------- |
-| Bedrock        | AWS credential chain                               | No API key needed                   |
-| DeepInfra      | `DEEPINFRA_API_KEY`                                | `models.providers.deepinfra.apiKey` |
-| Gemini         | `GEMINI_API_KEY`                                   | `models.providers.google.apiKey`    |
-| GitHub Copilot | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | Auth profile via device login       |
-| Mistral        | `MISTRAL_API_KEY`                                  | `models.providers.mistral.apiKey`   |
-| Ollama         | `OLLAMA_API_KEY` (placeholder)                     | --                                  |
-| OpenAI         | `OPENAI_API_KEY`                                   | `models.providers.openai.apiKey`    |
-| Voyage         | `VOYAGE_API_KEY`                                   | `models.providers.voyage.apiKey`    |
+| Provider          | Env var           | Config key                       |
+| ----------------- | ----------------- | -------------------------------- |
+| OpenAI            | `OPENAI_API_KEY`  | `models.providers.openai.apiKey` |
+| OpenAI-compatible | provider-specific | `memorySearch.remote.apiKey`     |
 
 <Note>
 Codex OAuth covers chat/completions only and does not satisfy embedding requests.
@@ -164,18 +157,6 @@ Use `provider: "openai-compatible"` for a generic OpenAI-compatible
 ## Provider-specific config
 
 <AccordionGroup>
-  <Accordion title="Gemini">
-    | Key                    | Type     | Default                | Description                                |
-    | ---------------------- | -------- | ---------------------- | ------------------------------------------ |
-    | `model`                | `string` | `gemini-embedding-001` | Also supports `gemini-embedding-2-preview` |
-    | `outputDimensionality` | `number` | `3072`                 | For Embedding 2: 768, 1536, or 3072        |
-
-    <Warning>
-    Changing model or `outputDimensionality` changes the index identity. OpenClaw
-    pauses vector search until you explicitly rebuild the memory index.
-    </Warning>
-
-  </Accordion>
   <Accordion title="OpenAI-compatible input types">
     OpenAI-compatible embedding endpoints can opt into provider-specific `input_type` request fields. This is useful for asymmetric embedding models that require different labels for query and document embeddings.
 
@@ -205,73 +186,6 @@ Use `provider: "openai-compatible"` for a generic OpenAI-compatible
     ```
 
     Changing these values affects embedding cache identity for provider batch indexing and should be followed by a memory reindex when the upstream model treats the labels differently.
-
-  </Accordion>
-  <Accordion title="Bedrock">
-    ### Bedrock embedding config
-
-    Bedrock uses the AWS SDK default credential chain — no API keys needed. If OpenClaw runs on EC2 with a Bedrock-enabled instance role, just set the provider and model:
-
-    ```json5
-    {
-      agents: {
-        defaults: {
-          memorySearch: {
-            provider: "bedrock",
-            model: "amazon.titan-embed-text-v2:0",
-          },
-        },
-      },
-    }
-    ```
-
-    | Key                    | Type     | Default                        | Description                     |
-    | ---------------------- | -------- | ------------------------------ | ------------------------------- |
-    | `model`                | `string` | `amazon.titan-embed-text-v2:0` | Any Bedrock embedding model ID  |
-    | `outputDimensionality` | `number` | model default                  | For Titan V2: 256, 512, or 1024 |
-
-    **Supported models** (with family detection and dimension defaults):
-
-    | Model ID                                   | Provider   | Default Dims | Configurable Dims    |
-    | ------------------------------------------ | ---------- | ------------ | -------------------- |
-    | `amazon.titan-embed-text-v2:0`             | Amazon     | 1024         | 256, 512, 1024       |
-    | `amazon.titan-embed-text-v1`               | Amazon     | 1536         | --                   |
-    | `amazon.titan-embed-g1-text-02`            | Amazon     | 1536         | --                   |
-    | `amazon.titan-embed-image-v1`              | Amazon     | 1024         | --                   |
-    | `amazon.nova-2-multimodal-embeddings-v1:0` | Amazon     | 1024         | 256, 384, 1024, 3072 |
-    | `cohere.embed-english-v3`                  | Cohere     | 1024         | --                   |
-    | `cohere.embed-multilingual-v3`             | Cohere     | 1024         | --                   |
-    | `cohere.embed-v4:0`                        | Cohere     | 1536         | 256-1536             |
-    | `twelvelabs.marengo-embed-3-0-v1:0`        | TwelveLabs | 512          | --                   |
-    | `twelvelabs.marengo-embed-2-7-v1:0`        | TwelveLabs | 1024         | --                   |
-
-    Throughput-suffixed variants (e.g., `amazon.titan-embed-text-v1:2:8k`) inherit the base model's configuration.
-
-    **Authentication:** Bedrock auth uses the standard AWS SDK credential resolution order:
-
-    1. Environment variables (`AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`)
-    2. SSO token cache
-    3. Web identity token credentials
-    4. Shared credentials and config files
-    5. ECS or EC2 metadata credentials
-
-    Region is resolved from `AWS_REGION`, `AWS_DEFAULT_REGION`, the `amazon-bedrock` provider `baseUrl`, or defaults to `us-east-1`.
-
-    **IAM permissions:** the IAM role or user needs:
-
-    ```json
-    {
-      "Effect": "Allow",
-      "Action": "bedrock:InvokeModel",
-      "Resource": "*"
-    }
-    ```
-
-    For least-privilege, scope `InvokeModel` to the specific model:
-
-    ```
-    arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0
-    ```
 
   </Accordion>
   <Accordion title="Local (GGUF + node-llama-cpp)">
@@ -381,9 +295,10 @@ For agent-scoped cross-agent transcript search, use `agents.list[].memorySearch.
 
 ---
 
-## Multimodal memory (Gemini)
+## Multimodal memory
 
-Index images and audio alongside Markdown using Gemini Embedding 2:
+Index images and audio alongside Markdown when the configured retained embedding
+provider supports that content:
 
 | Key                       | Type       | Default    | Description                            |
 | ------------------------- | ---------- | ---------- | -------------------------------------- |
@@ -392,7 +307,8 @@ Index images and audio alongside Markdown using Gemini Embedding 2:
 | `multimodal.maxFileBytes` | `number`   | `10000000` | Max file size for indexing             |
 
 <Note>
-Only applies to files in `extraPaths`. Default memory roots stay Markdown-only. Requires `gemini-embedding-2-preview`. `fallback` must be `"none"`.
+Only applies to files in `extraPaths`. Default memory roots stay Markdown-only.
+`fallback` must be `"none"`.
 </Note>
 
 Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.heic`, `.heif` (images); `.mp3`, `.wav`, `.ogg`, `.opus`, `.m4a`, `.aac`, `.flac` (audio).
@@ -412,18 +328,13 @@ Prevents re-embedding unchanged text during reindex or transcript updates.
 
 ## Batch indexing
 
-| Key                           | Type      | Default | Description                |
-| ----------------------------- | --------- | ------- | -------------------------- |
-| `remote.nonBatchConcurrency`  | `number`  | `4`     | Parallel inline embeddings |
-| `remote.batch.enabled`        | `boolean` | `false` | Enable batch embedding API |
-| `remote.batch.concurrency`    | `number`  | `2`     | Parallel batch jobs        |
-| `remote.batch.wait`           | `boolean` | `true`  | Wait for batch completion  |
-| `remote.batch.pollIntervalMs` | `number`  | --      | Poll interval              |
-| `remote.batch.timeoutMinutes` | `number`  | --      | Batch timeout              |
+| Key                          | Type     | Default | Description                |
+| ---------------------------- | -------- | ------- | -------------------------- |
+| `remote.nonBatchConcurrency` | `number` | `4`     | Parallel inline embeddings |
 
-Available for `openai`, `gemini`, and `voyage`. OpenAI batch is typically fastest and cheapest for large backfills.
+OpenAI batch is typically fastest and cheapest for large backfills.
 
-`remote.nonBatchConcurrency` controls inline embedding calls used by local/self-hosted providers and hosted providers when provider batch APIs are not active. Ollama defaults to `1` for non-batch indexing to avoid overwhelming smaller local hosts; set a higher value on larger machines.
+`remote.nonBatchConcurrency` controls inline embedding calls used by local/self-hosted providers and hosted providers when provider batch APIs are not active. Use a low value for smaller local hosts; set a higher value on larger machines.
 
 This is separate from `sync.embeddingBatchTimeoutSeconds`, which controls the timeout for inline embedding calls.
 

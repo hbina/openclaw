@@ -80,11 +80,7 @@ Notes:
 - If multiple nodes are available, set `exec.node` or `tools.exec.node` to select one.
 - `exec host=node` is the only shell-execution path for nodes; the legacy `nodes.run` wrapper has been removed.
 - `timeout` applies to foreground, background, `yieldMs`, gateway, sandbox, and node `system.run` execution. If omitted, OpenClaw uses `tools.exec.timeoutSec`; explicit `timeout: 0` disables the exec process timeout for that call.
-- On non-Windows hosts, exec uses `SHELL` when set; if `SHELL` is `fish`, it prefers `bash` (or `sh`)
   from `PATH` to avoid fish-incompatible scripts, then falls back to `SHELL` if neither exists.
-- On Windows hosts, exec prefers PowerShell 7 (`pwsh`) discovery (Program Files, ProgramW6432, then PATH),
-  then falls back to Windows PowerShell 5.1.
-- On non-Windows gateway hosts, bash and zsh exec commands use a startup snapshot. OpenClaw captures sourceable
   aliases/functions and a small safe environment set from shell startup files into
   `$OPENCLAW_STATE_DIR/cache/shell-snapshots/`, then sources that snapshot before each exec command.
   Secret-looking variables are excluded; sandbox and node exec do not use this snapshot. Set

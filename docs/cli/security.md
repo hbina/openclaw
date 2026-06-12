@@ -120,7 +120,6 @@ openclaw security audit --fix --json | jq '{fix: .fix.ok, summary: .report.summa
   (`credentials/*.json`, `auth-profiles.json`, `sessions.json`, session
   `*.jsonl`)
 - also tightens config include files referenced from `openclaw.json`
-- uses `chmod` on POSIX hosts and `icacls` resets on Windows
 
 `--fix` does **not**:
 

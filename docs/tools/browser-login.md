@@ -74,4 +74,3 @@ The agent's `browser` tool calls can then target the host once `sandbox.browser.
 
 - [Browser](/tools/browser)
 - [Browser Linux troubleshooting](/tools/browser-linux-troubleshooting)
-- [Browser WSL2 troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting)

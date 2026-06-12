@@ -23,14 +23,12 @@ When configure starts from a provider auth choice, the default-model and allowli
 `openclaw config` without a subcommand opens the same wizard. Use `openclaw config get|set|unset` for non-interactive edits.
 </Tip>
 
-For web search, `openclaw configure --section web` lets you choose a provider
-and configure its credentials. Some providers also show provider-specific
-follow-up prompts:
+For web search, `openclaw configure --section web` lets you choose a retained
+provider and configure its credentials. Some providers also show
+provider-specific follow-up prompts:
 
 - **Grok** can offer optional `x_search` setup with the same xAI OAuth profile
   or API key and let you pick an `x_search` model.
-- **Kimi** can ask for the Moonshot API region (`api.moonshot.ai` vs
-  `api.moonshot.cn`) and the default Kimi web-search model.
 
 Related:
 
@@ -57,7 +55,7 @@ Notes:
 
 - The full wizard and gateway-related sections ask where the Gateway runs and update `gateway.mode`. Section filters that do not include `gateway`, `daemon`, or `health` go directly to the requested setup.
 - After local config writes, configure installs selected downloadable plugins when the chosen setup path requires them. Remote gateway config does not install local plugin packages.
-- Channel-oriented services (Slack/Discord/Matrix/Microsoft Teams) prompt for channel/room allowlists during setup. You can enter names or IDs; the wizard resolves names to IDs when possible.
+- Channel-oriented services prompt for channel/room allowlists during setup. You can enter names or IDs; the wizard resolves names to IDs when possible.
 - If you run the daemon install step, token auth requires a token, and `gateway.auth.token` is SecretRef-managed, configure validates the SecretRef but does not persist resolved plaintext token values into supervisor service environment metadata.
 - If token auth requires a token and the configured token SecretRef is unresolved, configure blocks daemon install with actionable remediation guidance.
 - If both `gateway.auth.token` and `gateway.auth.password` are configured and `gateway.auth.mode` is unset, configure blocks daemon install until mode is set explicitly.

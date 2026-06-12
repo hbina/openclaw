@@ -31,34 +31,13 @@ For a high-level overview, see [Onboarding (CLI)](/start/wizard).
   <Step title="Model/Auth">
     - **Anthropic API key**: uses `ANTHROPIC_API_KEY` if present or prompts for a key, then saves it for daemon use.
     - **Anthropic API key**: preferred Anthropic assistant choice in onboarding/configure.
-    - **Anthropic setup-token**: still available in onboarding/configure, though OpenClaw now prefers Claude CLI reuse when available.
     - **OpenAI Code (Codex) subscription (OAuth)**: browser flow; paste the `code#state`.
       - Sets `agents.defaults.model` to `openai/gpt-5.5` through the Codex runtime when model is unset or already OpenAI-family.
     - **OpenAI Code (Codex) subscription (device pairing)**: browser pairing flow with a short-lived device code.
       - Sets `agents.defaults.model` to `openai/gpt-5.5` through the Codex runtime when model is unset or already OpenAI-family.
     - **OpenAI API key**: uses `OPENAI_API_KEY` if present or prompts for a key, then stores it in auth profiles.
       - Sets `agents.defaults.model` to `openai/gpt-5.5` when model is unset, `openai/*`, or legacy Codex model refs.
-    - **xAI (Grok) OAuth / API key**: signs in with xAI OAuth when chosen, or prompts for `XAI_API_KEY` on the API-key path, and configures xAI as a model provider.
-    - **OpenCode**: prompts for `OPENCODE_API_KEY` (or `OPENCODE_ZEN_API_KEY`, get it at https://opencode.ai/auth) and lets you pick the Zen or Go catalog.
-    - **Ollama**: offers **Cloud + Local**, **Cloud only**, or **Local only** first. `Cloud only` prompts for `OLLAMA_API_KEY` and uses `https://ollama.com`; the host-backed modes prompt for the Ollama base URL, discover available models, and auto-pull the selected local model when needed; `Cloud + Local` also checks whether that Ollama host is signed in for cloud access.
-    - More detail: [Ollama](/providers/ollama)
-    - **API key**: stores the key for you.
-    - **Vercel AI Gateway (multi-model proxy)**: prompts for `AI_GATEWAY_API_KEY`.
-    - More detail: [Vercel AI Gateway](/providers/vercel-ai-gateway)
-    - **Cloudflare AI Gateway**: prompts for Account ID, Gateway ID, and `CLOUDFLARE_AI_GATEWAY_API_KEY`.
-    - More detail: [Cloudflare AI Gateway](/providers/cloudflare-ai-gateway)
-    - **MiniMax**: config is auto-written; hosted default is `MiniMax-M3`.
-      API-key setup uses `minimax/...`, and OAuth setup uses
-      `minimax-portal/...`.
-    - More detail: [MiniMax](/providers/minimax)
-    - **StepFun**: config is auto-written for StepFun standard or Step Plan on China or global endpoints.
-    - Standard currently includes `step-3.5-flash`, and Step Plan also includes `step-3.5-flash-2603`.
-    - More detail: [StepFun](/providers/stepfun)
-    - **Synthetic (Anthropic-compatible)**: prompts for `SYNTHETIC_API_KEY`.
-    - More detail: [Synthetic](/providers/synthetic)
-    - **Moonshot (Kimi K2)**: config is auto-written.
-    - **Kimi Coding**: config is auto-written.
-    - More detail: [Moonshot AI (Kimi + Kimi Coding)](/providers/moonshot)
+    - **OpenAI-compatible endpoint**: prompts for endpoint URL, API key, and model id.
     - **Skip**: no auth configured yet.
     - Pick a default model from detected options (or enter provider/model manually). For best quality and lower prompt-injection risk, choose the strongest latest-generation model available in your provider stack.
     - Onboarding runs a model check and warns if the configured model is unknown or missing auth.
@@ -99,16 +78,12 @@ For a high-level overview, see [Onboarding (CLI)](/start/wizard).
     - [WhatsApp](/channels/whatsapp): optional QR login.
     - [Telegram](/channels/telegram): bot token.
     - [Discord](/channels/discord): bot token.
-    - [Google Chat](/channels/googlechat): service account JSON + webhook audience.
-    - [Mattermost](/channels/mattermost) (plugin): bot token + base URL.
-    - [Signal](/channels/signal): optional `signal-cli` install + account config.
-    - [iMessage](/channels/imessage): `imsg` CLI path + Messages DB access; use an SSH wrapper when the Gateway runs off-Mac.
     - DM security: default is pairing. First DM sends a code; approve via `openclaw pairing approve <channel> <code>` or use allowlists.
 
   </Step>
   <Step title="Web search">
-    - Pick a supported provider such as Brave, DuckDuckGo, Exa, Firecrawl, Gemini, Grok, Kimi, MiniMax Search, Ollama Web Search, Perplexity, SearXNG, or Tavily (or skip).
-    - API-backed providers can use env vars or existing config for quick setup; key-free providers use their provider-specific prerequisites instead.
+    - Pick a retained provider or skip.
+    - API-backed providers can use env vars or existing config for quick setup.
     - Skip with `--skip-search`.
     - Configure later: `openclaw configure --section web`.
 
@@ -116,7 +91,7 @@ For a high-level overview, see [Onboarding (CLI)](/start/wizard).
   <Step title="Daemon install">
     - macOS: LaunchAgent
       - Requires a logged-in user session; for headless, use a custom LaunchDaemon (not shipped).
-    - Linux (and Windows via WSL2): systemd user unit
+    - Linux: systemd user unit
       - Onboarding attempts to enable lingering via `loginctl enable-linger <user>` so the Gateway stays up after logout.
       - May prompt for sudo (writes `/var/lib/systemd/linger`); it tries without sudo first.
     - **Runtime selection:** Node (recommended; required for WhatsApp/Telegram). Bun is **not recommended**.
@@ -201,31 +176,17 @@ openclaw agents add work \
 The Gateway exposes the onboarding flow over RPC (`wizard.start`, `wizard.next`, `wizard.cancel`, `wizard.status`).
 Clients (macOS app, Control UI) can render steps without re-implementing onboarding logic.
 
-## Signal setup (signal-cli)
-
-Onboarding can install `signal-cli` from GitHub releases:
-
-- Downloads the appropriate release asset.
-- Stores it under `~/.openclaw/tools/signal-cli/<version>/`.
-- Writes `channels.signal.cliPath` to your config.
-
-Notes:
-
-- JVM builds require **Java 21**.
-- Native builds are used when available.
-- Windows uses WSL2; signal-cli install follows the Linux flow inside WSL.
-
 ## What the wizard writes
 
 Typical fields in `~/.openclaw/openclaw.json`:
 
 - `agents.defaults.workspace`
-- `agents.defaults.model` / `models.providers` (if Minimax chosen)
+- `agents.defaults.model` / `models.providers`
 - `tools.profile` (local onboarding defaults to `"coding"` when unset; existing explicit values are preserved)
 - `gateway.*` (mode, bind, auth, tailscale)
 - `session.dmScope` (behavior details: [CLI Setup Reference](/start/wizard-cli-reference#outputs-and-internals))
-- `channels.telegram.botToken`, `channels.discord.token`, `channels.matrix.*`, `channels.signal.*`, `channels.imessage.*`
-- Channel allowlists (Slack/Discord/Matrix/Microsoft Teams) when you opt in during the prompts (names resolve to IDs when possible).
+- `channels.telegram.botToken`, `channels.discord.token`, and WhatsApp account state
+- Channel allowlists when you opt in during the prompts (names resolve to IDs when possible).
 - `skills.install.nodeManager`
   - `setup --node-manager` accepts `npm`, `pnpm`, or `bun`.
   - Manual config can still use `yarn` by setting `skills.install.nodeManager` directly.
@@ -240,13 +201,10 @@ Typical fields in `~/.openclaw/openclaw.json`:
 WhatsApp credentials go under `~/.openclaw/credentials/whatsapp/<accountId>/`.
 Sessions are stored under `~/.openclaw/agents/<agentId>/sessions/`.
 
-Some channels are delivered as plugins. When you pick one during setup, onboarding
-will prompt to install it (npm or a local path) before it can be configured.
-
 ## Related docs
 
 - Onboarding overview: [Onboarding (CLI)](/start/wizard)
 - macOS app onboarding: [Onboarding](/start/onboarding)
 - Config reference: [Gateway configuration](/gateway/configuration)
-- Providers: [WhatsApp](/channels/whatsapp), [Telegram](/channels/telegram), [Discord](/channels/discord), [Google Chat](/channels/googlechat), [Signal](/channels/signal), [iMessage](/channels/imessage)
+- Providers: [WhatsApp](/channels/whatsapp), [Telegram](/channels/telegram), [Discord](/channels/discord)
 - Skills: [Skills](/tools/skills), [Skills config](/tools/skills-config)

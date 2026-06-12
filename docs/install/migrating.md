@@ -22,7 +22,7 @@ Use the bundled migration providers to bring instructions, MCP servers, skills, 
   </Card>
 </CardGroup>
 
-The CLI entry point is [`openclaw migrate`](/cli/migrate). Onboarding can also offer migration when it detects a known source (`openclaw onboard --flow import`).
+The CLI entry point is [`openclaw migrate`](/cli/migrate).
 
 ## Move OpenClaw to a new machine
 

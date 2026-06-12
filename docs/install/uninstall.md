@@ -42,7 +42,7 @@ Manual steps (same result):
 openclaw gateway stop
 ```
 
-2. Uninstall the gateway service (launchd/systemd/schtasks):
+2. Uninstall the gateway service (launchd/systemd):
 
 ```bash
 openclaw gateway uninstall
@@ -106,18 +106,6 @@ systemctl --user disable --now openclaw-gateway.service
 rm -f ~/.config/systemd/user/openclaw-gateway.service
 systemctl --user daemon-reload
 ```
-
-### Windows (Scheduled Task)
-
-Default task name is `OpenClaw Gateway` (or `OpenClaw Gateway (<profile>)`).
-The task script lives under your state dir.
-
-```powershell
-schtasks /Delete /F /TN "OpenClaw Gateway"
-Remove-Item -Force "$env:USERPROFILE\.openclaw\gateway.cmd"
-```
-
-If you used a profile, delete the matching task name and `~\.openclaw-<profile>\gateway.cmd`.
 
 ## Normal install vs source checkout
 

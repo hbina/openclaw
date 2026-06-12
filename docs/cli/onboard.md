@@ -36,13 +36,9 @@ openclaw onboard
 openclaw onboard --modern
 openclaw onboard --flow quickstart
 openclaw onboard --flow manual
-openclaw onboard --flow import
-openclaw onboard --import-from hermes --import-source ~/.hermes
 openclaw onboard --skip-bootstrap
 openclaw onboard --mode remote --remote-url wss://gateway-host:18789
 ```
-
-`--flow import` uses plugin-owned migration providers such as Hermes. It only runs against a fresh OpenClaw setup; if existing config, credentials, sessions, or workspace memory/identity files are present, reset or choose a fresh setup before importing.
 
 `--modern` starts the Crestodian conversational onboarding preview. Without
 `--modern`, `openclaw onboard` keeps the classic onboarding flow.
@@ -95,29 +91,6 @@ openclaw onboard --non-interactive \
 OpenClaw marks common vision model IDs as image-capable automatically. Pass `--custom-image-input` for unknown custom vision IDs, or `--custom-text-input` to force text-only metadata.
 Use `--custom-compatibility openai-responses` for OpenAI-compatible endpoints that support `/v1/responses` but not `/v1/chat/completions`.
 
-LM Studio also supports a provider-specific key flag in non-interactive mode:
-
-```bash
-openclaw onboard --non-interactive \
-  --auth-choice lmstudio \
-  --custom-base-url "http://localhost:1234/v1" \
-  --custom-model-id "qwen/qwen3.5-9b" \
-  --lmstudio-api-key "$LM_API_TOKEN" \
-  --accept-risk
-```
-
-Non-interactive Ollama:
-
-```bash
-openclaw onboard --non-interactive \
-  --auth-choice ollama \
-  --custom-base-url "http://ollama-host:11434" \
-  --custom-model-id "qwen3.5:27b" \
-  --accept-risk
-```
-
-`--custom-base-url` defaults to `http://127.0.0.1:11434`. `--custom-model-id` is optional; if omitted, onboarding uses Ollama's suggested defaults. Cloud model IDs such as `kimi-k2.5:cloud` also work here.
-
 Store provider keys as refs instead of plaintext:
 
 ```bash
@@ -168,7 +141,6 @@ Non-interactive local gateway health:
 - `--install-daemon` starts the managed gateway install path first. Without it, you must already have a local gateway running, for example `openclaw gateway run`.
 - If you only want config/workspace/bootstrap writes in automation, use `--skip-health`.
 - If you manage workspace files yourself, pass `--skip-bootstrap` to set `agents.defaults.skipBootstrap: true` and skip creating `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, and `BOOTSTRAP.md`.
-- On native Windows, `--install-daemon` tries Scheduled Tasks first and falls back to a per-user Startup-folder login item if task creation is denied.
 
 Interactive onboarding behavior with reference mode:
 
@@ -179,39 +151,12 @@ Interactive onboarding behavior with reference mode:
 - Onboarding performs a fast preflight validation before saving the ref.
   - If validation fails, onboarding shows the error and lets you retry.
 
-### Non-interactive Z.AI endpoint choices
-
-<Note>
-`--auth-choice zai-api-key` auto-detects the best Z.AI endpoint for your key (prefers the general API with `zai/glm-5.1`). If you specifically want the GLM Coding Plan endpoints, pick `zai-coding-global` or `zai-coding-cn`.
-</Note>
-
-```bash
-# Promptless endpoint selection
-openclaw onboard --non-interactive \
-  --auth-choice zai-coding-global \
-  --zai-api-key "$ZAI_API_KEY"
-
-# Other Z.AI endpoint choices:
-# --auth-choice zai-coding-cn
-# --auth-choice zai-global
-# --auth-choice zai-cn
-```
-
-Non-interactive Mistral example:
-
-```bash
-openclaw onboard --non-interactive \
-  --auth-choice mistral-api-key \
-  --mistral-api-key "$MISTRAL_API_KEY"
-```
-
 ## Flow notes
 
 <AccordionGroup>
   <Accordion title="Flow types">
     - `quickstart`: minimal prompts, auto-generates a gateway token.
     - `manual`: full prompts for port, bind, and auth (alias of `advanced`).
-    - `import`: runs a detected migration provider, previews the plan, then applies after confirmation.
 
   </Accordion>
   <Accordion title="Provider prefiltering">
@@ -221,17 +166,13 @@ openclaw onboard --non-interactive \
 
   </Accordion>
   <Accordion title="Web-search follow-ups">
-    Some web-search providers trigger provider-specific follow-up prompts:
-
-    - **Grok** can offer optional `x_search` setup with the same xAI OAuth profile or API key and an `x_search` model choice.
-    - **Kimi** can ask for the Moonshot API region (`api.moonshot.ai` vs `api.moonshot.cn`) and the default Kimi web-search model.
+    Retained web-search setup prompts stay scoped to providers present in this fork.
 
   </Accordion>
   <Accordion title="Other behaviors">
     - Local onboarding DM scope behavior: [CLI setup reference](/start/wizard-cli-reference#outputs-and-internals).
     - Fastest first chat: `openclaw dashboard` (Control UI, no channel setup).
     - Custom provider: connect any OpenAI or Anthropic compatible endpoint, including hosted providers not listed. Use Unknown to auto-detect.
-    - If Hermes state is detected, onboarding offers a migration flow. Use [Migrate](/cli/migrate) for dry-run plans, overwrite mode, reports, and exact mappings.
 
   </Accordion>
 </AccordionGroup>

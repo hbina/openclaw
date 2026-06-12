@@ -25,7 +25,6 @@ Run OpenClaw in a sandboxed macOS VM on your existing Apple Silicon Mac using [L
 This gives you:
 
 - Full macOS environment in isolation (your host stays clean)
-- iMessage support via `imsg` (the default local path is impossible on Linux/Windows)
 - Instant reset by cloning VMs
 - No extra hardware or cloud costs
 

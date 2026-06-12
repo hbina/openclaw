@@ -27,9 +27,7 @@ openclaw models scan
 
 `openclaw models status` shows the resolved default/fallbacks plus an auth overview.
 When provider usage snapshots are available, the OAuth/API-key status section includes
-provider usage windows and quota snapshots.
-Current usage-window providers: Anthropic, GitHub Copilot, Gemini CLI, OpenAI,
-MiniMax, Xiaomi, and z.ai. Usage auth comes from provider-specific hooks
+Current usage-window providers: Anthropic and OpenAI. Usage auth comes from provider-specific hooks
 when available; otherwise OpenClaw falls back to matching OAuth/API-key
 credentials from auth profiles, env, or config.
 In `--json` output, `auth.providers` is the env/config/store-aware provider
@@ -53,8 +51,8 @@ Notes:
   state, and provider-owned catalog rows, but it does not rewrite
   `models.json`.
 - The `Auth` column is provider-level and read-only. It is computed from local
-  auth profile metadata, env markers, configured provider keys, local-provider
-  markers, AWS Bedrock env/profile markers, and plugin synthetic-auth metadata;
+  auth profile metadata, env markers, configured provider keys, and plugin
+  synthetic-auth metadata;
   it does not load provider runtime, read keychain secrets, call provider
   APIs, or prove exact per-model execution readiness.
 - `models list --all --provider <id>` can include provider-owned static catalog
@@ -75,28 +73,26 @@ Notes:
   output, `Ctx` shows `contextTokens/contextWindow` when an effective runtime
   cap differs from the native context window; JSON rows include `contextTokens`
   when a provider exposes that cap.
-- `models list --provider <id>` filters by provider id, such as `moonshot` or
-  `openai`. It does not accept display labels from interactive provider
-  pickers, such as `Moonshot AI`.
-- Model refs are parsed by splitting on the **first** `/`. If the model ID includes `/` (OpenRouter-style), include the provider prefix (example: `openrouter/moonshotai/kimi-k2`).
+- `models list --provider <id>` filters by provider id, such as `openai` or
+  `anthropic`. It does not accept display labels from interactive provider
+  pickers.
+- Model refs are parsed by splitting on the **first** `/`.
 - If you omit the provider, OpenClaw resolves the input as an alias first, then
   as a unique configured-provider match for that exact model id, and only then
   falls back to the configured default provider with a deprecation warning.
   If that provider no longer exposes the configured default model, OpenClaw
   falls back to the first configured provider/model instead of surfacing a
   stale removed-provider default.
-- `models status` may show `marker(<value>)` in auth output for non-secret placeholders (for example `OPENAI_API_KEY`, `secretref-managed`, `minimax-oauth`, `oauth:chutes`, `ollama-local`) instead of masking them as secrets.
+- `models status` may show `marker(<value>)` in auth output for non-secret placeholders (for example `OPENAI_API_KEY` or `secretref-managed`) instead of masking them as secrets.
 
 ### Models scan
 
-`models scan` reads OpenRouter's public `:free` catalog and ranks candidates for
-fallback use. The catalog itself is public, so metadata-only scans do not need
-an OpenRouter key.
+`models scan` is not part of the retained slim setup path. Configure retained
+OpenAI/OpenAI-compatible or Anthropic models directly with `models auth` and
+`models set`.
 
-By default OpenClaw tries to probe tool and image support with live model calls.
-If no OpenRouter key is configured, the command falls back to metadata-only
-output and explains that `:free` models still require `OPENROUTER_API_KEY` for
-probes and inference.
+If model scanning is reintroduced later, it should target the retained provider
+set instead of the removed broad provider catalog.
 
 Options:
 
@@ -187,8 +183,7 @@ filter to one provider, such as `openai`, and `--json` for scripting.
 `openclaw plugins list` to see which providers are installed.
 Use `openclaw models auth --agent <id> <subcommand>` to write auth results to a
 specific configured agent store. The parent `--agent` flag is honored by
-`add`, `list`, `login`, `paste-api-key`, `setup-token`, `paste-token`, and
-`login-github-copilot`.
+`add`, `list`, `login`, `paste-api-key`, `setup-token`, and `paste-token`.
 
 For OpenAI models, `--provider openai` defaults to ChatGPT/Codex account login.
 Use `--method api-key` only when you want to add an OpenAI API-key profile,

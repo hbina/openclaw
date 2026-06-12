@@ -284,7 +284,6 @@ and troubleshooting see the main [FAQ](/help/faq).
     curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --install-method git
     ```
 
-    Windows installer (PowerShell):
     [https://openclaw.ai/install.ps1](https://openclaw.ai/install.ps1)
 
     More detail: [Development channels](/install/development-channels) and [Installer flags](/install/installer).
@@ -354,9 +353,7 @@ and troubleshooting see the main [FAQ](/help/faq).
     curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method git --verbose
     ```
 
-    Windows (PowerShell) equivalent:
 
-    ```powershell
     # install.ps1 has no dedicated -Verbose flag yet.
     Set-PSDebug -Trace 1
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -NoOnboard
@@ -364,61 +361,6 @@ and troubleshooting see the main [FAQ](/help/faq).
     ```
 
     More options: [Installer flags](/install/installer).
-
-  </Accordion>
-
-  <Accordion title="Windows install says git not found or openclaw not recognized">
-    Two common Windows issues:
-
-    **1) npm error spawn git / git not found**
-
-    - Install **Git for Windows** and make sure `git` is on your PATH.
-    - Close and reopen PowerShell, then re-run the installer.
-
-    **2) openclaw is not recognized after install**
-
-    - Your npm global bin folder is not on PATH.
-    - Check the path:
-
-      ```powershell
-      npm config get prefix
-      ```
-
-    - Add that directory to your user PATH (no `\bin` suffix needed on Windows; on most systems it is `%AppData%\npm`).
-    - Close and reopen PowerShell after updating PATH.
-
-    For desktop setup, use the native **Windows Hub** app. For terminal-only
-    setup, the PowerShell installer and WSL2 Gateway paths are both supported.
-    Docs: [Windows](/platforms/windows).
-
-  </Accordion>
-
-  <Accordion title="Windows exec output shows garbled Chinese text - what should I do?">
-    This is usually a console code page mismatch on native Windows shells.
-
-    Symptoms:
-
-    - `system.run`/`exec` output renders Chinese as mojibake
-    - The same command looks fine in another terminal profile
-
-    Quick workaround in PowerShell:
-
-    ```powershell
-    chcp 65001
-    [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
-    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    ```
-
-    Then restart the Gateway and retry your command:
-
-    ```powershell
-    openclaw gateway restart
-    ```
-
-    If you still reproduce this on latest OpenClaw, track/report it in:
-
-    - [Issue #30640](https://github.com/openclaw/openclaw/issues/30640)
 
   </Accordion>
 
@@ -501,11 +443,11 @@ and troubleshooting see the main [FAQ](/help/faq).
   <Accordion title="What does onboarding actually do?">
     `openclaw onboard` is the recommended setup path. In **local mode** it walks you through:
 
-    - **Model/auth setup** (provider OAuth, API keys, Anthropic setup-token, plus local model options such as LM Studio)
+    - **Model/auth setup** (OpenAI/OpenAI-compatible and Anthropic)
     - **Workspace** location + bootstrap files
     - **Gateway settings** (bind/port/auth/tailscale)
-    - **Channels** (WhatsApp, Telegram, Discord, Mattermost, Signal, iMessage, plus bundled channel plugins like QQ Bot)
-    - **Daemon install** (LaunchAgent on macOS; systemd user unit on Linux/WSL2)
+    - **Channels** (WhatsApp, Telegram, Discord)
+    - **Daemon install** (LaunchAgent on macOS; systemd user unit on Linux)
     - **Health checks** and **skills** selection
 
     It also warns if your configured model is unknown or missing auth.
@@ -529,14 +471,8 @@ and troubleshooting see the main [FAQ](/help/faq).
     predictable setup. OpenAI Codex OAuth is explicitly supported for external
     tools like OpenClaw.
 
-    OpenClaw also supports other hosted subscription-style options including
-    **Qwen Cloud Coding Plan**, **MiniMax Coding Plan**, and
-    **Z.AI / GLM Coding Plan**.
-
     Docs: [Anthropic](/providers/anthropic), [OpenAI](/providers/openai),
-    [Qwen Cloud](/providers/qwen),
-    [MiniMax](/providers/minimax), [Z.AI (GLM)](/providers/zai),
-    [Local models](/gateway/local-models), [Models](/concepts/models).
+    [Models](/concepts/models).
 
   </Accordion>
 
@@ -557,12 +493,9 @@ and troubleshooting see the main [FAQ](/help/faq).
     Claude CLI reuse and `claude -p` usage as sanctioned for this integration
     unless Anthropic publishes a new policy.
 
-    Anthropic setup-token is still available as a supported OpenClaw token path, but OpenClaw now prefers Claude CLI reuse and `claude -p` when available.
     For production or multi-user workloads, Anthropic API key auth is still the
-    safer, more predictable choice. If you want other subscription-style hosted
-    options in OpenClaw, see [OpenAI](/providers/openai), [Qwen / Model
-    Cloud](/providers/qwen), [MiniMax](/providers/minimax), and [GLM
-    Models](/providers/zai).
+    safer, more predictable choice. OpenAI subscription-style auth remains
+    available through the OpenAI path.
 
   </Accordion>
 
@@ -588,10 +521,6 @@ and troubleshooting see the main [FAQ](/help/faq).
     See [Models](/cli/models), [OAuth](/concepts/oauth), and
     [/gateway/troubleshooting#anthropic-429-extra-usage-required-for-long-context](/gateway/troubleshooting#anthropic-429-extra-usage-required-for-long-context).
 
-  </Accordion>
-
-  <Accordion title="Is AWS Bedrock supported?">
-    Yes. OpenClaw has a bundled **Amazon Bedrock (Converse)** provider. With AWS env markers present, OpenClaw can auto-discover the streaming/text Bedrock catalog and merge it as an implicit `amazon-bedrock` provider; otherwise you can explicitly enable `plugins.entries.amazon-bedrock.config.discovery.enabled` or add a manual provider entry. See [Amazon Bedrock](/providers/bedrock) and [Model providers](/providers/models). If you prefer a managed key flow, an OpenAI-compatible proxy in front of Bedrock is still a valid option.
   </Accordion>
 
   <Accordion title="How does Codex auth work?">
@@ -624,11 +553,9 @@ and troubleshooting see the main [FAQ](/help/faq).
   </Accordion>
 
   <Accordion title="Why can Codex OAuth limits differ from ChatGPT web?">
-    Codex OAuth uses OpenAI-managed, plan-dependent quota windows. In practice,
     those limits can differ from the ChatGPT website/app experience, even when
     both are tied to the same account.
 
-    OpenClaw can show the currently visible provider usage/quota windows in
     `openclaw models status`, but it does not invent or normalize ChatGPT-web
     entitlements into direct API access. If you want the direct OpenAI Platform
     billing/limit path, use `openai/*` with an API key.
@@ -644,52 +571,13 @@ and troubleshooting see the main [FAQ](/help/faq).
 
   </Accordion>
 
-  <Accordion title="How do I set up Gemini CLI OAuth?">
-    Gemini CLI uses a **plugin auth flow**, not a client id or secret in `openclaw.json`.
-
-    Steps:
-
-    1. Install Gemini CLI locally so `gemini` is on `PATH`
-       - Homebrew: `brew install gemini-cli`
-       - npm: `npm install -g @google/gemini-cli`
-    2. Enable the plugin: `openclaw plugins enable google`
-    3. Login: `openclaw models auth login --provider google-gemini-cli --set-default`
-    4. Default model after login: `google-gemini-cli/gemini-3-flash-preview`
-    5. If requests fail, set `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` on the gateway host
-
-    This stores OAuth tokens in auth profiles on the gateway host. Details: [Model providers](/concepts/model-providers).
-
-  </Accordion>
-
   <Accordion title="Is a local model OK for casual chats?">
     Usually no. OpenClaw needs large context + strong safety; small cards truncate and leak. If you must, run the **largest** model build you can locally (LM Studio) and see [/gateway/local-models](/gateway/local-models). Smaller/quantized models increase prompt-injection risk - see [Security](/gateway/security).
   </Accordion>
 
-  <Accordion title="How do I keep hosted model traffic in a specific region?">
-    Pick region-pinned endpoints. OpenRouter exposes US-hosted options for MiniMax, Kimi, and GLM; choose the US-hosted variant to keep data in-region. You can still list Anthropic/OpenAI alongside these by using `models.mode: "merge"` so fallbacks stay available while respecting the regioned provider you select.
-  </Accordion>
-
   <Accordion title="Do I have to buy a Mac Mini to install this?">
-    No. OpenClaw runs on macOS or Linux (Windows via WSL2). A Mac mini is optional - some people
+    No. OpenClaw runs on macOS or Linux. A Mac mini is optional - some people
     buy one as an always-on host, but a small VPS, home server, or Raspberry Pi-class box works too.
-
-    You only need a Mac **for macOS-only tools**. For iMessage, use [iMessage](/channels/imessage) with `imsg` on any Mac signed into Messages. If the Gateway runs on Linux or elsewhere, set `channels.imessage.cliPath` to an SSH wrapper that runs `imsg` on that Mac. If you want other macOS-only tools, run the Gateway on a Mac or pair a macOS node.
-
-    Docs: [iMessage](/channels/imessage), [Nodes](/nodes), [Mac remote mode](/platforms/mac/remote).
-
-  </Accordion>
-
-  <Accordion title="Do I need a Mac mini for iMessage support?">
-    You need **some macOS device** signed into Messages. It does **not** have to be a Mac mini -
-    any Mac works. **Use [iMessage](/channels/imessage)** with `imsg`; the Gateway can run on that Mac, or it can run elsewhere with an SSH wrapper `cliPath`.
-
-    Common setups:
-
-    - Run the Gateway on Linux/VPS, and set `channels.imessage.cliPath` to an SSH wrapper that runs `imsg` on a Mac signed into Messages.
-    - Run everything on the Mac if you want the simplest single-machine setup.
-
-    Docs: [iMessage](/channels/imessage), [Nodes](/nodes),
-    [Mac remote mode](/platforms/mac/remote).
 
   </Accordion>
 
@@ -817,7 +705,7 @@ and troubleshooting see the main [FAQ](/help/faq).
     - **Pros:** always-on, stable network, no laptop sleep issues, easier to keep running.
     - **Cons:** often run headless (use screenshots), remote file access only, you must SSH for updates.
 
-    **OpenClaw-specific note:** WhatsApp/Telegram/Slack/Mattermost/Discord all work fine from a VPS. The only real trade-off is **headless browser** vs a visible window. See [Browser](/tools/browser).
+    **OpenClaw-specific note:** WhatsApp, Telegram, and Discord all work fine from a VPS. The only real trade-off is **headless browser** vs a visible window. See [Browser](/tools/browser).
 
     **Recommended default:** VPS if you had gateway disconnects before. Local is great when you're actively using the Mac and want local file access or UI automation with a visible browser.
 
@@ -856,9 +744,6 @@ and troubleshooting see the main [FAQ](/help/faq).
     - **Recommended:** 2GB RAM or more if you run multiple channels, browser automation, or media tools.
     - **OS:** Ubuntu LTS or another modern Debian/Ubuntu.
 
-    If you are on Windows, use **Windows Hub** for desktop setup, or WSL2 when
-    you specifically want a Linux-style Gateway VM with broad tooling
-    compatibility. See [Windows](/platforms/windows), [VPS hosting](/vps).
     If you are running macOS in a VM, see [macOS VM](/install/macos-vm).
 
   </Accordion>

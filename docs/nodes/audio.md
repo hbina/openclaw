@@ -34,7 +34,6 @@ As of 2026-05-22, Gemini CLI auto-detect is no longer supported for media unders
 
 To disable auto-detection, set `tools.media.audio.enabled: false`.
 To customize, set `tools.media.audio.models`.
-Note: Binary detection is best-effort across macOS/Linux/Windows; ensure the CLI is on `PATH` (we expand `~`), or set an explicit CLI model with a full command path.
 
 ## Config examples
 

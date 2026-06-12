@@ -76,11 +76,10 @@ defaults write ai.openclaw.mac openclaw.nixMode -bool true
 
 OpenClaw reads JSON5 config from `OPENCLAW_CONFIG_PATH` and stores mutable data in `OPENCLAW_STATE_DIR`. When running under Nix, set these explicitly to Nix-managed locations so runtime state and config stay out of the immutable store.
 
-| Variable               | Default                                 |
-| ---------------------- | --------------------------------------- |
-| `OPENCLAW_HOME`        | `HOME` / `USERPROFILE` / `os.homedir()` |
-| `OPENCLAW_STATE_DIR`   | `~/.openclaw`                           |
-| `OPENCLAW_CONFIG_PATH` | `$OPENCLAW_STATE_DIR/openclaw.json`     |
+| Variable               | Default                             |
+| ---------------------- | ----------------------------------- |
+| `OPENCLAW_STATE_DIR`   | `~/.openclaw`                       |
+| `OPENCLAW_CONFIG_PATH` | `$OPENCLAW_STATE_DIR/openclaw.json` |
 
 ### Service PATH discovery
 

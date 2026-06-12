@@ -240,7 +240,6 @@ To disable auto-detection, set:
 ```
 
 <Note>
-Binary detection is best-effort across macOS/Linux/Windows; ensure the CLI is on `PATH` (we expand `~`), or set an explicit CLI model with a full command path.
 </Note>
 
 ### Proxy environment support (provider models)

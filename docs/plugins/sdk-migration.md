@@ -74,8 +74,6 @@ Current bundled provider examples:
   `contract-api.ts` seam
 - OpenAI keeps provider builders, default-model helpers, and realtime provider
   builders in its own `api.ts`
-- OpenRouter keeps provider builder and onboarding/config helpers in its own
-  `api.ts`
 
 ## Talk and realtime voice migration plan
 
@@ -349,29 +347,6 @@ releases.
 
   </Step>
 
-  <Step title="Audit Windows wrapper fallback behavior">
-    If your plugin uses `openclaw/plugin-sdk/windows-spawn`, unresolved Windows
-    `.cmd`/`.bat` wrappers now fail closed unless you explicitly pass
-    `allowShellFallback: true`.
-
-    ```typescript
-    // Before
-    const program = applyWindowsSpawnProgramPolicy({ candidate });
-
-    // After
-    const program = applyWindowsSpawnProgramPolicy({
-      candidate,
-      // Only set this for trusted compatibility callers that intentionally
-      // accept shell-mediated fallback.
-      allowShellFallback: true,
-    });
-    ```
-
-    If your caller does not intentionally rely on shell fallback, do not set
-    `allowShellFallback` and handle the thrown error instead.
-
-  </Step>
-
   <Step title="Find deprecated imports">
     Search your plugin for imports from either deprecated surface:
 
@@ -616,9 +591,9 @@ releases.
   | `plugin-sdk/provider-web-search-config-contract` | Provider web-search config helpers | Narrow web-search config/credential helpers for providers that do not need plugin-enable wiring |
   | `plugin-sdk/provider-web-search-contract` | Provider web-search contract helpers | Narrow web-search config/credential contract helpers such as `createWebSearchProviderContractFields`, `enablePluginInConfig`, `resolveProviderWebSearchPluginConfig`, and scoped credential setters/getters |
   | `plugin-sdk/provider-web-search` | Provider web-search helpers | Web-search provider registration/cache/runtime helpers |
-  | `plugin-sdk/provider-tools` | Provider tool/schema compat helpers | `ProviderToolCompatFamily`, `buildProviderToolCompatFamilyHooks`, and DeepSeek/Gemini/OpenAI schema cleanup + diagnostics |
-  | `plugin-sdk/provider-usage` | Provider usage helpers | `fetchClaudeUsage`, `fetchGeminiUsage`, `fetchGithubCopilotUsage`, and other provider usage helpers |
-  | `plugin-sdk/provider-stream` | Provider stream wrapper helpers | `ProviderStreamFamily`, `buildProviderStreamFamilyHooks`, `composeProviderStreamWrappers`, stream wrapper types, and shared Anthropic/Bedrock/DeepSeek V4/Google/Kilocode/Moonshot/OpenAI/OpenRouter/Z.A.I/MiniMax/Copilot wrapper helpers |
+  | `plugin-sdk/provider-tools` | Provider tool/schema compat helpers | `ProviderToolCompatFamily`, `buildProviderToolCompatFamilyHooks`, and OpenAI schema cleanup + diagnostics |
+  | `plugin-sdk/provider-usage` | Provider usage helpers | `fetchClaudeUsage`, `fetchCodexUsage`, and shared provider usage helpers |
+  | `plugin-sdk/provider-stream` | Provider stream wrapper helpers | `ProviderStreamFamily`, `buildProviderStreamFamilyHooks`, `composeProviderStreamWrappers`, stream wrapper types, and shared Anthropic/OpenAI wrapper helpers |
   | `plugin-sdk/provider-transport-runtime` | Provider transport helpers | Native provider transport helpers such as guarded fetch, transport message transforms, and writable transport event streams |
   | `plugin-sdk/keyed-async-queue` | Ordered async queue | `KeyedAsyncQueue` |
   | `plugin-sdk/media-runtime` | Shared media helpers | Media fetch/transform/store helpers, ffprobe-backed video dimension probing, and media payload builders |
@@ -726,8 +701,7 @@ canonical replacement.
     **New**: `resolveInboundMentionDecision({ facts, policy })` - returns a
     single decision object instead of two split calls.
 
-    Downstream channel plugins (Slack, Discord, Matrix, MS Teams) have already
-    switched.
+    Retained downstream channel plugins have already switched.
 
   </Accordion>
 

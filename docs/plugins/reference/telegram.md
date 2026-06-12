@@ -12,7 +12,7 @@ Adds the Telegram channel surface for sending and receiving OpenClaw messages.
 ## Distribution
 
 - Package: `@openclaw/telegram`
-- Install route: included in OpenClaw
+- Install route: source checkout only
 
 ## Surface
 

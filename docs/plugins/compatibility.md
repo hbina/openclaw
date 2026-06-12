@@ -31,13 +31,9 @@ The registry is the source for maintainer planning and future plugin inspector
 checks. If a plugin-facing behavior changes, add or update the compatibility
 record in the same change that adds the adapter.
 
-Doctor repair and migration compatibility is tracked separately at
-`src/commands/doctor/shared/deprecation-compat.ts`. Those records cover old
-config shapes, install-ledger layouts, and repair shims that may need to stay
-available after the runtime compatibility path is removed.
-
-Release sweeps should check both registries. Do not delete a doctor migration
-just because the matching runtime or config compatibility record expired; first
+Release sweeps should check the compatibility registry before removing
+compatibility paths. Do not delete a doctor migration just because the matching
+runtime or config compatibility record expired; first
 verify there is no supported upgrade path that still needs the repair. Also
 revalidate each replacement annotation during release planning because plugin
 ownership and config footprint can change as providers and channels move out of

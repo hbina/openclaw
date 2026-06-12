@@ -170,4 +170,3 @@ Notes:
 
 - [Browser](/tools/browser)
 - [Browser login](/tools/browser-login)
-- [Browser WSL2 troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting)

@@ -142,7 +142,6 @@ Use this when debugging auth or deciding what to back up:
 - **WhatsApp**: `~/.openclaw/credentials/whatsapp/<accountId>/creds.json`
 - **Telegram bot token**: config/env or `channels.telegram.tokenFile` (regular file only; symlinks rejected)
 - **Discord bot token**: config/env or SecretRef (env/file/exec providers)
-- **Slack tokens**: config/env (`channels.slack.*`)
 - **Pairing allowlists**:
   - `~/.openclaw/credentials/<channel>-allowFrom.json` (default account)
   - `~/.openclaw/credentials/<channel>-<accountId>-allowFrom.json` (non-default accounts)

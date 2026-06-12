@@ -23,7 +23,7 @@ sidebarTitle: "Models CLI"
   </Card>
 </CardGroup>
 
-Model refs choose a provider and model. They do not usually choose the low-level agent runtime. OpenAI agent refs are the main exception: `openai/gpt-5.5` runs through the Codex app-server runtime by default on the official OpenAI provider. Subscription Copilot refs (`github-copilot/*`) can additionally be opted into the external GitHub Copilot agent runtime plugin — that path stays explicit (no `auto` fallback). Explicit runtime overrides belong on provider/model policy, not on the whole agent or session. In Codex runtime mode, the `openai/gpt-*` ref does not imply API-key billing; auth can come from a Codex account or `openai` OAuth profile. See [Agent runtimes](/concepts/agent-runtimes) and [GitHub Copilot agent runtime](/plugins/copilot).
+Model refs choose a provider and model. They do not usually choose the low-level agent runtime. OpenAI agent refs are the main exception: `openai/gpt-5.5` runs through the Codex app-server runtime by default on the official OpenAI provider. Explicit runtime overrides belong on provider/model policy, not on the whole agent or session. In Codex runtime mode, the `openai/gpt-*` ref does not imply API-key billing; auth can come from a Codex account or `openai` OAuth profile. See [Agent runtimes](/concepts/agent-runtimes).
 
 ## How model selection works
 
@@ -111,7 +111,7 @@ openclaw config set agents.defaults.models '{"openai/gpt-5.4":{}}' --strict-json
   <Accordion title="Clobber protection rules">
     `openclaw config set` protects model/provider maps from accidental clobbers. A plain object assignment to `agents.defaults.models`, `models.providers`, or `models.providers.<id>.models` is rejected when it would remove existing entries. Use `--merge` for additive changes; use `--replace` only when the provided value should become the complete target value.
 
-    Interactive provider setup and `openclaw configure --section model` also merge provider-scoped selections into the existing allowlist, so adding Codex, Ollama, or another provider does not drop unrelated model entries. Configure preserves an existing `agents.defaults.model.primary` when provider auth is re-applied. Explicit default-setting commands such as `openclaw models auth login --provider <id> --set-default` and `openclaw models set <model>` still replace `agents.defaults.model.primary`.
+    Interactive provider setup and `openclaw configure --section model` also merge provider-scoped selections into the existing allowlist, so adding OpenAI-compatible or Anthropic entries does not drop unrelated model entries. Configure preserves an existing `agents.defaults.model.primary` when provider auth is re-applied. Explicit default-setting commands such as `openclaw models auth login --provider <id> --set-default` and `openclaw models set <model>` still replace `agents.defaults.model.primary`.
 
   </Accordion>
 </AccordionGroup>
@@ -211,7 +211,7 @@ You can switch models for the current session without restarting:
   </Accordion>
   <Accordion title="Ref parsing">
     - Model refs are parsed by splitting on the **first** `/`. Use `provider/model` when typing `/model <ref>`.
-    - If the model ID itself contains `/` (OpenRouter-style), you must include the provider prefix (example: `/model openrouter/moonshotai/kimi-k2`).
+    - If the model ID itself contains `/`, you must include the provider prefix.
     - If you omit the provider, OpenClaw resolves the input in this order:
       1. alias match
       2. unique configured-provider match for that exact unprefixed model id
@@ -291,52 +291,6 @@ Example (Claude CLI):
 claude auth login
 openclaw models status
 ```
-
-## Scanning (OpenRouter free models)
-
-`openclaw models scan` inspects OpenRouter's **free model catalog** and can optionally probe models for tool and image support.
-
-<ParamField path="--no-probe" type="boolean">
-  Skip live probes (metadata only).
-</ParamField>
-<ParamField path="--min-params <b>" type="number">
-  Minimum parameter size (billions).
-</ParamField>
-<ParamField path="--max-age-days <days>" type="number">
-  Skip older models.
-</ParamField>
-<ParamField path="--provider <name>" type="string">
-  Provider prefix filter.
-</ParamField>
-<ParamField path="--max-candidates <n>" type="number">
-  Fallback list size.
-</ParamField>
-<ParamField path="--set-default" type="boolean">
-  Set `agents.defaults.model.primary` to the first selection.
-</ParamField>
-<ParamField path="--set-image" type="boolean">
-  Set `agents.defaults.imageModel.primary` to the first image selection.
-</ParamField>
-
-<Note>
-The OpenRouter `/models` catalog is public, so metadata-only scans can list free candidates without a key. Probing and inference still require an OpenRouter API key (from auth profiles or `OPENROUTER_API_KEY`). If no key is available, `openclaw models scan` falls back to metadata-only output and leaves config unchanged. Use `--no-probe` to request metadata-only mode explicitly.
-</Note>
-
-Scan results are ranked by:
-
-1. Image support
-2. Tool latency
-3. Context size
-4. Parameter count
-
-Input:
-
-- OpenRouter `/models` list (filter `:free`)
-- Live probes require OpenRouter API key from auth profiles or `OPENROUTER_API_KEY` (see [Environment variables](/help/environment))
-- Optional filters: `--max-age-days`, `--min-params`, `--provider`, `--max-candidates`
-- Request/probe controls: `--timeout`, `--concurrency`
-
-When live probes run in a TTY, you can select fallbacks interactively. In non-interactive mode, pass `--yes` to accept defaults. Metadata-only results are informational; `--set-default` and `--set-image` require live probes so OpenClaw does not configure an unusable keyless OpenRouter model.
 
 ## Models registry (`models.json`)
 

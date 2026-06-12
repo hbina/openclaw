@@ -9,11 +9,9 @@ title: "Usage tracking"
 ## What it is
 
 - Pulls provider usage/quota directly from their usage endpoints.
-- No estimated costs; only provider-reported quota windows or account-state
   summaries.
 - Human-readable quota-window status output is normalized to `X% left`, even
   when an upstream API reports consumed quota, remaining quota, or only raw
-  counts. Providers without resettable quota windows can show provider summary
   text instead, such as a balance.
 - Session-level `/status` and `session_status` can fall back to the latest
   transcript usage entry when the live session snapshot is sparse. That

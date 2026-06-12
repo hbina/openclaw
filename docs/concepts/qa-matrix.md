@@ -123,7 +123,6 @@ The default output dir is `<repo>/.artifacts/qa-e2e/matrix-<timestamp>` so succe
 
 - **Run hangs near the end:** `matrix-js-sdk` native crypto handles can outlive the harness. The default forces a clean `process.exit` after artifact write; if you have unset `OPENCLAW_QA_MATRIX_DISABLE_FORCE_EXIT=1`, expect the process to linger.
 - **Cleanup error:** look for the printed recovery command (a `docker compose ... down --remove-orphans` invocation) and run it manually to release the homeserver port.
-- **Flaky negative-assertion windows in CI:** lower `OPENCLAW_QA_MATRIX_NO_REPLY_WINDOW_MS` (default 8 s) when CI is fast; raise it on slow shared runners.
 - **Need redacted bodies for a bug report:** rerun with `OPENCLAW_QA_MATRIX_CAPTURE_CONTENT=1` and attach `matrix-qa-observed-events.json`. Treat the resulting artifact as sensitive.
 - **Different Tuwunel version:** point `OPENCLAW_QA_MATRIX_TUWUNEL_IMAGE` at the version under test. The lane checks in only the pinned default image.
 

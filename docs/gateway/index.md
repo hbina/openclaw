@@ -115,7 +115,7 @@ Admin HTTP RPC (`POST /api/v1/admin/rpc`) is a separate, default-off plugin rout
 | Gateway port | `--port` → `OPENCLAW_GATEWAY_PORT` → `gateway.port` → `18789` |
 | Bind mode    | CLI/override → `gateway.bind` → `loopback`                    |
 
-Installed gateway services record the resolved `--port` in supervisor metadata. After changing `gateway.port`, run `openclaw doctor --fix` or `openclaw gateway install --force` so launchd/systemd/schtasks starts the process on the new port.
+Installed gateway services record the resolved `--port` in supervisor metadata. After changing `gateway.port`, run `openclaw doctor --fix` or `openclaw gateway install --force` so launchd/systemd starts the process on the new port.
 
 Gateway startup uses the same effective port and bind when it seeds local
 Control UI origins for non-loopback binds. For example, `--bind lan --port 3000`
@@ -147,7 +147,7 @@ openclaw doctor
 ```
 
 `gateway status --deep` is for extra service discovery (LaunchDaemons/systemd system
-units/schtasks), not a deeper RPC health probe.
+units), not a deeper RPC health probe.
 
 ## Multiple gateways (same host)
 
@@ -166,7 +166,7 @@ openclaw gateway probe
 What to expect:
 
 - `gateway status --deep` can report `Other gateway-like services detected (best effort)`
-  and print cleanup hints when stale launchd/systemd/schtasks installs are still around.
+  and print cleanup hints when stale launchd/systemd installs are still around.
 - `gateway probe` can warn about `multiple reachable gateway identities` when distinct
   gateways answer, or when OpenClaw cannot prove reachable targets are the same gateway.
   An SSH tunnel, proxy URL, or configured remote URL to the same gateway is one
@@ -264,22 +264,6 @@ KillMode=control-group
 [Install]
 WantedBy=default.target
 ```
-
-  </Tab>
-
-  <Tab title="Windows (native)">
-
-```powershell
-openclaw gateway install
-openclaw gateway status --json
-openclaw gateway restart
-openclaw gateway stop
-```
-
-Native Windows managed startup uses a Scheduled Task named `OpenClaw Gateway`
-(or `OpenClaw Gateway (<profile>)` for named profiles). If Scheduled Task
-creation is denied, OpenClaw falls back to a per-user Startup-folder launcher
-that points at `gateway.cmd` inside the state directory.
 
   </Tab>
 

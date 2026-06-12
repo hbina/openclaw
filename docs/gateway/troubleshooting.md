@@ -433,7 +433,7 @@ Look for:
 - `Runtime: stopped` with exit hints.
 - Service config mismatch (`Config (cli)` vs `Config (service)`).
 - Port/listener conflicts.
-- Extra launchd/systemd/schtasks installs when `--deep` is used.
+- Extra launchd/systemd installs when `--deep` is used.
 - `Other gateway-like services detected (best effort)` cleanup hints.
 
 <AccordionGroup>
@@ -441,7 +441,7 @@ Look for:
     - `Gateway start blocked: set gateway.mode=local` or `existing config is missing gateway.mode` → local gateway mode is not enabled, or the config file was clobbered and lost `gateway.mode`. Fix: set `gateway.mode="local"` in your config, or re-run `openclaw onboard --mode local` / `openclaw setup` to restamp the expected local-mode config. If you are running OpenClaw via Podman, the default config path is `~/.openclaw/openclaw.json`.
     - `refusing to bind gateway ... without auth` → non-loopback bind without a valid gateway auth path (token/password, or trusted-proxy where configured).
     - `another gateway instance is already listening` / `EADDRINUSE` → port conflict.
-    - `Other gateway-like services detected (best effort)` → stale or parallel launchd/systemd/schtasks units exist. Most setups should keep one gateway per machine; if you do need more than one, isolate ports + config/state/workspace. See [/gateway#multiple-gateways-same-host](/gateway#multiple-gateways-same-host).
+    - `Other gateway-like services detected (best effort)` → stale or parallel launchd/systemd units exist. Most setups should keep one gateway per machine; if you do need more than one, isolate ports + config/state/workspace. See [/gateway#multiple-gateways-same-host](/gateway#multiple-gateways-same-host).
     - `System-level OpenClaw gateway service detected` from doctor → a systemd system unit exists while the user-level service is missing. Remove or disable the duplicate before allowing doctor to install a user service, or set `OPENCLAW_SERVICE_REPAIR_POLICY=external` if the system unit is the intended supervisor.
     - `Gateway service port does not match current gateway config` → the installed supervisor still pins the old `--port`. Run `openclaw doctor --fix` or `openclaw gateway install --force`, then restart the gateway service.
 

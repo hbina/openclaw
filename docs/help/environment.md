@@ -106,7 +106,6 @@ Env var equivalents:
 
 ## Exec shell snapshots
 
-On non-Windows Gateway hosts, bash and zsh `exec` commands use a startup snapshot by default.
 Set `OPENCLAW_EXEC_SHELL_SNAPSHOT=0` in the Gateway process environment to disable this path.
 Values `false`, `no`, and `off` also disable it. Per-call `exec.env` values cannot toggle
 snapshots or redirect the snapshot cache.
@@ -181,8 +180,6 @@ shorthand values.
 ### `OPENCLAW_HOME`
 
 When set, `OPENCLAW_HOME` replaces the system home directory (`$HOME` / `os.homedir()`) for internal OpenClaw path defaults. This includes the default state directory, config path, agent directories, credentials, installer onboarding workspace, and the default dev checkout used by `openclaw update --channel dev`.
-
-**Precedence:** `OPENCLAW_HOME` > `$HOME` > `USERPROFILE` > Termux `PREFIX` home fallback on Android > `os.homedir()`
 
 **Example** (macOS LaunchDaemon):
 

@@ -345,7 +345,6 @@ enumeration of `src/gateway/server-methods/*.ts`.
 
   <Accordion title="Models and usage">
     - `models.list` returns the runtime-allowed model catalog. Pass `{ "view": "configured" }` for picker-sized configured models (`agents.defaults.models` first, then `models.providers.*.models`), or `{ "view": "all" }` for the full catalog.
-    - `usage.status` returns provider usage windows/remaining quota summaries.
     - `usage.cost` returns aggregated cost usage summaries for a date range.
       Pass `agentId` for one agent, or `agentScope: "all"` to aggregate configured agents.
     - `doctor.memory.status` returns vector-memory / cached embedding readiness for the active default agent workspace. Pass `{ "probe": true }` or `{ "deep": true }` only when the caller explicitly wants a live embedding provider ping. Dreaming-aware clients may also pass `{ "agentId": "agent-id" }` to scope Dreaming store stats to a selected agent workspace; omitting `agentId` keeps the default-agent fallback and aggregates configured Dreaming workspaces.

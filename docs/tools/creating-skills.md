@@ -144,7 +144,6 @@ metadata: { "openclaw": { "requires": { "bins": ["gemini"] }, "primaryEnv": "GEM
     | `requires.anyBins` | At least one binary must exist on `PATH` |
     | `requires.env` | Each env var must exist in the process or config |
     | `requires.config` | Each `openclaw.json` path must be truthy |
-    | `os` | Platform filter: `["darwin"]`, `["linux"]`, `["win32"]` |
     | `always` | Set `true` to skip all gates and always include the skill |
 
     Full reference: [Skills — Gating](/tools/skills#gating).

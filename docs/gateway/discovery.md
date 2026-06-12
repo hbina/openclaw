@@ -90,7 +90,6 @@ Enable/disable/override:
 - When the Bonjour plugin is enabled and `OPENCLAW_DISABLE_BONJOUR` is unset,
   Bonjour advertises on normal hosts and auto-disables inside detected containers.
   Empty-config macOS Gateway startup enables the plugin automatically; Linux,
-  Windows, and containerized deployments need explicit enablement.
   Use `0` only on host, macvlan, or another mDNS-capable network; use `1` to
   force-disable.
 - `gateway.bind` in `~/.openclaw/openclaw.json` controls the Gateway bind mode.

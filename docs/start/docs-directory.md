@@ -38,9 +38,6 @@ For a complete map of the docs, see [Docs hubs](/start/hubs).
 - [Control UI (browser)](/web/control-ui)
 - [Telegram](/channels/telegram)
 - [Discord](/channels/discord)
-- [Mattermost](/channels/mattermost)
-- [QQ Bot](/channels/qqbot)
-- [iMessage](/channels/imessage)
 - [Groups](/channels/groups)
 - [WhatsApp group messages](/channels/group-messages)
 - [Media images](/nodes/images)
@@ -51,7 +48,6 @@ For a complete map of the docs, see [Docs hubs](/start/hubs).
 - [macOS app](/platforms/macos)
 - [iOS app](/platforms/ios)
 - [Android app](/platforms/android)
-- [Windows Hub](/platforms/windows)
 - [Linux app](/platforms/linux)
 
 ## Operations and safety

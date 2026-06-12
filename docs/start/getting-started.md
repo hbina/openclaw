@@ -13,12 +13,10 @@ and a working chat session.
 ## What you need
 
 - **Node.js** — Node 24 recommended (Node 22.19+ also supported)
-- **An API key** from a model provider (Anthropic, OpenAI, Google, etc.) — onboarding will prompt you
+- **An API key** from Anthropic, OpenAI, or an OpenAI-compatible provider — onboarding will prompt you
 
 <Tip>
 Check your Node version with `node --version`.
-**Windows users:** the native Windows Hub app is the easiest desktop path. The
-PowerShell installer and WSL2 Gateway paths are also supported. See [Windows](/platforms/windows).
 Need to install Node? See [Node setup](/install/node).
 </Tip>
 
@@ -37,8 +35,6 @@ Need to install Node? See [Node setup](/install/node).
   className="rounded-lg"
 />
       </Tab>
-      <Tab title="Windows (PowerShell)">
-        ```powershell
         iwr -useb https://openclaw.ai/install.ps1 | iex
         ```
       </Tab>
@@ -122,7 +118,7 @@ openclaw dashboard
 
 <Columns>
   <Card title="Connect a channel" href="/channels" icon="message-square">
-    Discord, Feishu, iMessage, Matrix, Microsoft Teams, Signal, Slack, Telegram, WhatsApp, Zalo, and more.
+    Discord, Telegram, and WhatsApp.
   </Card>
   <Card title="Pairing and safety" href="/channels/pairing" icon="shield">
     Control who can message your agent.

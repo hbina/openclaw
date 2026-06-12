@@ -158,7 +158,6 @@ Use `--replace` only when you intentionally want the provided value to become th
     ```
 
     ```bash
-    openclaw config set --batch-file ./config-set.batch.json --dry-run
     ```
 
   </Tab>

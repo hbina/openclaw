@@ -217,7 +217,6 @@ When a profile fails due to auth/rate-limit errors (or a timeout that looks like
 
     - OpenClaw records `cooldownModel` for rate-limit failures when the failing model id is known.
     - A sibling model on the same provider can still be tried when the cooldown is scoped to a different model.
-    - Billing/disabled windows still block the whole profile across models.
 
   </Accordion>
 </AccordionGroup>

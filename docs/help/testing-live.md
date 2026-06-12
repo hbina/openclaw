@@ -73,8 +73,8 @@ Live tests are split into two layers so we can isolate failures:
   - `pnpm test:live` (or `OPENCLAW_LIVE_TEST=1` if invoking Vitest directly)
 - Set `OPENCLAW_LIVE_MODELS=modern`, `small`, or `all` (alias for modern) to actually run this suite; otherwise it skips to keep `pnpm test:live` focused on gateway smoke
 - How to select models:
-  - `OPENCLAW_LIVE_MODELS=modern` to run the modern allowlist (Opus/Sonnet 4.6+, GPT-5.2 + Codex, Gemini 3, DeepSeek V4, GLM 4.7, MiniMax M3, Grok 4.3)
-  - `OPENCLAW_LIVE_MODELS=small` to run the constrained small-model allowlist (Qwen 8B/9B local-compatible routes, Ollama Gemma, OpenRouter Qwen/GLM, and Z.AI GLM)
+  - `OPENCLAW_LIVE_MODELS=modern` to run the retained modern allowlist (OpenAI and Anthropic)
+  - `OPENCLAW_LIVE_MODELS=small` to run the constrained small-model allowlist for retained compatible routes
   - `OPENCLAW_LIVE_MODELS=all` is an alias for the modern allowlist
   - or `OPENCLAW_LIVE_MODELS="openai/gpt-5.5,anthropic/claude-opus-4-6,..."` (comma allowlist)
   - Local Ollama small-model runs default to `http://127.0.0.1:11434`; set `OPENCLAW_LIVE_OLLAMA_BASE_URL` only for LAN, custom, or Ollama Cloud endpoints.
@@ -82,7 +82,7 @@ Live tests are split into two layers so we can isolate failures:
   - Exhaustive sweeps use `OPENCLAW_LIVE_TEST_TIMEOUT_MS` for the whole direct-model test timeout. Default: 60 minutes.
   - Direct-model probes run with 20-way parallelism by default; set `OPENCLAW_LIVE_MODEL_CONCURRENCY` to override.
 - How to select providers:
-  - `OPENCLAW_LIVE_PROVIDERS="google,google-antigravity,google-gemini-cli"` (comma allowlist)
+  - `OPENCLAW_LIVE_PROVIDERS="openai,anthropic"` (comma allowlist)
 - Where keys come from:
   - By default: profile store and env fallbacks
   - Set `OPENCLAW_LIVE_REQUIRE_PROFILE_KEYS=1` to enforce **profile store** only
@@ -109,13 +109,13 @@ Live tests are split into two layers so we can isolate failures:
 - How to enable:
   - `pnpm test:live` (or `OPENCLAW_LIVE_TEST=1` if invoking Vitest directly)
 - How to select models:
-  - Default: modern allowlist (Opus/Sonnet 4.6+, GPT-5.2 + Codex, Gemini 3, DeepSeek V4, GLM 4.7, MiniMax M3, Grok 4.3)
+  - Default: modern allowlist (OpenAI and Anthropic)
   - `OPENCLAW_LIVE_GATEWAY_MODELS=small` to run the same constrained small-model allowlist through the full gateway+agent pipeline
   - `OPENCLAW_LIVE_GATEWAY_MODELS=all` is an alias for the modern allowlist
   - Or set `OPENCLAW_LIVE_GATEWAY_MODELS="provider/model"` (or comma list) to narrow
   - Modern/all and small gateway sweeps default to their curated caps; set `OPENCLAW_LIVE_GATEWAY_MAX_MODELS=0` for an exhaustive selected sweep or a positive number for a smaller cap.
 - How to select providers (avoid "OpenRouter everything"):
-  - `OPENCLAW_LIVE_GATEWAY_PROVIDERS="google,google-antigravity,google-gemini-cli,openai,anthropic,zai,minimax"` (comma allowlist)
+  - `OPENCLAW_LIVE_GATEWAY_PROVIDERS="openai,anthropic"` (comma allowlist)
 - Tool + image probes are always on in this live test:
   - `read` probe + `exec+read` probe (tool stress)
   - image probe runs when the model advertises image input support
@@ -222,7 +222,7 @@ Notes:
   - `pnpm test:live src/gateway/gateway-acp-bind.live.test.ts`
   - `OPENCLAW_LIVE_ACP_BIND=1`
 - Defaults:
-  - ACP agents in Docker: `claude,codex,gemini`
+  - ACP agents in Docker: `claude,codex`
   - ACP agent for direct `pnpm test:live ...`: `claude`
   - Synthetic channel: Slack DM-style conversation context
   - ACP backend: `acpx`
@@ -230,9 +230,8 @@ Notes:
   - `OPENCLAW_LIVE_ACP_BIND_AGENT=claude`
   - `OPENCLAW_LIVE_ACP_BIND_AGENT=codex`
   - `OPENCLAW_LIVE_ACP_BIND_AGENT=droid`
-  - `OPENCLAW_LIVE_ACP_BIND_AGENT=gemini`
   - `OPENCLAW_LIVE_ACP_BIND_AGENT=opencode`
-  - `OPENCLAW_LIVE_ACP_BIND_AGENTS=claude,codex,gemini`
+  - `OPENCLAW_LIVE_ACP_BIND_AGENTS=claude,codex`
   - `OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND='npx -y @agentclientprotocol/claude-agent-acp@<version>'`
   - `OPENCLAW_LIVE_ACP_BIND_CODEX_MODEL=gpt-5.5`
   - `OPENCLAW_LIVE_ACP_BIND_OPENCODE_MODEL=opencode/kimi-k2.6`
@@ -355,24 +354,11 @@ Narrow, explicit allowlists are fastest and least flaky:
   - `OPENCLAW_LIVE_GATEWAY_MODELS="openai/gpt-5.5" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
 
 - Tool calling across several providers:
-  - `OPENCLAW_LIVE_GATEWAY_MODELS="openai/gpt-5.5,anthropic/claude-opus-4-6,google/gemini-3-flash-preview,deepseek/deepseek-v4-flash,zai/glm-5.1,minimax/MiniMax-M3" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
-
-- Google focus (Gemini API key + Antigravity):
-  - Gemini (API key): `OPENCLAW_LIVE_GATEWAY_MODELS="google/gemini-3-flash-preview" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
-  - Antigravity (OAuth): `OPENCLAW_LIVE_GATEWAY_MODELS="google-antigravity/claude-opus-4-6-thinking,google-antigravity/gemini-3-pro-high" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
-
-- Google adaptive thinking smoke:
-  - Gemini 3 dynamic default: `pnpm openclaw qa manual --provider-mode live-frontier --model google/gemini-3.1-pro-preview --alt-model google/gemini-3.1-pro-preview --message '/think adaptive Reply exactly: GEMINI_ADAPTIVE_OK' --timeout-ms 180000`
-  - Gemini 2.5 dynamic budget: `pnpm openclaw qa manual --provider-mode live-frontier --model google/gemini-2.5-flash --alt-model google/gemini-2.5-flash --message '/think adaptive Reply exactly: GEMINI25_ADAPTIVE_OK' --timeout-ms 180000`
+  - `OPENCLAW_LIVE_GATEWAY_MODELS="openai/gpt-5.5,anthropic/claude-opus-4-6" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
 
 Notes:
 
-- `google/...` uses the Gemini API (API key).
-- `google-antigravity/...` uses the Antigravity OAuth bridge (Cloud Code Assist-style agent endpoint).
-- `google-gemini-cli/...` uses the local Gemini CLI on your machine (separate auth + tooling quirks).
-- Gemini API vs Gemini CLI:
-  - API: OpenClaw calls Google's hosted Gemini API over HTTP (API key / profile auth); this is what most users mean by "Gemini".
-  - CLI: OpenClaw shells out to a local `gemini` binary; it has its own auth and can behave differently (streaming/tool support/version skew).
+- The slim fork retains OpenAI-compatible and Anthropic provider paths for live model smoke coverage.
 
 ## Live: model matrix (what we cover)
 
@@ -385,14 +371,9 @@ This is the "common models" run we expect to keep working:
 - OpenAI (non-Codex): `openai/gpt-5.5`
 - OpenAI ChatGPT/Codex OAuth: `openai/gpt-5.5`
 - Anthropic: `anthropic/claude-opus-4-6` (or `anthropic/claude-sonnet-4-6`)
-- Google (Gemini API): `google/gemini-3.1-pro-preview` and `google/gemini-3-flash-preview` (avoid older Gemini 2.x models)
-- Google (Antigravity): `google-antigravity/claude-opus-4-6-thinking` and `google-antigravity/gemini-3-flash`
-- DeepSeek: `deepseek/deepseek-v4-flash` and `deepseek/deepseek-v4-pro`
-- Z.AI (GLM): `zai/glm-5.1`
-- MiniMax: `minimax/MiniMax-M3`
 
 Run gateway smoke with tools + image:
-`OPENCLAW_LIVE_GATEWAY_MODELS="openai/gpt-5.5,anthropic/claude-opus-4-6,google/gemini-3.1-pro-preview,google/gemini-3-flash-preview,google-antigravity/claude-opus-4-6-thinking,google-antigravity/gemini-3-flash,deepseek/deepseek-v4-flash,zai/glm-5.1,minimax/MiniMax-M3" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
+`OPENCLAW_LIVE_GATEWAY_MODELS="openai/gpt-5.5,anthropic/claude-opus-4-6" pnpm test:live src/gateway/gateway-models.profiles.live.test.ts`
 
 ### Baseline: tool calling (Read + optional Exec)
 
@@ -400,10 +381,6 @@ Pick at least one per provider family:
 
 - OpenAI: `openai/gpt-5.5`
 - Anthropic: `anthropic/claude-opus-4-6` (or `anthropic/claude-sonnet-4-6`)
-- Google: `google/gemini-3-flash-preview` (or `google/gemini-3.1-pro-preview`)
-- DeepSeek: `deepseek/deepseek-v4-flash`
-- Z.AI (GLM): `zai/glm-5.1`
-- MiniMax: `minimax/MiniMax-M3`
 
 Optional additional coverage (nice to have):
 
@@ -414,19 +391,19 @@ Optional additional coverage (nice to have):
 
 ### Vision: image send (attachment → multimodal message)
 
-Include at least one image-capable model in `OPENCLAW_LIVE_GATEWAY_MODELS` (Claude/Gemini/OpenAI vision-capable variants, etc.) to exercise the image probe.
+Include at least one image-capable model in `OPENCLAW_LIVE_GATEWAY_MODELS` (Claude/OpenAI vision-capable variants, etc.) to exercise the image probe.
 
 ### Aggregators / alternate gateways
 
 If you have keys enabled, we also support testing via:
 
-- OpenRouter: `openrouter/...` (hundreds of models; use `openclaw models scan` to find tool+image capable candidates)
+- OpenAI-compatible endpoints configured under `models.providers` can be included when they expose retained chat/tool behavior.
 - OpenCode: `opencode/...` for Zen and `opencode-go/...` for Go (auth via `OPENCODE_API_KEY` / `OPENCODE_ZEN_API_KEY`)
 
 More providers you can include in the live matrix (if you have creds/config):
 
-- Built-in: `openai`, `anthropic`, `google`, `google-vertex`, `google-antigravity`, `google-gemini-cli`, `zai`, `openrouter`, `opencode`, `opencode-go`, `xai`, `groq`, `cerebras`, `mistral`, `github-copilot`
-- Via `models.providers` (custom endpoints): `minimax` (cloud/API), plus any OpenAI/Anthropic-compatible proxy (LM Studio, vLLM, LiteLLM, etc.)
+- Built-in: `openai`, `anthropic`
+- Via `models.providers` (custom endpoints): any retained OpenAI/Anthropic-compatible proxy (LM Studio, vLLM, LiteLLM, etc.)
 
 <Tip>
 Do not hardcode "all models" in docs. The authoritative list is whatever `discoverModels(...)` returns on your machine plus whatever keys are available.

@@ -26,7 +26,6 @@ metadata:
 # Peekaboo
 
 Peekaboo is a full macOS UI automation CLI: capture/inspect screens, target UI
-elements, drive input, and manage apps/windows/menus. Commands share a snapshot
 cache and support `--json`/`-j` for scripting. Run `peekaboo` or
 `peekaboo <cmd> --help` for flags; `peekaboo --version` prints build metadata.
 Tip: run via `polter peekaboo` to ensure fresh builds.
@@ -41,7 +40,6 @@ Core
 - `config`: init/show/edit/validate, providers, models, credentials
 - `image`: capture screenshots (screen/window/menu bar regions)
 - `learn`: print the full agent guide + tool catalog
-- `list`: apps, windows, screens, menubar, permissions
 - `permissions`: check Screen Recording/Accessibility status
 - `run`: execute `.peekaboo.json` scripts
 - `sleep`: pause execution for a duration
@@ -128,7 +126,6 @@ peekaboo type "supersecret" --app Safari --return
 ### Target by window id
 
 ```bash
-peekaboo list windows --app "Visual Studio Code" --json
 peekaboo click --window-id 12345 --coords 120,160
 peekaboo type "Hello from Peekaboo" --window-id 12345
 ```

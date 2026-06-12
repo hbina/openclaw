@@ -1,7 +1,6 @@
 ---
 summary: "How OpenClaw builds prompt context and reports token usage + costs"
 read_when:
-  - Explaining token usage, costs, or context windows
   - Debugging context growth or compaction behavior
 title: "Token use and costs"
 ---
@@ -84,7 +83,6 @@ Other surfaces:
 
 - **TUI/Web TUI:** `/status` + `/usage` are supported.
 - **CLI:** `openclaw status --usage` and `openclaw channels list` show
-  normalized provider quota windows (`X% left`, not per-response costs).
   Current usage-window providers: Anthropic, GitHub Copilot, Gemini CLI,
   OpenAI Codex, MiniMax, Xiaomi, and z.ai.
 
@@ -103,7 +101,6 @@ also recover token/cache counters and the active runtime model label from the
 most recent transcript usage log. Existing nonzero live values still take
 precedence over transcript fallback values, and larger prompt-oriented
 transcript totals can win when stored totals are missing or smaller.
-Usage auth for provider quota windows comes from provider-specific hooks when
 available; otherwise OpenClaw falls back to matching OAuth/API-key credentials
 from auth profiles, env, or config.
 Assistant transcript entries persist the same normalized usage shape, including

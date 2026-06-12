@@ -15,20 +15,6 @@ Onboarding imports require a fresh OpenClaw setup. If you already have local Ope
 ## Two ways to import
 
 <Tabs>
-  <Tab title="Onboarding wizard">
-    The wizard offers Claude when it detects local Claude state.
-
-    ```bash
-    openclaw onboard --flow import
-    ```
-
-    Or point at a specific source:
-
-    ```bash
-    openclaw onboard --import-from claude --import-source ~/.claude
-    ```
-
-  </Tab>
   <Tab title="CLI">
     Use `openclaw migrate` for scripted or repeatable runs. See [`openclaw migrate`](/cli/migrate) for the full reference.
 
@@ -142,7 +128,7 @@ With `--json` and no `--yes`, apply prints the plan and does not mutate state. T
 
 <AccordionGroup>
   <Accordion title="Claude state lives outside ~/.claude">
-    Pass `--from /actual/path` (CLI) or `--import-source /actual/path` (onboarding).
+    Pass `--from /actual/path`.
   </Accordion>
   <Accordion title="Onboarding refuses to import on an existing setup">
     Onboarding imports require a fresh setup. Either reset state and re-onboard, or use `openclaw migrate apply claude` directly, which supports `--overwrite` and explicit backup control.

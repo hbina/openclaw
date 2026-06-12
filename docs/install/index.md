@@ -10,26 +10,16 @@ title: "Install"
 ## System requirements
 
 - **Node 24** (recommended) or Node 22.19+ - the installer script handles this automatically
-- **macOS, Linux, or Windows** - Windows users can start with the native Windows Hub app, the PowerShell CLI installer, or a WSL2 Gateway. See [Windows](/platforms/windows).
 - `pnpm` is only needed if you build from source
 
 ## Recommended: installer script
 
 The fastest way to install. It detects your OS, installs Node if needed, installs OpenClaw, and launches onboarding.
 
-<Note>
-Windows desktop users can also install the native [Windows Hub](/platforms/windows#recommended-windows-hub) companion app, which includes setup, tray status, chat, node mode, and local MCP mode.
-</Note>
-
 <Tabs>
-  <Tab title="macOS / Linux / WSL2">
+  <Tab title="macOS / Linux">
     ```bash
     curl -fsSL https://openclaw.ai/install.sh | bash
-    ```
-  </Tab>
-  <Tab title="Windows (PowerShell)">
-    ```powershell
-    iwr -useb https://openclaw.ai/install.ps1 | iex
     ```
   </Tab>
 </Tabs>
@@ -37,14 +27,9 @@ Windows desktop users can also install the native [Windows Hub](/platforms/windo
 To install without running onboarding:
 
 <Tabs>
-  <Tab title="macOS / Linux / WSL2">
+  <Tab title="macOS / Linux">
     ```bash
     curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
-    ```
-  </Tab>
-  <Tab title="Windows (PowerShell)">
-    ```powershell
-    & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -NoOnboard
     ```
   </Tab>
 </Tabs>
@@ -163,8 +148,7 @@ openclaw gateway status # verify the Gateway is running
 If you want managed startup after install:
 
 - macOS: LaunchAgent via `openclaw onboard --install-daemon` or `openclaw gateway install`
-- Linux/WSL2: systemd user service via the same commands
-- Native Windows: Scheduled Task first, with a per-user Startup-folder login item fallback if task creation is denied
+- Linux: systemd user service via the same commands
 
 ## Hosting and deployment
 

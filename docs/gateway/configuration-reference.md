@@ -843,7 +843,6 @@ Validation and safety notes:
 - `minimal` (default when the bundled `bonjour` plugin is enabled): omit `cliPath` + `sshPort` from TXT records.
 - `full`: include `cliPath` + `sshPort`; LAN multicast advertising still requires the bundled `bonjour` plugin to be enabled.
 - `off`: suppress LAN multicast advertising without changing plugin enablement.
-- The bundled `bonjour` plugin auto-starts on macOS hosts and is opt-in on Linux, Windows, and containerized Gateway deployments.
 - Hostname defaults to the system hostname when it is a valid DNS label, falling back to `openclaw`. Override with `OPENCLAW_MDNS_HOSTNAME`.
 
 ### Wide-area (DNS-SD)
@@ -962,7 +961,6 @@ Validation:
 Notes:
 
 - `file` provider supports `mode: "json"` and `mode: "singleValue"` (`id` must be `"value"` in singleValue mode).
-- File and exec provider paths fail closed when Windows ACL verification is unavailable. Set `allowInsecurePath: true` only for trusted paths that cannot be verified.
 - `exec` provider requires an absolute `command` path and uses protocol payloads on stdin/stdout.
 - By default, symlink command paths are rejected. Set `allowSymlinkCommand: true` to allow symlink paths while validating the resolved target path.
 - If `trustedDirs` is configured, the trusted-dir check applies to the resolved target path.

@@ -18,7 +18,6 @@ network without installing a full macOS companion app there.
 
 Common use cases:
 
-- Run commands on remote Linux/Windows boxes (build servers, lab machines, NAS).
 - Keep exec **sandboxed** on the gateway, but delegate approved runs to other hosts.
 - Provide a lightweight, headless execution target for automation or CI nodes.
 

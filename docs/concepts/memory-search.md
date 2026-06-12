@@ -43,18 +43,11 @@ for indexed chunks. Configure those with `memorySearch.queryInputType` and
 
 ## Supported providers
 
-| Provider          | ID                  | Needs API key | Notes                         |
-| ----------------- | ------------------- | ------------- | ----------------------------- |
-| Bedrock           | `bedrock`           | No            | Uses AWS credential chain     |
-| DeepInfra         | `deepinfra`         | Yes           | Default: `BAAI/bge-m3`        |
-| Gemini            | `gemini`            | Yes           | Supports image/audio indexing |
-| GitHub Copilot    | `github-copilot`    | No            | Uses Copilot subscription     |
-| Local             | `local`             | No            | GGUF model, ~0.6 GB download  |
-| Mistral           | `mistral`           | Yes           |                               |
-| Ollama            | `ollama`            | No            | Local/self-hosted             |
-| OpenAI            | `openai`            | Yes           | Default                       |
-| OpenAI-compatible | `openai-compatible` | Usually       | Generic `/v1/embeddings`      |
-| Voyage            | `voyage`            | Yes           |                               |
+| Provider          | ID                  | Needs API key | Notes                    |
+| ----------------- | ------------------- | ------------- | ------------------------ |
+| Local             | `local`             | No            | GGUF model download      |
+| OpenAI            | `openai`            | Yes           | Default                  |
+| OpenAI-compatible | `openai-compatible` | Usually       | Generic `/v1/embeddings` |
 
 ## How search works
 
@@ -133,10 +126,10 @@ different daily notes.
 
 ## Multimodal memory
 
-With Gemini Embedding 2, you can index images and audio files alongside
-Markdown. Search queries remain text, but they match against visual and audio
-content. See the [Memory configuration reference](/reference/memory-config) for
-setup.
+When the configured retained embedding provider supports it, you can index
+images and audio files alongside Markdown. Search queries remain text, but they
+match against visual and audio content. See the [Memory configuration
+reference](/reference/memory-config) for setup.
 
 ## Session memory search
 

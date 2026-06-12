@@ -399,4 +399,3 @@ Strict-mode example (block private/internal destinations by default):
 - [Browser](/tools/browser) - overview, configuration, profiles, security
 - [Browser login](/tools/browser-login) - signing in to sites
 - [Browser Linux troubleshooting](/tools/browser-linux-troubleshooting)
-- [Browser WSL2 troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting)

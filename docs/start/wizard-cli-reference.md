@@ -14,11 +14,11 @@ For the short guide, see [Onboarding (CLI)](/start/wizard).
 
 Local mode (default) walks you through:
 
-- Model and auth setup (OpenAI Code subscription OAuth, Anthropic Claude CLI or API key, plus MiniMax, GLM, Ollama, Moonshot, StepFun, and AI Gateway options)
+- Model and auth setup (OpenAI/OpenAI-compatible and Anthropic)
 - Workspace location and bootstrap files
 - Gateway settings (port, bind, auth, tailscale)
-- Channels and providers (Telegram, WhatsApp, Discord, Google Chat, Mattermost, Signal, iMessage, and other bundled channel plugins)
-- Daemon install (LaunchAgent, systemd user unit, or native Windows Scheduled Task with Startup-folder fallback)
+- Channels (Telegram, WhatsApp, and Discord)
+- Daemon install (LaunchAgent or systemd user unit)
 - Health check
 - Skills setup
 
@@ -67,22 +67,15 @@ It does not install or modify anything on the remote host.
     - [WhatsApp](/channels/whatsapp): optional QR login
     - [Telegram](/channels/telegram): bot token
     - [Discord](/channels/discord): bot token
-    - [Google Chat](/channels/googlechat): service account JSON + webhook audience
-    - [Mattermost](/channels/mattermost): bot token + base URL
-    - [Signal](/channels/signal): optional `signal-cli` install + account config
-    - [iMessage](/channels/imessage): `imsg` CLI path + Messages DB access; use an SSH wrapper when the Gateway runs off-Mac
     - DM security: default is pairing. First DM sends a code; approve via
       `openclaw pairing approve <channel> <code>` or use allowlists.
   </Step>
   <Step title="Daemon install">
     - macOS: LaunchAgent
       - Requires logged-in user session; for headless, use a custom LaunchDaemon (not shipped).
-    - Linux and Windows via WSL2: systemd user unit
+    - Linux: systemd user unit
       - Wizard attempts `loginctl enable-linger <user>` so gateway stays up after logout.
       - May prompt for sudo (writes `/var/lib/systemd/linger`); it tries without sudo first.
-    - Native Windows: Scheduled Task first
-      - If task creation is denied, OpenClaw falls back to a per-user Startup-folder login item and starts the gateway immediately.
-      - Scheduled Tasks remain preferred because they provide better supervisor status.
     - Runtime selection: Node (recommended; required for WhatsApp and Telegram). Bun is not recommended.
 
   </Step>
@@ -98,7 +91,7 @@ It does not install or modify anything on the remote host.
 
   </Step>
   <Step title="Finish">
-    - Summary and next steps, including iOS, Android, and macOS app options.
+    - Summary and next steps for the retained CLI/Gateway setup.
 
   </Step>
 </Steps>
@@ -152,59 +145,6 @@ What you set:
 
     Sets `agents.defaults.model` to `openai/gpt-5.5` when model is unset, `openai/*`, or legacy Codex model refs.
 
-  </Accordion>
-  <Accordion title="xAI (Grok) OAuth">
-    Browser sign-in for eligible SuperGrok or X Premium accounts. This is the
-    recommended xAI path for most users. OpenClaw stores the resulting auth
-    profile for Grok models, Grok `web_search`, `x_search`, and `code_execution`.
-  </Accordion>
-  <Accordion title="xAI (Grok) device code">
-    Remote-friendly browser sign-in with a short code instead of a localhost
-    callback. Use this from SSH, Docker, or VPS hosts.
-  </Accordion>
-  <Accordion title="xAI (Grok) API key">
-    Prompts for `XAI_API_KEY` and configures xAI as a model provider. Use this
-    when you want an xAI Console API key instead of subscription OAuth.
-  </Accordion>
-  <Accordion title="OpenCode">
-    Prompts for `OPENCODE_API_KEY` (or `OPENCODE_ZEN_API_KEY`) and lets you choose the Zen or Go catalog.
-    Setup URL: [opencode.ai/auth](https://opencode.ai/auth).
-  </Accordion>
-  <Accordion title="API key (generic)">
-    Stores the key for you.
-  </Accordion>
-  <Accordion title="Vercel AI Gateway">
-    Prompts for `AI_GATEWAY_API_KEY`.
-    More detail: [Vercel AI Gateway](/providers/vercel-ai-gateway).
-  </Accordion>
-  <Accordion title="Cloudflare AI Gateway">
-    Prompts for account ID, gateway ID, and `CLOUDFLARE_AI_GATEWAY_API_KEY`.
-    More detail: [Cloudflare AI Gateway](/providers/cloudflare-ai-gateway).
-  </Accordion>
-  <Accordion title="MiniMax">
-    Config is auto-written. Hosted default is `MiniMax-M3`; API-key setup uses
-    `minimax/...`, and OAuth setup uses `minimax-portal/...`.
-    More detail: [MiniMax](/providers/minimax).
-  </Accordion>
-  <Accordion title="StepFun">
-    Config is auto-written for StepFun standard or Step Plan on China or global endpoints.
-    Standard currently includes `step-3.5-flash`, and Step Plan also includes `step-3.5-flash-2603`.
-    More detail: [StepFun](/providers/stepfun).
-  </Accordion>
-  <Accordion title="Synthetic (Anthropic-compatible)">
-    Prompts for `SYNTHETIC_API_KEY`.
-    More detail: [Synthetic](/providers/synthetic).
-  </Accordion>
-  <Accordion title="Ollama (Cloud and local open models)">
-    Prompts for `Cloud + Local`, `Cloud only`, or `Local only` first.
-    `Cloud only` uses `OLLAMA_API_KEY` with `https://ollama.com`.
-    The host-backed modes prompt for base URL (default `http://127.0.0.1:11434`), discover available models, and suggest defaults.
-    `Cloud + Local` also checks whether that Ollama host is signed in for cloud access.
-    More detail: [Ollama](/providers/ollama).
-  </Accordion>
-  <Accordion title="Moonshot and Kimi Coding">
-    Moonshot (Kimi K2) and Kimi Coding configs are auto-written.
-    More detail: [Moonshot AI (Kimi + Kimi Coding)](/providers/moonshot).
   </Accordion>
   <Accordion title="Custom provider">
     Works with OpenAI-compatible and Anthropic-compatible endpoints.
@@ -281,12 +221,12 @@ Typical fields in `~/.openclaw/openclaw.json`:
 
 - `agents.defaults.workspace`
 - `agents.defaults.skipBootstrap` when `--skip-bootstrap` is passed
-- `agents.defaults.model` / `models.providers` (if Minimax chosen)
+- `agents.defaults.model` / `models.providers`
 - `tools.profile` (local onboarding defaults to `"coding"` when unset; existing explicit values are preserved)
 - `gateway.*` (mode, bind, auth, tailscale)
 - `session.dmScope` (local onboarding defaults this to `per-channel-peer` when unset; existing explicit values are preserved)
-- `channels.telegram.botToken`, `channels.discord.token`, `channels.matrix.*`, `channels.signal.*`, `channels.imessage.*`
-- Channel allowlists (Slack, Discord, Matrix, Microsoft Teams) when you opt in during prompts (names resolve to IDs when possible)
+- `channels.telegram.botToken`, `channels.discord.token`, and WhatsApp account settings
+- Channel allowlists for Telegram, WhatsApp, and Discord when you opt in during prompts
 - `skills.install.nodeManager`
   - The `setup --node-manager` flag accepts `npm`, `pnpm`, or `bun`.
   - Manual config can still set `skills.install.nodeManager: "yarn"` later.
@@ -301,11 +241,6 @@ Typical fields in `~/.openclaw/openclaw.json`:
 WhatsApp credentials go under `~/.openclaw/credentials/whatsapp/<accountId>/`.
 Sessions are stored under `~/.openclaw/agents/<agentId>/sessions/`.
 
-<Note>
-Some channels are delivered as plugins. When selected during setup, the wizard
-prompts to install the plugin (npm or local path) before channel configuration.
-</Note>
-
 Gateway wizard RPC:
 
 - `wizard.start`
@@ -314,15 +249,6 @@ Gateway wizard RPC:
 - `wizard.status`
 
 Clients (macOS app and Control UI) can render steps without re-implementing onboarding logic.
-
-Signal setup behavior:
-
-- Downloads the appropriate release asset
-- Stores it under `~/.openclaw/tools/signal-cli/<version>/`
-- Writes `channels.signal.cliPath` in config
-- JVM builds require Java 21
-- Native builds are used when available
-- Windows uses WSL2 and follows Linux signal-cli flow inside WSL
 
 ## Related docs
 

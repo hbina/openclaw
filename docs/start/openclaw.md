@@ -6,7 +6,7 @@ read_when:
 title: "Personal assistant setup"
 ---
 
-OpenClaw is a self-hosted gateway that connects Discord, Google Chat, iMessage, Matrix, Microsoft Teams, Signal, Slack, Telegram, WhatsApp, Zalo, and more to AI agents. This guide covers the "personal assistant" setup: a dedicated WhatsApp number that behaves like your always-on AI assistant.
+OpenClaw is a self-hosted gateway that connects Discord, Telegram, and WhatsApp to AI agents. This guide covers the "personal assistant" setup: a dedicated WhatsApp number that behaves like your always-on AI assistant.
 
 ## ⚠️ Safety first
 
@@ -14,7 +14,7 @@ You're putting an agent in a position to:
 
 - run commands on your machine (depending on your tool policy)
 - read/write files in your workspace
-- send messages back out via WhatsApp/Telegram/Discord/Mattermost and other bundled channels
+- send messages back out via WhatsApp, Telegram, or Discord
 
 Start conservative:
 
@@ -232,11 +232,6 @@ Logs live under `/tmp/openclaw/` (default: `openclaw-YYYY-MM-DD.log`).
 - WebChat: [WebChat](/web/webchat)
 - Gateway ops: [Gateway runbook](/gateway)
 - Cron + wakeups: [Cron jobs](/automation/cron-jobs)
-- macOS menu bar companion: [OpenClaw macOS app](/platforms/macos)
-- iOS node app: [iOS app](/platforms/ios)
-- Android node app: [Android app](/platforms/android)
-- Windows Hub: [Windows](/platforms/windows)
-- Linux status: [Linux app](/platforms/linux)
 - Security: [Security](/gateway/security)
 
 ## Related

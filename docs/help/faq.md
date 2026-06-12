@@ -83,7 +83,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
 
 <AccordionGroup>
   <Accordion title="What is OpenClaw, in one paragraph?">
-    OpenClaw is a personal AI assistant you run on your own devices. It replies on the messaging surfaces you already use (WhatsApp, Telegram, Slack, Mattermost, Discord, Google Chat, Signal, iMessage, WebChat, and bundled channel plugins such as QQ Bot) and can also do voice + a live Canvas on supported platforms. The **Gateway** is the always-on control plane; the assistant is the product.
+    OpenClaw is a personal AI assistant you run on your own devices. It replies on retained messaging surfaces (WhatsApp, Telegram, Discord, and WebChat) and can also do voice + a live Canvas on supported platforms. The **Gateway** is the always-on control plane; the assistant is the product.
   </Accordion>
 
   <Accordion title="Value proposition">
@@ -96,9 +96,9 @@ lives on the [First-run FAQ](/help/faq-first-run).
 
     - **Your devices, your data:** run the Gateway wherever you want (Mac, Linux, VPS) and keep the
       workspace + session history local.
-    - **Real channels, not a web sandbox:** WhatsApp/Telegram/Slack/Discord/Signal/iMessage/etc,
+    - **Real channels, not a web sandbox:** WhatsApp, Telegram, and Discord,
       plus mobile voice and Canvas on supported platforms.
-    - **Model-agnostic:** use Anthropic, OpenAI, MiniMax, OpenRouter, etc., with per-agent routing
+    - **Model-agnostic:** use Anthropic, OpenAI, or OpenAI-compatible providers with per-agent routing
       and failover.
     - **Local-only option:** run local models so **all data can stay on your device** if you want.
     - **Multi-agent routing:** separate agents per channel, account, or task, each with its own
@@ -554,10 +554,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
     until you configure a key or choose another provider explicitly.
 
     If you'd rather stay local, set `memorySearch.provider = "local"` (and optionally
-    `memorySearch.fallback = "none"`). If you want Gemini embeddings, set
-    `memorySearch.provider = "gemini"` and provide `GEMINI_API_KEY` (or
-    `memorySearch.remote.apiKey`). We support **OpenAI, OpenAI-compatible, Gemini,
-    Voyage, Mistral, Bedrock, Ollama, LM Studio, GitHub Copilot, DeepInfra, or local**
+    `memorySearch.fallback = "none"`). We support **OpenAI, OpenAI-compatible, or local**
     embedding models - see [Memory](/concepts/memory) for the setup details.
 
   </Accordion>
@@ -572,7 +569,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
     - **Local by default:** sessions, memory files, config, and workspace live on the Gateway host
       (`~/.openclaw` + your workspace directory).
     - **Remote by necessity:** messages you send to model providers (Anthropic/OpenAI/etc.) go to
-      their APIs, and chat platforms (WhatsApp/Telegram/Slack/etc.) store message data on their
+      their APIs, and chat platforms (WhatsApp/Telegram/Discord/etc.) store message data on their
       servers.
     - **You control the footprint:** using local models keeps prompts on your machine, but channel
       traffic still goes through the channel's servers.
@@ -900,7 +897,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
   <Accordion title="How do I run a central Gateway with specialized workers across devices?">
     The common pattern is **one Gateway** (e.g. Raspberry Pi) plus **nodes** and **agents**:
 
-    - **Gateway (central):** owns channels (Signal/WhatsApp), routing, and sessions.
+    - **Gateway (central):** owns channels (WhatsApp/Telegram/Discord), routing, and sessions.
     - **Nodes (devices):** Macs/iOS/Android connect as peripherals and expose local tools (`system.run`, `canvas`, `camera`).
     - **Agents (workers):** separate brains/workspaces for special roles (e.g. "Hetzner ops", "Personal data").
     - **Sub-agents:** spawn background work from a main agent when you want parallelism.
@@ -1001,7 +998,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
     Yes. There is no built-in "bot-to-bot" bridge, but you can wire it up in a few
     reliable ways:
 
-    **Simplest:** use a normal chat channel both bots can access (Telegram/Slack/WhatsApp).
+    **Simplest:** use a normal chat channel both bots can access (Telegram/Discord/WhatsApp).
     Have Bot A send a message to Bot B, then let Bot B reply as usual.
 
     **CLI bridge (generic):** run a script that calls the other Gateway with
@@ -1035,7 +1032,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
 
   <Accordion title="Is there a benefit to using a node on my personal laptop instead of SSH from a VPS?">
     Yes - nodes are the first-class way to reach your laptop from a remote Gateway, and they
-    unlock more than shell access. The Gateway runs on macOS/Linux (Windows via WSL2) and is
+    unlock more than shell access. The Gateway runs on macOS/Linux and is
     lightweight (a small VPS or Raspberry Pi-class box is fine; 4 GB RAM is plenty), so a common
     setup is an always-on host plus your laptop as a node.
 
@@ -1427,9 +1424,9 @@ lives on the [First-run FAQ](/help/faq-first-run).
 
   </Accordion>
 
-  <Accordion title="Can I run multiple bots or chats at the same time (Slack), and how should I set that up?">
+  <Accordion title="Can I run multiple bots or chats at the same time, and how should I set that up?">
     Yes. Use **Multi-Agent Routing** to run multiple isolated agents and route inbound messages by
-    channel/account/peer. Slack is supported as a channel and can be bound to specific agents.
+    channel/account/peer. Telegram, WhatsApp, and Discord can be bound to specific agents.
 
     Browser access is powerful but not "do anything a human can" - anti-bot, CAPTCHAs, and MFA can
     still block automation. For the most reliable browser control, use local Chrome MCP on the host,
@@ -1439,10 +1436,10 @@ lives on the [First-run FAQ](/help/faq-first-run).
 
     - Always-on Gateway host (VPS/Mac mini).
     - One agent per role (bindings).
-    - Slack channel(s) bound to those agents.
+    - Retained chat channel(s) bound to those agents.
     - Local browser via Chrome MCP or a node when needed.
 
-    Docs: [Multi-Agent Routing](/concepts/multi-agent), [Slack](/channels/slack),
+    Docs: [Multi-Agent Routing](/concepts/multi-agent), [Channels](/channels),
     [Browser](/tools/browser), [Nodes](/nodes).
 
   </Accordion>
@@ -1468,7 +1465,7 @@ lives on the [Models FAQ](/help/faq-models).
   </Accordion>
 
   <Accordion title='Why does openclaw gateway status say "Runtime: running" but "Connectivity probe: failed"?'>
-    Because "running" is the **supervisor's** view (launchd/systemd/schtasks). The connectivity probe is the CLI actually connecting to the gateway WebSocket.
+    Because "running" is the **supervisor's** view (launchd/systemd). The connectivity probe is the CLI actually connecting to the gateway WebSocket.
 
     Use `openclaw gateway status` and trust these lines:
 
@@ -1634,8 +1631,6 @@ lives on the [Models FAQ](/help/faq-models).
 
     - macOS launchd stdout: `~/Library/Logs/openclaw/gateway.log` (profiles use `gateway-<profile>.log`; stderr is suppressed)
     - Linux: `journalctl --user -u openclaw-gateway[-<profile>].service -n 200 --no-pager`
-    - Windows: `schtasks /Query /TN "OpenClaw Gateway (<profile>)" /V /FO LIST`
-
     See [Troubleshooting](/gateway/troubleshooting) for more.
 
   </Accordion>
@@ -1649,49 +1644,6 @@ lives on the [Models FAQ](/help/faq-models).
     ```
 
     If you run the gateway manually, `openclaw gateway --force` can reclaim the port. See [Gateway](/gateway).
-
-  </Accordion>
-
-  <Accordion title="I closed my terminal on Windows - how do I restart OpenClaw?">
-    There are **three Windows install modes**:
-
-    **1) Windows Hub local setup:** the native app manages a local app-owned WSL Gateway.
-
-    Open **OpenClaw Companion** from the Start menu or tray, then use
-    **Gateway Setup** or the Connections tab.
-
-    **2) Manual WSL2 Gateway:** the Gateway runs inside Linux.
-
-    Open PowerShell, enter WSL, then restart:
-
-    ```powershell
-    wsl
-    openclaw gateway status
-    openclaw gateway restart
-    ```
-
-    If you never installed the service, start it in the foreground:
-
-    ```bash
-    openclaw gateway run
-    ```
-
-    **3) Native Windows CLI/Gateway:** the Gateway runs directly in Windows.
-
-    Open PowerShell and run:
-
-    ```powershell
-    openclaw gateway status
-    openclaw gateway restart
-    ```
-
-    If you run it manually (no service), use:
-
-    ```powershell
-    openclaw gateway run
-    ```
-
-    Docs: [Windows](/platforms/windows), [Gateway service runbook](/gateway).
 
   </Accordion>
 

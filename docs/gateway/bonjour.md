@@ -9,7 +9,6 @@ title: "Bonjour discovery"
 OpenClaw can use Bonjour (mDNS / DNS-SD) to discover an active Gateway (WebSocket endpoint).
 Multicast `local.` browsing is a **LAN-only convenience**. The bundled `bonjour`
 plugin owns LAN advertising. It auto-starts on macOS hosts and is opt-in on
-Linux, Windows, and containerized Gateway deployments. For cross-network discovery, the same
 beacon can also be published through a configured wide-area DNS-SD domain. Discovery
 is still best-effort and does **not** replace SSH or Tailnet-based connectivity.
 
@@ -169,7 +168,6 @@ Bonjour auto-starts for empty-config Gateway startup on macOS hosts because the
 local app and nearby iOS/Android nodes commonly rely on same-LAN discovery.
 
 Enable Bonjour explicitly when same-LAN auto-discovery is useful on Linux,
-Windows, or another non-macOS host:
 
 ```bash
 openclaw plugins enable bonjour

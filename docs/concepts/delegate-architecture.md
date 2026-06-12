@@ -167,17 +167,15 @@ Create a dedicated user account for the delegate (e.g., `delegate@[organization]
 
 **Send on Behalf** (Tier 2):
 
-```powershell
-# Exchange Online PowerShell
 Set-Mailbox -Identity "principal@[organization].org" `
-  -GrantSendOnBehalfTo "delegate@[organization].org"
+-GrantSendOnBehalfTo "delegate@[organization].org"
+
 ```
 
 **Read access** (Graph API with application permissions):
 
 Register an Azure AD application with `Mail.Read` and `Calendars.Read` application permissions. **Before using the application**, scope access with an [application access policy](https://learn.microsoft.com/graph/auth-limit-mailbox-access) to restrict the app to only the delegate and principal mailboxes:
 
-```powershell
 New-ApplicationAccessPolicy `
   -AppId "<app-client-id>" `
   -PolicyScopeGroupId "<mail-enabled-security-group>" `

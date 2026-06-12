@@ -1,7 +1,7 @@
 ---
 summary: "CLI reference for `openclaw channels` (accounts, status, login/logout, logs)"
 read_when:
-  - You want to add/remove channel accounts (WhatsApp/Telegram/Discord/Google Chat/Slack/Mattermost (plugin)/Signal/iMessage/Matrix)
+  - You want to add/remove channel accounts (WhatsApp/Telegram/Discord)
   - You want to check channel status or tail channel logs
 title: "Channels"
 ---
@@ -24,7 +24,7 @@ openclaw channels status
 openclaw channels capabilities
 openclaw channels capabilities --channel discord --target channel:123
 openclaw channels capabilities --channel discord --target channel:<voice-channel-id>
-openclaw channels resolve --channel slack "#general" "@jane"
+openclaw channels resolve --channel discord "My Server/#support" "@jane"
 openclaw channels logs --channel all
 ```
 
@@ -53,12 +53,12 @@ row appears until the next inbound or outbound conversation event.
 
 ```bash
 openclaw channels add --channel telegram --token <bot-token>
-openclaw channels add --channel nostr --private-key "$NOSTR_PRIVATE_KEY"
+openclaw channels add --channel discord --token <bot-token>
 openclaw channels remove --channel telegram --delete
 ```
 
 <Tip>
-`openclaw channels add --help` shows per-channel flags (token, private key, app token, signal-cli paths, etc).
+`openclaw channels add --help` shows per-channel flags for retained channel auth.
 </Tip>
 
 `channels remove` only operates on installed/configured channel plugins. Use `channels add` first for installable catalog channels.
@@ -66,12 +66,9 @@ For runtime-backed channel plugins, `channels remove` also asks the running Gate
 
 Common non-interactive add surfaces include:
 
-- bot-token channels: `--token`, `--bot-token`, `--app-token`, `--token-file`
-- Signal/iMessage transport fields: `--signal-number`, `--cli-path`, `--http-url`, `--http-host`, `--http-port`, `--db-path`, `--service`, `--region`
-- Google Chat fields: `--webhook-path`, `--webhook-url`, `--audience-type`, `--audience`
-- Matrix fields: `--homeserver`, `--user-id`, `--access-token`, `--password`, `--device-name`, `--initial-sync-limit`
-- Nostr fields: `--private-key`, `--relay-urls`
-- Tlon fields: `--ship`, `--url`, `--code`, `--group-channels`, `--dm-allowlist`, `--auto-discover-channels`
+- Telegram bot token: `--token`, `--bot-token`, `--token-file`
+- Discord bot token: `--token`, `--bot-token`
+- WhatsApp login stays QR/session based; use `openclaw channels login --channel whatsapp`
 - `--use-env` for default-account env-backed auth where supported
 
 If a channel plugin needs to be installed during a flag-driven add command, OpenClaw uses the channel's default install source without opening the interactive plugin install prompt.
@@ -86,7 +83,7 @@ If you confirm bind now, the wizard asks which agent should own each configured 
 
 You can also manage the same routing rules later with `openclaw agents bindings`, `openclaw agents bind`, and `openclaw agents unbind` (see [agents](/cli/agents)).
 
-When you add a non-default account to a channel that is still using single-account top-level settings, OpenClaw promotes account-scoped top-level values into the channel's account map before writing the new account. Most channels land those values in `channels.<channel>.accounts.default`, but bundled channels can preserve an existing matching promoted account instead. Matrix is the current example: if one named account already exists, or `defaultAccount` points at an existing named account, promotion preserves that account instead of creating a new `accounts.default`.
+When you add a non-default account to a channel that is still using single-account top-level settings, OpenClaw promotes account-scoped top-level values into the channel's account map before writing the new account.
 
 Routing behavior stays consistent:
 
@@ -94,7 +91,7 @@ Routing behavior stays consistent:
 - `channels add` does not auto-create or rewrite bindings in non-interactive mode.
 - Interactive setup can optionally add account-scoped bindings.
 
-If your config was already in a mixed state (named accounts present and top-level single-account values still set), run `openclaw doctor --fix` to move account-scoped values into the promoted account chosen for that channel. Most channels promote into `accounts.default`; Matrix can preserve an existing named/default target instead.
+If your config was already in a mixed state (named accounts present and top-level single-account values still set), run `openclaw doctor --fix` to move account-scoped values into the promoted account chosen for that channel.
 
 ## Login and logout (interactive)
 
@@ -129,16 +126,15 @@ Notes:
 - `--channel` is optional; omit it to list every channel (including extensions).
 - `--account` is only valid with `--channel`.
 - `--target` accepts `channel:<id>` or a raw numeric channel id and only applies to Discord. For Discord voice channels, the permission check flags missing `ViewChannel`, `Connect`, `Speak`, `SendMessages`, and `ReadMessageHistory`.
-- Probes are provider-specific: Discord intents + optional channel permissions; Slack bot + user scopes; Telegram bot flags + webhook; Signal daemon version; Microsoft Teams app token + Graph roles/scopes (annotated where known). Channels without probes report `Probe: unavailable`.
+- Probes are provider-specific: Discord intents + optional channel permissions, Telegram bot flags + webhook, and WhatsApp session state. Channels without probes report `Probe: unavailable`.
 
 ## Resolve names to IDs
 
 Resolve channel/user names to IDs using the provider directory:
 
 ```bash
-openclaw channels resolve --channel slack "#general" "@jane"
 openclaw channels resolve --channel discord "My Server/#support" "@someone"
-openclaw channels resolve --channel matrix "Project Room"
+openclaw channels resolve --channel telegram "@someone"
 ```
 
 Notes:

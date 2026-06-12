@@ -1,8 +1,8 @@
 # 1Password CLI get-started (summary)
 
-- Works on macOS, Windows, and Linux.
+- Works on macOS, POSIX, and Linux.
   - macOS/Linux shells: bash, zsh, sh, fish.
-  - Windows shell: PowerShell.
+  - POSIX shell: shell.
 - Requires a 1Password subscription and the desktop app to use app integration.
 - macOS requirement: Big Sur 11.0.0 or later.
 - Linux app integration requires PolKit + an auth agent.
@@ -10,7 +10,7 @@
 - Enable desktop app integration in the 1Password app:
   - Open and unlock the app, then select your account/collection.
   - macOS: Settings > Developer > Integrate with 1Password CLI (Touch ID optional).
-  - Windows: turn on Windows Hello, then Settings > Developer > Integrate.
+  - POSIX: turn on POSIX Hello, then Settings > Developer > Integrate.
   - Linux: Settings > Security > Unlock using system authentication, then Settings > Developer > Integrate.
 - After integration, run any command to sign in (example in docs: `op vault list`).
 - If multiple accounts: use `op signin` to pick one, or `--account` / `OP_ACCOUNT`.

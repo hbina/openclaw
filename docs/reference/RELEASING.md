@@ -37,7 +37,6 @@ OpenClaw has three public release lanes:
 - `beta` means the current beta install target
 - Stable and stable correction releases publish to npm `beta` by default; release operators can target `latest` explicitly, or promote a vetted beta build later
 - Every stable OpenClaw release ships the npm package, macOS app, and signed
-  Windows Hub installers together; beta releases normally validate and publish
   the npm/package path first, with native app build/sign/notarize/promote
   reserved for stable unless explicitly requested
 
@@ -65,11 +64,9 @@ the maintainer-only release runbook.
    commits since the last reachable release tag. Keep entries user-facing,
    dedupe overlapping PR/direct-commit entries, commit the rewrite, push it,
    and rebase/pull once more before branching.
-3. Review release compatibility records in
-   `src/plugins/compat/registry.ts` and
-   `src/commands/doctor/shared/deprecation-compat.ts`. Remove expired
-   compatibility only when the upgrade path stays covered, or record why it is
-   intentionally carried.
+3. Review release compatibility records in `src/plugins/compat/registry.ts`.
+   Remove expired compatibility only when the upgrade path stays covered, or
+   record why it is intentionally carried.
 4. Create `release/YYYY.M.PATCH` from current `main`; do not do normal release work
    directly on `main`.
 5. Bump every required version location for the intended tag, then run
@@ -131,12 +128,9 @@ vYYYY.M.PATCH-beta.N` from the matching `release/YYYY.M.PATCH` branch. The helpe
     packaged `.zip`, `.dmg`, `.dSYM.zip`, and updated `appcast.xml` on `main`.
     The macOS publish workflow publishes the signed appcast to public `main`
     automatically after release assets verify; if branch protection blocks the
-    direct push, it opens or updates an appcast PR. Stable Windows Hub
     readiness requires the signed `OpenClawCompanion-Setup-x64.exe`,
     `OpenClawCompanion-Setup-arm64.exe`, and
     `OpenClawCompanion-SHA256SUMS.txt` assets on the OpenClaw GitHub release;
-    promote them with the `Windows Node Release` workflow after the matching
-    `openclaw/openclaw-windows-node` release has passed its signing workflow.
 11. After publish, run the npm post-publish verifier, optional standalone
     published-npm Telegram E2E when you need post-publish channel proof,
     dist-tag promotion when needed, verify the generated GitHub release page,
@@ -213,7 +207,6 @@ vYYYY.M.PATCH-beta.N` from the matching `release/YYYY.M.PATCH` branch. The helpe
   coverage for the release candidate. Manual CI dispatches bypass changed
   scoping and force the Linux Node shards, bundled-plugin shards, plugin and
   channel contract shards, Node 22 compatibility, `check-*`, `check-additional-*`,
-  built-artifact smoke checks, docs checks, Python skills, Windows, macOS,
   Android, and Control UI i18n lanes.
   Example: `gh workflow run ci.yml --ref release/YYYY.M.PATCH`
 - Run `pnpm qa:otel:smoke` when validating release telemetry. It exercises
@@ -249,10 +242,6 @@ vYYYY.M.PATCH-beta.N` from the matching `release/YYYY.M.PATCH` branch. The helpe
   workflow serializes plugin npm publish, plugin ClawHub publish, and OpenClaw
   npm publish so the core package is not published before its externalized
   plugins.
-- Run the manual `Windows Node Release` workflow for stable releases after the
-  matching `openclaw/openclaw-windows-node` release exists. It downloads the
-  signed Windows Hub installers from the companion repo, verifies their
-  Authenticode signatures on a Windows runner, writes a SHA-256 manifest, and
   uploads the installers plus manifest onto the canonical OpenClaw GitHub
   release. Website download links should target exact OpenClaw release asset
   URLs for the current stable release, or `releases/latest/download/...` only
@@ -485,7 +474,6 @@ box, and the narrower release groups are `install-smoke`, `cross-os`,
 Focused `npm-telegram` reruns require `release_package_spec` or
 `npm_telegram_package_spec`; full/all runs with `release_profile=full` use the
 release-checks package artifact. Focused
-cross-OS reruns can add `cross_os_suite_filter=windows/packaged-upgrade` or
 another OS/suite filter. QA release-check failures block normal release
 validation, including required OpenClaw dynamic tool drift in the standard tier.
 Tideclaw alpha runs may still treat non-package-safety release-check lanes as
@@ -500,7 +488,6 @@ The Vitest box is the manual `CI` child workflow. Manual CI intentionally
 bypasses changed scoping and forces the normal test graph for the release
 candidate: Linux Node shards, bundled-plugin shards, plugin and channel contract
 shards, Node 22 compatibility, `check-*`, `check-additional-*`,
-built-artifact smoke checks, docs checks, Python skills, Windows, macOS,
 Android, and Control UI i18n.
 
 Use this box to answer "did the source tree pass the full normal test suite?"

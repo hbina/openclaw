@@ -65,12 +65,10 @@ systemctl status ssh sshd
 lsblk -f
 ```
 
-Windows:
-
-```powershell
 systeminfo
 Get-NetFirewallProfile
 Get-BitLockerVolume
+
 ```
 
 ## Risk profile
@@ -103,3 +101,4 @@ Offer only relevant items:
 - Add scheduled `openclaw security audit --deep`.
 
 Confirm exact action before applying.
+```

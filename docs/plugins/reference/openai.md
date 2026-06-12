@@ -12,11 +12,11 @@ Adds OpenAI model provider support to OpenClaw.
 ## Distribution
 
 - Package: `@openclaw/openai-provider`
-- Install route: included in OpenClaw
+- Install route: source checkout only
 
 ## Surface
 
-providers: openai; contracts: imageGenerationProviders, mediaUnderstandingProviders, memoryEmbeddingProviders, realtimeTranscriptionProviders, realtimeVoiceProviders, speechProviders, videoGenerationProviders
+providers: openai
 
 ## Related docs
 

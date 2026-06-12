@@ -1,9 +1,9 @@
 ---
-summary: "Configure the official external LanceDB memory plugin, including local Ollama-compatible embeddings"
+summary: "Configure the official external LanceDB memory plugin with retained embedding providers"
 read_when:
   - You are configuring the memory-lancedb plugin
   - You want LanceDB-backed long-term memory with auto-recall or auto-capture
-  - You are using local OpenAI-compatible embeddings such as Ollama
+  - You are using OpenAI-compatible embeddings
 title: "Memory LanceDB"
 sidebarTitle: "Memory LanceDB"
 ---
@@ -100,9 +100,8 @@ provider's configured auth profile, environment variable, or
 }
 ```
 
-This path works with provider auth profiles that expose embedding credentials.
-For example, GitHub Copilot can be used when the Copilot profile/plan supports
-embeddings:
+This path works with retained provider auth profiles that expose embedding
+credentials. For an OpenAI-compatible embedding endpoint:
 
 ```json5
 {
@@ -115,8 +114,9 @@ embeddings:
         enabled: true,
         config: {
           embedding: {
-            provider: "github-copilot",
+            provider: "openai-compatible",
             model: "text-embedding-3-small",
+            baseUrl: "https://example.com/v1",
           },
         },
       },
@@ -127,47 +127,15 @@ embeddings:
 
 OpenAI Codex / ChatGPT OAuth is not an OpenAI Platform embeddings credential.
 For OpenAI embeddings, use an OpenAI API key auth profile,
-`OPENAI_API_KEY`, or `models.providers.openai.apiKey`. OAuth-only users can use
-another embedding-capable provider such as GitHub Copilot or Ollama.
-
-## Ollama embeddings
-
-For Ollama embeddings, prefer the bundled Ollama embedding provider. It uses the
-native Ollama `/api/embed` endpoint and follows the same auth/base URL rules as
-the Ollama provider documented in [Ollama](/providers/ollama).
-
-```json5
-{
-  plugins: {
-    slots: {
-      memory: "memory-lancedb",
-    },
-    entries: {
-      "memory-lancedb": {
-        enabled: true,
-        config: {
-          embedding: {
-            provider: "ollama",
-            baseUrl: "http://127.0.0.1:11434",
-            model: "mxbai-embed-large",
-            dimensions: 1024,
-          },
-          recallMaxChars: 400,
-          autoRecall: true,
-          autoCapture: false,
-        },
-      },
-    },
-  },
-}
-```
+`OPENAI_API_KEY`, or `models.providers.openai.apiKey`. OAuth-only users should
+configure a separate retained embedding credential.
 
 Set `dimensions` for non-standard embedding models. OpenClaw knows the
 dimensions for `text-embedding-3-small` and `text-embedding-3-large`; custom
 models need the value in config so LanceDB can create the vector column.
 
-For small local embedding models, lower `recallMaxChars` if you see context
-length errors from the local server.
+For small local embedding models exposed through an OpenAI-compatible endpoint,
+lower `recallMaxChars` if you see context length errors from the local server.
 
 ## OpenAI-compatible providers
 
@@ -349,12 +317,13 @@ Set a lower `recallMaxChars`, then restart the Gateway:
 }
 ```
 
-For Ollama, also verify the embedding server is reachable from the Gateway host:
+For OpenAI-compatible local endpoints, also verify the embedding server is
+reachable from the Gateway host:
 
 ```bash
-curl http://127.0.0.1:11434/v1/embeddings \
+curl http://127.0.0.1:1234/v1/embeddings \
   -H "Content-Type: application/json" \
-  -d '{"model":"mxbai-embed-large","input":"hello"}'
+  -d '{"model":"text-embedding-3-small","input":"hello"}'
 ```
 
 ### Unsupported embedding model
@@ -381,5 +350,3 @@ not automatically store new ones. Use the `memory_store` tool or enable
 - [Memory overview](/concepts/memory)
 - [Active memory](/concepts/active-memory)
 - [Memory search](/concepts/memory-search)
-- [Memory Wiki](/plugins/memory-wiki)
-- [Ollama](/providers/ollama)

@@ -329,7 +329,6 @@ Or set it in config, per platform:
 }
 ```
   </Tab>
-  <Tab title="Windows">
 ```json5
 {
   browser: {
@@ -772,7 +771,6 @@ Platforms:
   `/snap/bin`, `/opt/google`, `/opt/brave.com`, `/usr/lib/chromium`, and
   `/usr/lib/chromium-browser`, plus Playwright-managed Chromium under
   `PLAYWRIGHT_BROWSERS_PATH` or `~/.cache/ms-playwright`.
-- Windows: checks common install locations.
 
 ## Control API (optional)
 
@@ -785,9 +783,6 @@ power-ups, JSON output, debug workflows). See
 
 For Linux-specific issues (especially snap Chromium), see
 [Browser troubleshooting](/tools/browser-linux-troubleshooting).
-
-For WSL2 Gateway + Windows Chrome split-host setups, see
-[WSL2 + Windows + remote Chrome CDP troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting).
 
 ### CDP startup failure vs navigation SSRF block
 

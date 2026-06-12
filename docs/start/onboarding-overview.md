@@ -12,13 +12,13 @@ optional chat channels — they just differ in how you interact with the setup.
 
 ## Which path should I use?
 
-|                | CLI onboarding                         | macOS app onboarding      |
-| -------------- | -------------------------------------- | ------------------------- |
-| **Platforms**  | macOS, Linux, Windows (native or WSL2) | macOS only                |
-| **Interface**  | Terminal wizard                        | Guided UI in the app      |
-| **Best for**   | Servers, headless, full control        | Desktop Mac, visual setup |
-| **Automation** | `--non-interactive` for scripts        | Manual only               |
-| **Command**    | `openclaw onboard`                     | Launch the app            |
+|                | CLI onboarding                  | macOS app onboarding      |
+| -------------- | ------------------------------- | ------------------------- |
+| **Platforms**  | macOS, Linux                    | macOS only                |
+| **Interface**  | Terminal wizard                 | Guided UI in the app      |
+| **Best for**   | Servers, headless, full control | Desktop Mac, visual setup |
+| **Automation** | `--non-interactive` for scripts | Manual only               |
+| **Command**    | `openclaw onboard`              | Launch the app            |
 
 Most users should start with **CLI onboarding** — it works everywhere and gives
 you the most control.
@@ -30,9 +30,7 @@ Regardless of which path you choose, onboarding sets up:
 1. **Model provider and auth** — API key, OAuth, or setup token for your chosen provider
 2. **Workspace** — directory for agent files, bootstrap templates, and memory
 3. **Gateway** — port, bind address, auth mode
-4. **Channels** (optional) — built-in and bundled chat channels such as
-   iMessage, Discord, Feishu, Google Chat, Mattermost, Microsoft Teams,
-   Telegram, WhatsApp, and more
+4. **Channels** (optional) — Telegram, WhatsApp, and Discord
 5. **Daemon** (optional) — background service so the Gateway starts automatically
 
 ## CLI onboarding

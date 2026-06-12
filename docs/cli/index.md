@@ -394,8 +394,6 @@ Highlights:
 `openclaw status --usage` and the Control UI surface provider usage/quota when
 OAuth/API credentials are available. Data comes directly from provider usage
 endpoints and is normalized to `X% left`. Providers with current usage
-windows: Anthropic, GitHub Copilot, Gemini CLI, OpenAI Codex, MiniMax,
-Xiaomi, and z.ai.
 
 See [Usage tracking](/concepts/usage-tracking) for details.
 

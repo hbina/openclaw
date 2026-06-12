@@ -9,11 +9,10 @@ title: "Installer internals"
 
 OpenClaw ships three installer scripts, served from `openclaw.ai`.
 
-| Script                             | Platform             | What it does                                                                                                   |
-| ---------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [`install.sh`](#installsh)         | macOS / Linux / WSL  | Installs Node if needed, installs OpenClaw via npm (default) or git, and can run onboarding.                   |
-| [`install-cli.sh`](#install-clish) | macOS / Linux / WSL  | Installs Node + OpenClaw into a local prefix (`~/.openclaw`) with npm or git checkout modes. No root required. |
-| [`install.ps1`](#installps1)       | Windows (PowerShell) | Installs Node if needed, installs OpenClaw via npm (default) or git, and can run onboarding.                   |
+| Script                             | Platform            | What it does                                                                                                   |
+| ---------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [`install.sh`](#installsh)         | macOS / Linux / WSL | Installs Node if needed, installs OpenClaw via npm (default) or git, and can run onboarding.                   |
+| [`install-cli.sh`](#install-clish) | macOS / Linux / WSL | Installs Node + OpenClaw into a local prefix (`~/.openclaw`) with npm or git checkout modes. No root required. |
 
 ## Quick commands
 
@@ -39,11 +38,9 @@ OpenClaw ships three installer scripts, served from `openclaw.ai`.
 
   </Tab>
   <Tab title="install.ps1">
-    ```powershell
     iwr -useb https://openclaw.ai/install.ps1 | iex
     ```
 
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -Tag beta -NoOnboard -DryRun
     ```
 
@@ -281,15 +278,11 @@ by default, plus git-checkout installs under the same prefix flow.
 ### Flow (install.ps1)
 
 <Steps>
-  <Step title="Ensure PowerShell + Windows environment">
-    Requires PowerShell 5+.
   </Step>
   <Step title="Ensure Node.js 24 by default">
-    If missing, attempts install via winget, then Chocolatey, then Scoop. If no package manager is available, the script downloads the official Node.js Windows zip into `%LOCALAPPDATA%\OpenClaw\deps\portable-node` and adds it to the current process and user PATH. Node 22 LTS, currently `22.19+`, remains supported for compatibility.
   </Step>
   <Step title="Install OpenClaw">
     - `npm` method (default): global npm install using selected `-Tag`, launched from a writable installer temp directory so shells opened in protected folders such as `C:\` still work
-    - `git` method: clone/update repo, install/build with pnpm, and install wrapper at `%USERPROFILE%\.local\bin\openclaw.cmd`. If Git is missing, the script bootstraps user-local MinGit under `%LOCALAPPDATA%\OpenClaw\deps\portable-git` and adds it to the current process and user PATH.
 
   </Step>
   <Step title="Post-install tasks">
@@ -299,7 +292,6 @@ by default, plus git-checkout installs under the same prefix flow.
 
   </Step>
   <Step title="Handle failures">
-    `iwr ... | iex` and scriptblock installs report a terminating error without closing the current PowerShell session. Direct `powershell -File` / `pwsh -File` installs still exit non-zero for automation.
   </Step>
 </Steps>
 
@@ -307,32 +299,26 @@ by default, plus git-checkout installs under the same prefix flow.
 
 <Tabs>
   <Tab title="Default">
-    ```powershell
     iwr -useb https://openclaw.ai/install.ps1 | iex
     ```
   </Tab>
   <Tab title="Git install">
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -InstallMethod git
     ```
   </Tab>
   <Tab title="GitHub main checkout">
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -InstallMethod git -Tag main
     ```
   </Tab>
   <Tab title="Custom git directory">
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -InstallMethod git -GitDir "C:\openclaw"
     ```
   </Tab>
   <Tab title="Dry run">
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -DryRun
     ```
   </Tab>
   <Tab title="Debug trace">
-    ```powershell
     # install.ps1 has no dedicated -Verbose flag yet.
     Set-PSDebug -Trace 1
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -NoOnboard
@@ -348,7 +334,6 @@ by default, plus git-checkout installs under the same prefix flow.
 | --------------------------- | ---------------------------------------------------------- |
 | `-InstallMethod npm\|git`   | Install method (default: `npm`)                            |
 | `-Tag <tag\|version\|spec>` | npm dist-tag, version, or package spec (default: `latest`) |
-| `-GitDir <path>`            | Checkout directory (default: `%USERPROFILE%\openclaw`)     |
 | `-NoOnboard`                | Skip onboarding                                            |
 | `-NoGitUpdate`              | Skip `git pull`                                            |
 | `-DryRun`                   | Print actions only                                         |
@@ -369,7 +354,6 @@ by default, plus git-checkout installs under the same prefix flow.
 </AccordionGroup>
 
 <Note>
-If `-InstallMethod git` is used and Git is missing, the script tries a user-local MinGit bootstrap before printing the Git for Windows link.
 </Note>
 
 ---
@@ -396,7 +380,6 @@ Use non-interactive flags/env vars for predictable runs.
     ```
   </Tab>
   <Tab title="install.ps1 (skip onboarding)">
-    ```powershell
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -NoOnboard
     ```
   </Tab>
@@ -415,19 +398,12 @@ Use non-interactive flags/env vars for predictable runs.
     Some Linux setups point npm global prefix to root-owned paths. `install.sh` can switch prefix to `~/.npm-global` and append PATH exports to shell rc files (when those files exist).
   </Accordion>
 
-  <Accordion title='Windows: "npm error spawn git / ENOENT"'>
-    Rerun the installer so it can bootstrap user-local MinGit, or install Git for Windows and reopen PowerShell.
   </Accordion>
 
-  <Accordion title='Windows: "openclaw is not recognized"'>
-    Run `npm config get prefix` and add that directory to your user PATH (no `\bin` suffix needed on Windows), then reopen PowerShell.
   </Accordion>
 
-  <Accordion title="Windows: how to get verbose installer output">
     `install.ps1` does not currently expose a `-Verbose` switch.
-    Use PowerShell tracing for script-level diagnostics:
 
-    ```powershell
     Set-PSDebug -Trace 1
     & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -NoOnboard
     Set-PSDebug -Trace 0

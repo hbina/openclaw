@@ -512,7 +512,6 @@ candidate contains redacted secret placeholders such as `***`.
       flattening the config
     - **Confinement**: `$include` paths must resolve under the directory holding
       `openclaw.json`. To share a tree across machines or users, set
-      `OPENCLAW_INCLUDE_ROOTS` to a path-list (`:` on POSIX, `;` on Windows) of
       additional directories that includes may reference. Symlinks are resolved
       and re-checked, so a path that lexically lives in a config dir but whose
       real target escapes every allowed root is still rejected.

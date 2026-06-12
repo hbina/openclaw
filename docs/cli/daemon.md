@@ -26,7 +26,7 @@ openclaw daemon uninstall
 ## Subcommands
 
 - `status`: show service install state and probe Gateway health
-- `install`: install service (`launchd`/`systemd`/`schtasks`)
+- `install`: install service (`launchd`/`systemd`)
 - `uninstall`: remove service
 - `start`: start service
 - `stop`: stop service

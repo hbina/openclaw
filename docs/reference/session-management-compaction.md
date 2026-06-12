@@ -223,8 +223,6 @@ OpenClaw intentionally does **not** "fix up" transcripts; the Gateway uses `Sess
 
 ---
 
-## Context windows vs tracked tokens
-
 Two different concepts matter:
 
 1. **Model context window**: hard cap per model (tokens visible to the model)

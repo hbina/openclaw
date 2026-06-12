@@ -252,7 +252,6 @@ run on the host:
 The bundled Docker setup uses those host URLs as the LM Studio and Ollama
 onboarding defaults, and `docker-compose.yml` maps `host.docker.internal` to
 Docker's host gateway for Linux Docker Engine. Docker Desktop already provides
-the same hostname on macOS and Windows.
 
 Host services must also listen on an address reachable from Docker:
 

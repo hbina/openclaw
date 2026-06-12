@@ -61,18 +61,11 @@ at a GGUF file:
 
 ## Supported embedding providers
 
-| Provider          | ID                  | Notes                               |
-| ----------------- | ------------------- | ----------------------------------- |
-| Bedrock           | `bedrock`           | Uses AWS credential chain           |
-| DeepInfra         | `deepinfra`         | Default: `BAAI/bge-m3`              |
-| Gemini            | `gemini`            | Supports multimodal (image + audio) |
-| GitHub Copilot    | `github-copilot`    | Uses Copilot subscription           |
-| Local             | `local`             | Optional `node-llama-cpp` runtime   |
-| Mistral           | `mistral`           |                                     |
-| Ollama            | `ollama`            | Local/self-hosted                   |
-| OpenAI            | `openai`            | Default: `text-embedding-3-small`   |
-| OpenAI-compatible | `openai-compatible` | Generic `/v1/embeddings` endpoint   |
-| Voyage            | `voyage`            |                                     |
+| Provider          | ID                  | Notes                             |
+| ----------------- | ------------------- | --------------------------------- |
+| Local             | `local`             | Optional `node-llama-cpp` runtime |
+| OpenAI            | `openai`            | Default: `text-embedding-3-small` |
+| OpenAI-compatible | `openai-compatible` | Generic `/v1/embeddings` endpoint |
 
 Set `memorySearch.provider` to switch away from OpenAI.
 

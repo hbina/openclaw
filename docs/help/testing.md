@@ -300,7 +300,6 @@ gh workflow run package-acceptance.yml --ref main \
     the installed `openclaw update` command in the same guest and verifies the
     installed version, update status, gateway readiness, and one local agent
     turn.
-  - Use `--platform macos`, `--platform windows`, or `--platform linux` while
     iterating on one guest. Use `--json` for the summary artifact path and
     per-lane status.
   - The OpenAI lane uses `openai/gpt-5.5` for the live agent-turn proof by
@@ -312,17 +311,13 @@ gh workflow run package-acceptance.yml --ref main \
 
     ```bash
     timeout --foreground 150m pnpm test:parallels:npm-update -- --json
-    timeout --foreground 90m pnpm test:parallels:npm-update -- --platform windows --json
     ```
 
   - The script writes nested lane logs under `/tmp/openclaw-parallels-npm-update.*`.
-    Inspect `windows-update.log`, `macos-update.log`, or `linux-update.log`
     before assuming the outer wrapper is hung.
-  - Windows update can spend 10 to 15 minutes in post-update doctor and package
     update work on a cold guest; that is still healthy when the nested npm
     debug log is advancing.
   - Do not run this aggregate wrapper in parallel with individual Parallels
-    macOS, Windows, or Linux smoke lanes. They share VM state and can collide on
     snapshot restore, package serving, or guest gateway state.
   - The post-update proof runs the normal bundled plugin surface because
     capability facades such as speech, image generation, and media

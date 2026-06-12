@@ -41,10 +41,8 @@ sanctioned for this integration unless Anthropic publishes a new policy.
 Anthropic still does not expose a per-message dollar estimate that OpenClaw can
 show in `/usage full`.
 
-**CLI usage windows (provider quotas)**
+(quota snapshots, not per-message costs).
 
-- `openclaw status --usage` and `openclaw channels list` show provider **usage windows**
-  (quota snapshots, not per-message costs).
 - Human output is normalized to `X% left` across providers.
 - Current usage-window providers: Anthropic, GitHub Copilot, Gemini CLI,
   OpenAI Codex, MiniMax, Xiaomi, and z.ai.
@@ -53,7 +51,6 @@ show in `/usage full`.
   when present. If the provider returns `model_remains`, OpenClaw prefers the
   chat-model entry, derives the window label from timestamps when needed, and
   includes the model name in the plan label.
-- Usage auth for those quota windows comes from provider-specific hooks when
   available; otherwise OpenClaw falls back to matching OAuth/API-key
   credentials from auth profiles, env, or config.
 
@@ -164,7 +161,6 @@ See [Web tools](/tools/web).
 
 ### 6) Provider usage snapshots (status/health)
 
-Some status commands call **provider usage endpoints** to display quota windows or auth health.
 These are typically low-volume calls but still hit provider APIs:
 
 - `openclaw status --usage`

@@ -310,8 +310,7 @@ metadata:
   Optional URL shown as "Website" in the macOS Skills UI.
 </ParamField>
 
-<ParamField path="os" type='"darwin" | "linux" | "win32"'>
-  Platform filter. When set, the skill is only eligible on the listed OSes.
+Platform filter. When set, the skill is only eligible on the listed OSes.
 </ParamField>
 
 <ParamField path="requires.bins" type="string[]">
@@ -380,7 +379,6 @@ metadata:
       option (brew when available, otherwise node).
     - If all installers are `download`, OpenClaw lists each entry so you can
       see all available artifacts.
-    - Specs can include `os: ["darwin"|"linux"|"win32"]` to filter by platform.
     - Node installs honor `skills.install.nodeManager` in `openclaw.json`
       (default: npm; options: npm / pnpm / yarn / bun). This only affects skill
       installs; the Gateway runtime should still be Node.

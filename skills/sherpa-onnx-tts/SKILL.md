@@ -6,7 +6,6 @@ metadata:
     "openclaw":
       {
         "emoji": "🔉",
-        "os": ["darwin", "linux", "win32"],
         "requires": { "env": ["SHERPA_ONNX_RUNTIME_DIR", "SHERPA_ONNX_MODEL_DIR"] },
         "install":
           [
@@ -35,13 +34,11 @@ metadata:
             {
               "id": "download-runtime-win-x64",
               "kind": "download",
-              "os": ["win32"],
               "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-win-x64-shared-MD-Release.tar.bz2",
               "archive": "tar.bz2",
               "extract": true,
               "stripComponents": 1,
               "targetDir": "runtime",
-              "label": "Download sherpa-onnx runtime (Windows x64)",
             },
             {
               "id": "download-model-lessac",
@@ -106,4 +103,3 @@ Notes:
 - Pick a different model from the sherpa-onnx `tts-models` release if you want another voice.
 - If the model dir has multiple `.onnx` files, set `SHERPA_ONNX_MODEL_FILE` or pass `--model-file`.
 - You can also pass `--tokens-file` or `--data-dir` to override the defaults.
-- Windows: run `node {baseDir}\\bin\\sherpa-onnx-tts -o tts.wav "Hello from local TTS."`

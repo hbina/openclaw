@@ -10,7 +10,6 @@ This slim fork is **Docker-first** and runs the Gateway on Linux. OpenClaw core
 is written in TypeScript with **Node as the runtime**. The recommended setup is
 the Docker image; see [Docker](/install/docker).
 
-There are no companion desktop or mobile apps in this fork (Windows, macOS, iOS,
 and Android apps are not supported).
 
 ## Run it

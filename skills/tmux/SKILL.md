@@ -30,7 +30,6 @@ Use for existing interactive tmux sessions. For one-shot commands, use normal sh
 
 ```bash
 tmux ls
-tmux list-windows -t shared
 tmux list-panes -t shared:0
 tmux capture-pane -t shared:0.0 -p
 tmux capture-pane -t shared:0.0 -p -S -

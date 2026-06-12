@@ -44,8 +44,8 @@ openclaw security audit --json
 
 `security audit --fix` stays intentionally narrow: it flips common open group
 policies to allowlists, restores `logging.redactSensitive: "tools"`, tightens
-state/config/include-file permissions, and uses Windows ACL resets instead of
-POSIX `chmod` when running on Windows.
+state/config/include-file permissions, and uses POSIX ACL resets instead of
+POSIX `chmod` when running on POSIX.
 
 It flags common footguns (Gateway auth exposure, browser control exposure, elevated allowlists, filesystem permissions, permissive exec approvals, and open-channel tool exposure).
 

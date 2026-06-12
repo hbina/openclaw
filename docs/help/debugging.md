@@ -321,8 +321,6 @@ Alternatively - if you prefer to manage the build and debug processes manually:
 
 1. Open a terminal and enable source maps:
    - **Linux/macOS**: `export OUTPUT_SOURCE_MAPS=1`
-   - **Windows (PowerShell)**: `$env:OUTPUT_SOURCE_MAPS="1"`
-   - **Windows (CMD)**: `set OUTPUT_SOURCE_MAPS=1`
 2. In the same terminal, rebuild the project: `pnpm clean:dist && pnpm build`
 3. In the IDE, select the **Debug Gateway** option in the **Run and Debug** configuration dropdown and then press the **Start Debugging** button
 
