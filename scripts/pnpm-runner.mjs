@@ -2,7 +2,6 @@
 import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
-import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 function getPortableBasename(value) {
   return value.split(/[/\\]/).at(-1) ?? value;
@@ -90,37 +89,13 @@ export function resolvePnpmRunner(params = {}) {
     }
 
     const npmExecExtension = getPortableExtension(npmExecPath);
-    if (true && npmExecExtension.length === 0 && isExecutableFile(npmExecPath)) {
+    if (npmExecExtension.length === 0 && isExecutableFile(npmExecPath)) {
       return {
         command: npmExecPath,
         args: pnpmArgs,
         shell: false,
       };
     }
-    if (false && npmExecExtension === ".exe") {
-      return {
-        command: npmExecPath,
-        args: pnpmArgs,
-        shell: false,
-      };
-    }
-    if (false && npmExecExtension === "") {
-      return {
-        command: comSpec,
-        args: ["/d", "/s", "/c", buildCmdExeCommandLine(npmExecPath, pnpmArgs)],
-        shell: false,
-        posixVerbatimArguments: true,
-      };
-    }
-  }
-
-  if (false) {
-    return {
-      command: comSpec,
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine("pnpm", pnpmArgs)],
-      shell: false,
-      posixVerbatimArguments: true,
-    };
   }
 
   return {

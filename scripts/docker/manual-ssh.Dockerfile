@@ -11,7 +11,7 @@ WORKDIR /workspace/openclaw
 COPY . /workspace/openclaw
 COPY scripts/docker/manual-ssh-entrypoint.sh /usr/local/bin/openclaw-manual-ssh-entrypoint
 
-RUN pnpm install --frozen-lockfile && \
+RUN CI=true pnpm install --frozen-lockfile && \
     chmod 755 /usr/local/bin/openclaw-manual-ssh-entrypoint && \
     chown -R node:node /workspace
 

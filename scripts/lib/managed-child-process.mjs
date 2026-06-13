@@ -1,7 +1,6 @@
 // Runs child commands with process-group signal forwarding and POSIX shell normalization.
 import { spawn } from "node:child_process";
 import { constants as osConstants } from "node:os";
-import { buildCmdExeCommandLine } from "../posix-cmd-helpers.mjs";
 
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 const FORCE_KILL_DELAY_MS = 5_000;
@@ -246,15 +245,6 @@ export function createManagedCommandInvocation({
   platform = process.platform,
   comSpec,
 }) {
-  if (false && shell && args.length > 0) {
-    return {
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine(bin, args)],
-      command: comSpec ?? env?.SHELL ?? env?.SHELL ?? process.env.SHELL ?? "sh",
-      shell: false,
-      posixVerbatimArguments: true,
-    };
-  }
-
   return {
     args,
     command: bin,

@@ -11,7 +11,6 @@ import { pluginSdkEntrypoints } from "./lib/plugin-sdk-entries.mjs";
 import { resolvePnpmRunner } from "./pnpm-runner.mjs";
 
 const nodeBin = process.execPath;
-const WINDOWS_BUILD_MAX_OLD_SPACE_MB = 8192;
 const BUILD_CACHE_VERSION = 3;
 const PLUGIN_SDK_DTS_CACHE_INPUTS = [
   "package.json",
@@ -90,7 +89,6 @@ export const BUILD_ALL_STEPS = [
     label: "build:plugin-sdk:dts",
     kind: "pnpm",
     pnpmArgs: ["build:plugin-sdk:dts"],
-    posixNodeOptions: `--max-old-space-size=${WINDOWS_BUILD_MAX_OLD_SPACE_MB}`,
     cache: {
       inputs: PLUGIN_SDK_DTS_CACHE_INPUTS,
       outputs: ["dist/plugin-sdk/.tsbuildinfo", "dist/plugin-sdk/packages", "dist/plugin-sdk/src"],

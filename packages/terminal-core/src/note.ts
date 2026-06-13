@@ -7,7 +7,6 @@ import { normalizeLowercaseStringOrEmpty } from "./string.js";
 
 const MIN_NOTE_COLUMNS = 80;
 const URL_PREFIX_RE = /^(https?:\/\/|file:\/\/)/i;
-const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
 const FILE_LIKE_RE = /^[a-zA-Z0-9._-]+$/;
 const suppressNotesStorage = new AsyncLocalStorage<boolean>();
 
@@ -47,9 +46,6 @@ function isCopySensitiveToken(word: string): boolean {
     word.startsWith("./") ||
     word.startsWith("../")
   ) {
-    return true;
-  }
-  if (WINDOWS_DRIVE_RE.test(word) || word.startsWith("\\\\")) {
     return true;
   }
   if (word.includes("/") || word.includes("\\")) {

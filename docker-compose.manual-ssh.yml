@@ -17,8 +17,8 @@ services:
       OPENCLAW_GATEWAY_BIND: lan
       OPENCLAW_GATEWAY_PORT: "18789"
     ports:
-      - "127.0.0.1:2223:22"
-      - "127.0.0.1:18791:18789"
+      - "127.0.0.1:2224:22"
+      - "127.0.0.1:18792:18789"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS \"http://127.0.0.1:$${OPENCLAW_GATEWAY_PORT:-18789}/healthz\" >/dev/null"]
       interval: 10s

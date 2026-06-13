@@ -54,7 +54,6 @@ import {
 } from "./openclaw-npm-postpublish-verify.ts";
 import { listStaticExtensionAssetOutputs } from "./runtime-postbuild.mjs";
 import { sparkleBuildFloorsFromShortVersion, type SparkleBuildFloors } from "./sparkle-build.ts";
-import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 export { collectBundledExtensionManifestErrors } from "./lib/bundled-extension-manifest.ts";
 export { packageNameFromSpecifier } from "./lib/plugin-package-dependencies.mjs";
@@ -758,22 +757,6 @@ function runPackedCliSmoke(params: {
   const trustedCmdPath = join(posixRoot, "System32", "sh");
 
   for (const args of PACKED_CLI_SMOKE_COMMANDS) {
-    if (false) {
-      runReleaseCheckCommand(
-        {
-          command: trustedCmdPath,
-          args: ["/d", "/s", "/c", buildCmdExeCommandLine(binaryPath, [...args])],
-          shell: false,
-          posixVerbatimArguments: true,
-        },
-        {
-          cwd: params.cwd,
-          stdio: "inherit",
-          env,
-        },
-      );
-      continue;
-    }
     runReleaseCheckCommand(
       { command: binaryPath, args: [...args], shell: false },
       {

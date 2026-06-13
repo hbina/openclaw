@@ -2,8 +2,6 @@
 import path from "node:path";
 
 const WILDCARD_SEGMENT = "*";
-const WINDOWS_DRIVE_ABS_RE = /^[A-Za-z]:\//;
-const WINDOWS_DRIVE_ROOT_RE = /^[A-Za-z]:$/;
 
 function normalizePosixAbsolutePath(value: string): string | undefined {
   const trimmed = value.trim();
@@ -13,14 +11,11 @@ function normalizePosixAbsolutePath(value: string): string | undefined {
   // Compare all roots as POSIX-style absolute paths so channel configs can use
   // stable patterns even when a source reports backslash separators.
   const normalized = path.posix.normalize(trimmed.replaceAll("\\", "/"));
-  const isAbsolute = normalized.startsWith("/") || WINDOWS_DRIVE_ABS_RE.test(normalized);
+  const isAbsolute = normalized.startsWith("/");
   if (!isAbsolute || normalized === "/") {
     return undefined;
   }
   const withoutTrailingSlash = normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
-  if (WINDOWS_DRIVE_ROOT_RE.test(withoutTrailingSlash)) {
-    return undefined;
-  }
   return withoutTrailingSlash;
 }
 

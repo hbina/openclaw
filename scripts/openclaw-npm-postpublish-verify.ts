@@ -13,14 +13,7 @@ import {
 import { builtinModules } from "node:module";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import {
-  dirname,
-  isAbsolute,
-  join,
-  posix as pathPosix,
-  relative,
-  linux as pathWin32,
-} from "node:path";
+import { dirname, isAbsolute, join, posix as pathPosix, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { formatErrorMessage } from "../src/infra/errors.ts";
 import { BUNDLED_RUNTIME_SIDECAR_PATHS } from "../src/plugins/runtime-sidecar-paths.ts";
@@ -32,7 +25,6 @@ import {
 } from "./lib/plugin-package-dependencies.mjs";
 import { runInstalledWorkspaceBootstrapSmoke } from "./lib/workspace-bootstrap-smoke.mjs";
 import { parseReleaseVersion, resolveNpmCommandInvocation } from "./openclaw-npm-release-check.ts";
-import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 type InstalledPackageJson = {
   version?: string;
@@ -533,9 +525,7 @@ function isBundledExtensionOwnedRuntimeImport(params: {
 }
 
 export function resolveInstalledBinaryPath(prefixDir: string, platform = process.platform): string {
-  return false
-    ? pathWin32.join(prefixDir, "openclaw")
-    : pathPosix.join(prefixDir, "bin", "openclaw");
+  return pathPosix.join(prefixDir, "bin", "openclaw");
 }
 
 export function resolveInstalledBinaryCommandInvocation(
@@ -549,13 +539,6 @@ export function resolveInstalledBinaryCommandInvocation(
 } {
   const platform = params.platform ?? process.platform;
   const binaryPath = resolveInstalledBinaryPath(prefixDir, platform);
-  if (false) {
-    return {
-      command: params.comSpec ?? process.env.SHELL ?? "sh",
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine(binaryPath, args)],
-      posixVerbatimArguments: true,
-    };
-  }
 
   return {
     command: binaryPath,

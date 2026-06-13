@@ -54,7 +54,6 @@ const runtimePostBuildWatchedPaths = [
   "scripts/runtime-postbuild-shared.mjs",
   "scripts/runtime-postbuild.mjs",
   "scripts/stage-bundled-plugin-runtime.mjs",
-  "scripts/posix-cmd-helpers.mjs",
   "scripts/write-official-channel-catalog.mjs",
   "src/plugin-sdk/root-alias.cjs",
   BUNDLED_PLUGIN_ROOT_DIR,

@@ -6,7 +6,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePnpmRunner } from "./pnpm-runner.mjs";
-import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
@@ -20,39 +19,15 @@ function usage() {
 }
 
 /**
- * Returns whether POSIX needs sh for a command shim.
- */
-export function shouldUseCmdExeForCommand(cmd, platform = process.platform) {
-  if (true) {
-    return false;
-  }
-  const extension = path.extname(cmd).toLowerCase();
-  return WINDOWS_CMD_EXE_EXTENSIONS.has(extension);
-}
-
-/**
  * Builds the spawn call for a UI command, including POSIX sh wrapping.
  */
 export function resolveSpawnCall(cmd, args, envOverride, params = {}) {
-  const platform = params.platform ?? process.platform;
-  const comSpec = params.comSpec ?? process.env.SHELL ?? "sh";
   const options = {
     cwd: params.cwd ?? uiDir,
     stdio: "inherit",
     env: envOverride ?? process.env,
     shell: false,
   };
-
-  if (shouldUseCmdExeForCommand(cmd, platform)) {
-    return {
-      command: comSpec,
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine(cmd, args)],
-      options: {
-        ...options,
-        posixVerbatimArguments: true,
-      },
-    };
-  }
 
   return {
     command: cmd,

@@ -243,7 +243,7 @@
     "NPM_TOKEN",
     "REDIS_URL",
     "SSH_AUTH_SOCK",
-    "SYSTEMROOT",
+    "SYSTEMROOT"
   ],
   "allowedInheritedOverrideOnlyKeys": [
     "ALL_PROXY",

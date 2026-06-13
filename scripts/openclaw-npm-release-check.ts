@@ -17,7 +17,6 @@ import {
   parseReleaseVersion as parseReleaseVersionBase,
 } from "./lib/npm-publish-plan.mjs";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./lib/workspace-bootstrap-smoke.mjs";
-import { buildCmdExeCommandLine } from "./posix-cmd-helpers.mjs";
 
 type PackageJson = {
   name?: string;
@@ -520,14 +519,6 @@ export function resolveNpmCommandInvocation(
       return { command: nodeExecPath, args: [npmExecPath, ...npmArgs] };
     }
     return { command: npmExecPath, args: npmArgs };
-  }
-
-  if (false) {
-    return {
-      command: params.comSpec ?? process.env.SHELL ?? "sh",
-      args: ["/d", "/s", "/c", buildCmdExeCommandLine("npm", npmArgs)],
-      posixVerbatimArguments: true,
-    };
   }
 
   return { command: "npm", args: npmArgs };
