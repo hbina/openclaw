@@ -13,6 +13,7 @@ import (
 	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
+	"strings"
 )
 
 func main() {
@@ -47,12 +48,23 @@ func main() {
 	if sec.Models.Providers.Anthropic.APIKey != "" {
 		provReg.Register(providers.NewAnthropicClient(sec.Models.Providers.Anthropic.APIKey))
 	}
-	// Fallback dummy for testing if neither is registered
-	primaryProv, err := provReg.Get("openai")
+	provReg.Register(providers.NewClaudeCLIProvider())
+
+	primaryProviderID := "openai" // default
+	if cfg.Agents.Defaults.Model.Primary != "" {
+		parts := strings.SplitN(cfg.Agents.Defaults.Model.Primary, "/", 2)
+		primaryProviderID = parts[0]
+	}
+
+	primaryProv, err := provReg.Get(primaryProviderID)
 	if err != nil {
-		primaryProv, err = provReg.Get("anthropic")
+		log.Printf("Warning: Primary provider %q not found, falling back", primaryProviderID)
+		primaryProv, err = provReg.Get("claude-cli")
 		if err != nil {
-			log.Println("Warning: No providers registered. Using a stub.")
+			primaryProv, err = provReg.Get("openai")
+			if err != nil {
+				log.Println("Warning: No providers registered. Agent will fail to reply.")
+			}
 		}
 	}
 

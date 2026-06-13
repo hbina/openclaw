@@ -21,8 +21,11 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install CA certificates for external API calls (OpenAI, Telegram, etc.)
-RUN apk --no-cache add ca-certificates sqlite-libs
+# Install CA certificates for external API calls, SQLite, Node.js, and npm
+RUN apk --no-cache add ca-certificates sqlite-libs nodejs npm
+
+# Install Claude CLI globally
+RUN npm install -g @anthropic-ai/claude-code
 
 # Copy the compiled binary from the builder
 COPY --from=builder /app/openclaw .
