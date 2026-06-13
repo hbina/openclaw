@@ -36,7 +36,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg *channels.Message) error 
 
 	// 2. Recall relevant context
 	contextFacts, _ := a.memoryCore.Recall(ctx, msg.Content)
-	var systemPrompt string = "You are a helpful assistant. Use these past facts if relevant:\n"
+	var systemPrompt string = fmt.Sprintf("You are a helpful assistant talking to User '%s' on Channel '%s'. When setting reminders, you must explicitly use these exact IDs.\nUse these past facts if relevant:\n", msg.SenderID, msg.ChannelID)
 	for _, fact := range contextFacts {
 		systemPrompt += "- " + fact + "\n"
 	}

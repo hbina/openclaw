@@ -13,10 +13,24 @@ import (
 	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
+	"path/filepath"
 	"strings"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		dbPath := filepath.Join(os.Getenv("OPENCLAW_CONFIG_DIR"), "openclaw-agent.sqlite")
+		if os.Getenv("OPENCLAW_CONFIG_DIR") == "" {
+			dbPath = "/app/data/openclaw-agent.sqlite" // Default Docker path
+		}
+		store, err := state.NewStore(dbPath)
+		if err != nil {
+			log.Fatalf("Failed to open DB for MCP: %v", err)
+		}
+		providers.RunMCPServer(store)
+		return
+	}
+
 	log.Println("Starting OpenClaw (Go Core)...")
 
 	// 1. Configuration
@@ -91,7 +105,7 @@ func main() {
 
 	// 5. Agent & Gateway
 	agent := gateway.NewAgent(primaryProv, memCore, chanReg)
-	gw := gateway.NewGateway(agent, chanReg)
+	gw := gateway.NewGateway(agent, chanReg, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

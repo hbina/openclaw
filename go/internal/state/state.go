@@ -52,6 +52,15 @@ func (s *Store) migrate() error {
 		value TEXT NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS reminders (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		channel_id TEXT NOT NULL,
+		sender_id TEXT NOT NULL,
+		message TEXT NOT NULL,
+		fire_at DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	_, err := s.db.Exec(query)

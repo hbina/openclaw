@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -25,9 +26,22 @@ func (p *ClaudeCLIProvider) Generate(ctx context.Context, req *GenerateRequest) 
 	}
 
 	// Option A: Execute 'claude -p "system... user..."' per message
-	// This uses the CLI non-interactively to generate a response.
-	cmd := exec.CommandContext(ctx, "claude", "-p", promptBuilder.String())
-	
+	// Create a temporary settings JSON for MCP
+	mcpSettings := `{
+		"mcpServers": {
+			"openclaw-cron": {
+				"command": "/app/openclaw",
+				"args": ["mcp-server"]
+			}
+		}
+	}`
+	settingsPath := "/tmp/claude-settings.json"
+	os.WriteFile(settingsPath, []byte(mcpSettings), 0644)
+
+	// Build the command execution. We use "-p" to execute non-interactively and return text.
+	cmdArgs := []string{"-p", promptBuilder.String(), "--mcp-config", settingsPath, "--permission-mode", "auto"}
+	cmd := exec.CommandContext(ctx, "claude", cmdArgs...)
+
 	out, err := cmd.Output()
 	if err != nil {
 		var stderr string
