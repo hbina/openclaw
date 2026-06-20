@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/openclaw/openclaw/go/internal/channels"
@@ -13,16 +16,37 @@ import (
 	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
-	"path/filepath"
-	"strings"
 )
 
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
-		dbPath := filepath.Join(os.Getenv("OPENCLAW_CONFIG_DIR"), "openclaw-agent.sqlite")
-		if os.Getenv("OPENCLAW_CONFIG_DIR") == "" {
-			dbPath = "/app/data/openclaw-agent.sqlite" // Default Docker path
+func loadPersonalityPrompt(ctx context.Context, store *state.Store) string {
+	documents, err := store.LoadPersonality(ctx)
+	if err != nil {
+		log.Printf("Warning: failed to load personality: %v", err)
+		return ""
+	}
+
+	var prompt strings.Builder
+	for _, document := range documents {
+		if prompt.Len() > 0 {
+			prompt.WriteString("\n\n")
 		}
+		fmt.Fprintf(&prompt, "## %s\n%s", document.Name, document.Content)
+	}
+	return prompt.String()
+}
+
+func main() {
+	dataDir := strings.TrimSpace(os.Getenv("OPENCLAW_DATA_DIR"))
+	if dataDir == "" {
+		log.Fatal("OPENCLAW_DATA_DIR must be set")
+	}
+	configDir := strings.TrimSpace(os.Getenv("OPENCLAW_CONFIG_DIR"))
+	if configDir == "" {
+		log.Fatal("OPENCLAW_CONFIG_DIR must be set")
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		dbPath := filepath.Join(dataDir, "openclaw-agent.sqlite")
 		store, err := state.NewStore(dbPath)
 		if err != nil {
 			log.Fatalf("Failed to open DB for MCP: %v", err)
@@ -35,19 +59,19 @@ func main() {
 
 	// 1. Configuration
 	// For skeleton, we use dummy paths. In production these are injected via ENV.
-	cfg, err := config.LoadConfig("openclaw.json")
+	cfg, err := config.LoadConfig(filepath.Join(configDir, "openclaw.json"))
 	if err != nil {
 		log.Printf("Warning: openclaw.json not found, using defaults: %v", err)
 		cfg = &config.Config{}
 	}
-	sec, err := config.LoadSecrets("secrets.json")
+	sec, err := config.LoadSecrets(filepath.Join(configDir, "secrets.json"))
 	if err != nil {
 		log.Printf("Warning: secrets.json not found: %v", err)
 		sec = &config.Secrets{}
 	}
 
 	// 2. State & Memory
-	store, err := state.NewStore("openclaw-agent.sqlite")
+	store, err := state.NewStore(filepath.Join(dataDir, "openclaw-agent.sqlite"))
 	if err != nil {
 		log.Fatalf("Failed to initialize state store: %v", err)
 	}
@@ -97,14 +121,17 @@ func main() {
 		}
 	}
 	if cfg.Channels.WhatsApp.Enabled {
-		wa, err := channels.NewWhatsAppAdapter(context.Background(), "whatsapp-store.sqlite")
+		wa, err := channels.NewWhatsAppAdapter(
+			context.Background(),
+			filepath.Join(dataDir, "whatsapp-store.sqlite"),
+		)
 		if err == nil {
 			chanReg.Register(wa)
 		}
 	}
 
 	// 5. Agent & Gateway
-	agent := gateway.NewAgent(primaryProv, memCore, chanReg)
+	agent := gateway.NewAgent(primaryProv, memCore, chanReg, store, loadPersonalityPrompt(context.Background(), store))
 	gw := gateway.NewGateway(agent, chanReg, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
