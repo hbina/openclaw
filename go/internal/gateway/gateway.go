@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -28,6 +29,7 @@ func NewGateway(agent *Agent, chanReg *channels.Registry, store *state.Store) *G
 	}
 
 	mux.HandleFunc("/healthz", g.healthCheck)
+	mux.HandleFunc("/chat", g.chat)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -87,6 +89,10 @@ func (g *Gateway) startReminderLoop(ctx context.Context) {
 				notification := "⏰ **Reminder!** ⏰\n\n" + r.Message
 				if err := ch.SendMessage(ctx, r.SenderID, notification); err != nil {
 					log.Printf("Failed to deliver reminder to %s: %v", r.SenderID, err)
+					continue
+				}
+				if err := g.store.DeleteReminder(r.ID); err != nil {
+					log.Printf("Failed to mark reminder %d delivered: %v", r.ID, err)
 				}
 			}
 		}
@@ -111,4 +117,37 @@ func (g *Gateway) Stop(ctx context.Context) error {
 func (g *Gateway) healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		SenderID string `json:"sender_id"`
+		Message  string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.Message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	if body.SenderID == "" {
+		body.SenderID = "cli-user"
+	}
+
+	reply, err := g.agent.Chat(r.Context(), "cli", body.SenderID, body.Message)
+	if err != nil {
+		log.Printf("chat endpoint error: %v", err)
+		http.Error(w, "agent error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"reply": reply})
 }
