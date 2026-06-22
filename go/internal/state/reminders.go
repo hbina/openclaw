@@ -48,17 +48,10 @@ func (s *Store) ListReminders(channelID, senderID string) ([]Reminder, error) {
 	return reminders, nil
 }
 
-// FetchDueReminders returns all reminders that are due to fire, and deletes them.
+// FetchDueReminders returns all reminders that are due to fire.
 func (s *Store) FetchDueReminders() ([]Reminder, error) {
 	now := time.Now()
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.Query(
+	rows, err := s.db.Query(
 		"SELECT id, channel_id, sender_id, message, fire_at, created_at FROM reminders WHERE fire_at <= ?",
 		now,
 	)
@@ -68,35 +61,28 @@ func (s *Store) FetchDueReminders() ([]Reminder, error) {
 	defer rows.Close()
 
 	var due []Reminder
-	var ids []interface{}
 	for rows.Next() {
 		var r Reminder
 		if err := rows.Scan(&r.ID, &r.ChannelID, &r.SenderID, &r.Message, &r.FireAt, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		due = append(due, r)
-		ids = append(ids, r.ID)
 	}
-	rows.Close() // must close before deleting
+	return due, rows.Err()
+}
 
-	if len(ids) > 0 {
-		// Create placeholders string "?, ?, ?"
-		placeholders := ""
-		for i := 0; i < len(ids); i++ {
-			if i > 0 {
-				placeholders += ", "
-			}
-			placeholders += "?"
-		}
-		query := fmt.Sprintf("DELETE FROM reminders WHERE id IN (%s)", placeholders)
-		if _, err := tx.Exec(query, ids...); err != nil {
-			return nil, err
-		}
+// DeleteReminder removes a reminder after successful delivery.
+func (s *Store) DeleteReminder(id int) error {
+	result, err := s.db.Exec("DELETE FROM reminders WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete reminder: %w", err)
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted reminder count: %w", err)
 	}
-
-	return due, nil
+	if deleted == 0 {
+		return fmt.Errorf("reminder %d not found", id)
+	}
+	return nil
 }

@@ -131,7 +131,7 @@ func main() {
 	}
 
 	// 5. Agent & Gateway
-	agent := gateway.NewAgent(primaryProv, memCore, chanReg, store, loadPersonalityPrompt(context.Background(), store))
+	agent := gateway.NewAgent(primaryProv, memCore, chanReg, store, cfg, loadPersonalityPrompt(context.Background(), store))
 	gw := gateway.NewGateway(agent, chanReg, store)
 
 	ctx, cancel := context.WithCancel(context.Background())

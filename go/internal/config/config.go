@@ -31,7 +31,15 @@ type ChannelsConfig struct {
 }
 
 type ChannelEntry struct {
-	Enabled bool `json:"enabled"`
+	Enabled        bool               `json:"enabled"`
+	HistoryLimit   *int               `json:"historyLimit,omitempty"`
+	DMHistoryLimit *int               `json:"dmHistoryLimit,omitempty"`
+	DMs            map[string]DMEntry `json:"dms,omitempty"`
+}
+
+// DMEntry holds per-user history limit overrides for a DM conversation.
+type DMEntry struct {
+	HistoryLimit *int `json:"historyLimit,omitempty"`
 }
 
 type ModelsConfig struct {
@@ -53,7 +61,7 @@ type AnthropicProviderConfig struct {
 }
 
 type PluginsConfig struct {
-	Enabled bool                    `json:"enabled"`
+	Enabled bool                   `json:"enabled"`
 	Entries map[string]PluginEntry `json:"entries"`
 }
 

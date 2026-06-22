@@ -94,6 +94,20 @@ func RunMCPServer(store *state.Store) {
 							"required": []string{"channel_id", "sender_id"},
 						},
 					},
+					{
+						"name":        "delete_reminder",
+						"description": "Cancel a scheduled reminder by its ID. Use list_reminders to find the ID first.",
+						"inputSchema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "integer",
+									"description": "The numeric ID of the reminder to cancel.",
+								},
+							},
+							"required": []string{"id"},
+						},
+					},
 				},
 			})
 			continue
@@ -143,6 +157,21 @@ func RunMCPServer(store *state.Store) {
 					res += fmt.Sprintf("- ID: %d | Time: %v | Message: %s\n", r.ID, r.FireAt, r.Message)
 				}
 				sendMCPToolResult(req.ID, res, false)
+				continue
+			}
+
+			if params.Name == "delete_reminder" {
+				idFloat, ok := params.Arguments["id"].(float64)
+				if !ok {
+					sendMCPToolResult(req.ID, "Error: id must be an integer", true)
+					continue
+				}
+				err := store.DeleteReminder(int(idFloat))
+				if err != nil {
+					sendMCPToolResult(req.ID, fmt.Sprintf("Error: %v", err), true)
+				} else {
+					sendMCPToolResult(req.ID, fmt.Sprintf("Reminder %d cancelled.", int(idFloat)), false)
+				}
 				continue
 			}
 
