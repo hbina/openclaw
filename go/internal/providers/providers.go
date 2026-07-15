@@ -2,68 +2,66 @@ package providers
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 )
 
-// MessageRole defines the role of the message sender.
+// MessageRole is an OpenAI-compatible chat message role.
 type MessageRole string
 
 const (
 	RoleUser      MessageRole = "user"
 	RoleAssistant MessageRole = "assistant"
 	RoleSystem    MessageRole = "system"
+	RoleTool      MessageRole = "tool"
 )
 
-// Message represents a generic chat message.
+// FunctionCall is a model-requested function invocation. Arguments remains JSON
+// text so validation happens at the trusted tool execution boundary.
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+// Message represents the structured subset of Chat Completions used by the Go
+// agent. Assistant tool calls and their tool results retain exact call IDs.
 type Message struct {
-	Role    MessageRole
-	Content string
+	Role       MessageRole `json:"role"`
+	Content    string      `json:"content,omitempty"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
 }
 
-// GenerateRequest represents the input to a provider model.
+type FunctionDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type ToolDefinition struct {
+	Type     string             `json:"type"`
+	Function FunctionDefinition `json:"function"`
+}
+
 type GenerateRequest struct {
-	Model    string
-	Messages []Message
+	Model      string
+	Messages   []Message
+	Tools      []ToolDefinition
+	ToolChoice string
 }
 
-// GenerateResponse represents the output from a provider model.
 type GenerateResponse struct {
-	Content string
+	Message      Message
+	FinishReason string
 }
 
-// Provider defines the interface that all model providers must implement.
+// Provider is retained as a narrow injection seam for the local model client
+// and deterministic agent tests.
 type Provider interface {
-	// Generate replies to the message history.
 	Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error)
-	// ID returns the canonical provider ID (e.g., "openai", "anthropic").
-	ID() string
-}
-
-// Factory defines a function capable of initializing a Provider.
-type Factory func() (Provider, error)
-
-// Registry holds the initialized providers.
-type Registry struct {
-	providers map[string]Provider
-}
-
-// NewRegistry creates a new provider registry.
-func NewRegistry() *Registry {
-	return &Registry{
-		providers: make(map[string]Provider),
-	}
-}
-
-// Register registers a provider implementation.
-func (r *Registry) Register(p Provider) {
-	r.providers[p.ID()] = p
-}
-
-// Get returns a provider by its ID.
-func (r *Registry) Get(id string) (Provider, error) {
-	p, ok := r.providers[id]
-	if !ok {
-		return nil, fmt.Errorf("provider %q not found", id)
-	}
-	return p, nil
 }

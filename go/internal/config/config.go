@@ -47,17 +47,12 @@ type ModelsConfig struct {
 }
 
 type ProvidersConfig struct {
-	OpenAI    OpenAIProviderConfig    `json:"openai"`
-	Anthropic AnthropicProviderConfig `json:"anthropic"`
+	OpenAI OpenAIProviderConfig `json:"openai"`
 }
 
 type OpenAIProviderConfig struct {
 	BaseURL string   `json:"baseUrl"`
 	Models  []string `json:"models"`
-}
-
-type AnthropicProviderConfig struct {
-	Models []string `json:"models"`
 }
 
 type PluginsConfig struct {
@@ -76,9 +71,6 @@ type Secrets struct {
 			OpenAI struct {
 				APIKey string `json:"apiKey"`
 			} `json:"openai"`
-			Anthropic struct {
-				APIKey string `json:"apiKey"`
-			} `json:"anthropic"`
 		} `json:"providers"`
 	} `json:"models"`
 	Channels struct {

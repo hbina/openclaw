@@ -19,7 +19,7 @@ func TestLoadConfig(t *testing.T) {
 	path := writeTestFile(t, "openclaw.json", `{
 		"agents":{"defaults":{"model":{"primary":"openai/gpt-5.5"}}},
 		"channels":{"telegram":{"enabled":true},"whatsapp":{"enabled":false},"discord":{"enabled":true}},
-		"models":{"providers":{"openai":{"baseUrl":"https://example.test/v1","models":["gpt-5.5"]},"anthropic":{"models":["claude-test"]}}},
+		"models":{"providers":{"openai":{"baseUrl":"http://127.0.0.1:8080/v1","models":["default"]}}},
 		"plugins":{"enabled":true,"entries":{"memory-core":{"enabled":true}}}
 	}`)
 
@@ -33,7 +33,7 @@ func TestLoadConfig(t *testing.T) {
 	if !cfg.Channels.Telegram.Enabled || !cfg.Channels.Discord.Enabled {
 		t.Fatal("expected retained channels to be enabled")
 	}
-	if got := cfg.Models.Providers.OpenAI.BaseURL; got != "https://example.test/v1" {
+	if got := cfg.Models.Providers.OpenAI.BaseURL; got != "http://127.0.0.1:8080/v1" {
 		t.Fatalf("OpenAI base URL = %q", got)
 	}
 	if !cfg.Plugins.Entries["memory-core"].Enabled {
@@ -43,7 +43,7 @@ func TestLoadConfig(t *testing.T) {
 
 func TestLoadSecrets(t *testing.T) {
 	path := writeTestFile(t, "secrets.json", `{
-		"models":{"providers":{"openai":{"apiKey":"openai-key"},"anthropic":{"apiKey":"anthropic-key"}}},
+		"models":{"providers":{"openai":{"apiKey":"local-key"}}},
 		"channels":{"telegram":{"botToken":"telegram-token"},"discord":{"botToken":"discord-token"}}
 	}`)
 
@@ -51,11 +51,8 @@ func TestLoadSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSecrets: %v", err)
 	}
-	if secrets.Models.Providers.OpenAI.APIKey != "openai-key" {
+	if secrets.Models.Providers.OpenAI.APIKey != "local-key" {
 		t.Fatal("OpenAI key was not loaded")
-	}
-	if secrets.Models.Providers.Anthropic.APIKey != "anthropic-key" {
-		t.Fatal("Anthropic key was not loaded")
 	}
 	if secrets.Channels.Telegram.BotToken != "telegram-token" {
 		t.Fatal("Telegram token was not loaded")

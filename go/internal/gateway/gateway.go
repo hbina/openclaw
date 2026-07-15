@@ -91,7 +91,7 @@ func (g *Gateway) startReminderLoop(ctx context.Context) {
 					log.Printf("Failed to deliver reminder to %s: %v", r.SenderID, err)
 					continue
 				}
-				if err := g.store.DeleteReminder(r.ID); err != nil {
+				if err := g.store.CompleteReminder(r, time.Now()); err != nil {
 					log.Printf("Failed to mark reminder %d delivered: %v", r.ID, err)
 				}
 			}

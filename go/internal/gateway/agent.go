@@ -2,48 +2,53 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/openclaw/openclaw/go/internal/channels"
 	"github.com/openclaw/openclaw/go/internal/config"
-	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
+	"github.com/openclaw/openclaw/go/internal/tools"
 )
 
 const (
 	defaultContextWindow = 100_000 // estimated token capacity for the configured model
 	defaultReserveTokens = 16_384  // tokens reserved for compaction summary + next response
 	defaultHistoryLimit  = 20      // turns to load when no config override is present
+	maxToolRounds        = 4
 )
 
 // Agent runs the primary interaction loop.
 type Agent struct {
-	provider    providers.Provider
-	memoryCore  *memory.Core
-	chanReg     *channels.Registry
-	store       *state.Store
-	cfg         *config.Config
-	personality string
+	provider providers.Provider
+	tools    *tools.Executor
+	chanReg  *channels.Registry
+	store    *state.Store
+	cfg      *config.Config
+	location *time.Location
 }
 
 func NewAgent(
 	provider providers.Provider,
-	memoryCore *memory.Core,
 	chanReg *channels.Registry,
 	store *state.Store,
 	cfg *config.Config,
-	personality string,
+	location *time.Location,
 ) *Agent {
+	if location == nil {
+		location = time.Local
+	}
 	return &Agent{
-		provider:    provider,
-		memoryCore:  memoryCore,
-		chanReg:     chanReg,
-		store:       store,
-		cfg:         cfg,
-		personality: personality,
+		provider: provider,
+		tools:    tools.NewExecutor(store, time.Now, location),
+		chanReg:  chanReg,
+		store:    store,
+		cfg:      cfg,
+		location: location,
 	}
 }
 
@@ -93,6 +98,9 @@ func estimateTokens(messages []providers.Message) int {
 	total := 0
 	for _, m := range messages {
 		total += len(m.Content)
+		for _, call := range m.ToolCalls {
+			total += len(call.ID) + len(call.Function.Name) + len(call.Function.Arguments)
+		}
 	}
 	return total / 4
 }
@@ -137,19 +145,27 @@ func (a *Agent) runCompaction(ctx context.Context, channelID, senderID string) e
 	if keepFrom == 0 || keepFrom >= len(allHistory) {
 		return nil // entire history fits within the keep window
 	}
+	// Retained history must start at a user turn, never in the middle of an
+	// assistant tool-call/result sequence.
+	for keepFrom < len(allHistory) && (allHistory[keepFrom].ContentType != state.ContentText || allHistory[keepFrom].Role != "user") {
+		keepFrom++
+	}
+	if keepFrom >= len(allHistory) {
+		return nil
+	}
 
 	// Build the message list for the summarization call.
-	summaryMessages := make([]providers.Message, 0, len(allHistory)+1)
+	summaryMessages := make([]providers.Message, 0, keepFrom+1)
 	summaryMessages = append(summaryMessages, providers.Message{
 		Role:    providers.RoleSystem,
 		Content: summarizationSystemPrompt,
 	})
-	for _, t := range allHistory {
+	for _, t := range allHistory[:keepFrom] {
 		role := providers.RoleUser
 		if t.Role == "assistant" {
 			role = providers.RoleAssistant
 		}
-		summaryMessages = append(summaryMessages, providers.Message{Role: role, Content: t.Content})
+		summaryMessages = append(summaryMessages, providers.Message{Role: role, Content: summaryContent(t)})
 	}
 
 	resp, err := a.provider.Generate(ctx, &providers.GenerateRequest{
@@ -163,7 +179,10 @@ func (a *Agent) runCompaction(ctx context.Context, channelID, senderID string) e
 	firstKeptID := allHistory[keepFrom].ID
 	tokensBefore := estimateTokens(summaryMessages)
 
-	if _, err := a.store.SaveCompaction(ctx, channelID, senderID, resp.Content, tokensBefore, firstKeptID); err != nil {
+	if strings.TrimSpace(resp.Message.Content) == "" {
+		return fmt.Errorf("compaction: summarization returned empty content")
+	}
+	if _, err := a.store.SaveCompaction(ctx, channelID, senderID, resp.Message.Content, tokensBefore, firstKeptID); err != nil {
 		return fmt.Errorf("compaction: save: %w", err)
 	}
 	if err := a.store.TrimHistoryBefore(ctx, channelID, senderID, firstKeptID); err != nil {
@@ -193,12 +212,26 @@ func (a *Agent) Chat(ctx context.Context, channelID, senderID, content string) (
 		log.Printf("Failed to load conversation history: %v", err)
 	}
 
-	systemPrompt := fmt.Sprintf(
-		"You are a helpful assistant talking to User '%s' on Channel '%s'. When setting reminders, you must explicitly use these exact IDs.\n",
-		senderID, channelID,
-	)
-	if a.personality != "" {
-		systemPrompt += "\nFollow this personality and identity context:\n" + a.personality + "\n"
+	now := time.Now()
+	systemPrompt := fmt.Sprintf(`You are a helpful personal assistant talking to User %q on Channel %q.
+The current server time is %s (%s).
+Reference UTC time is %s.
+Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
+You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
+Search memory when a past durable fact could improve the answer.
+For reminders, always use manage_reminders; never claim a reminder changed unless its tool result succeeded.
+Use one batch add for multiple reminders. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
+Interpret times without an explicit timezone in the server timezone. For cron, keep the requested wall-clock fields and omit timezone to use the server timezone; never convert them to UTC first.
+Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
+These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
+When listing reminders, report each persisted id from the tool result rather than numbering the display independently.
+`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339))
+	personality, err := a.loadPersonalityPrompt(ctx)
+	if err != nil {
+		return "", err
+	}
+	if personality != "" {
+		systemPrompt += "\nFollow this SQLite-backed personality and identity context:\n" + personality + "\n"
 	}
 
 	messages := []providers.Message{
@@ -213,42 +246,220 @@ func (a *Agent) Chat(ctx context.Context, channelID, senderID, content string) (
 		})
 	}
 
-	for _, turn := range history {
-		role := providers.RoleUser
-		if turn.Role == "assistant" {
-			role = providers.RoleAssistant
-		}
-		// ContentToolCall / ContentToolResult turns are stored as JSON payloads.
-		// Fall back to the raw content string until the provider layer supports
-		// structured tool-call messages natively.
-		messages = append(messages, providers.Message{Role: role, Content: turn.Content})
+	historyMessages, err := reconstructHistory(history)
+	if err != nil {
+		return "", err
 	}
+	messages = append(messages, historyMessages...)
 	messages = append(messages, providers.Message{Role: providers.RoleUser, Content: content})
 
-	resp, err := a.provider.Generate(ctx, &providers.GenerateRequest{
-		Model:    "default",
-		Messages: messages,
-	})
-	if err != nil {
-		return "", fmt.Errorf("agent generation failed: %w", err)
-	}
-
 	if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "user", content); err != nil {
-		log.Printf("Failed to save user turn: %v", err)
-	}
-	if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", resp.Content); err != nil {
-		log.Printf("Failed to save assistant turn: %v", err)
+		return "", fmt.Errorf("save user turn: %w", err)
 	}
 
-	// Estimate context size including the new response and trigger compaction if needed.
-	totalTokens := estimateTokens(messages) + len(resp.Content)/4
-	if shouldCompact(totalTokens, defaultContextWindow, defaultReserveTokens) {
-		if err := a.runCompaction(ctx, channelID, senderID); err != nil {
-			log.Printf("Compaction failed for %s/%s: %v", channelID, senderID, err)
+	toolCtx := tools.Context{ChannelID: channelID, SenderID: senderID}
+	definitions := tools.Definitions(a.location)
+	requireReminderTool := isReminderRequest(content)
+	reminderToolSucceeded := false
+	reminderToolAttempted := false
+	for round := 0; round < maxToolRounds; round++ {
+		requestDefinitions := definitions
+		toolChoice := "auto"
+		if requireReminderTool && !reminderToolSucceeded {
+			requestDefinitions = []providers.ToolDefinition{tools.ReminderDefinition(a.location)}
+			toolChoice = "required"
+		}
+		resp, err := a.provider.Generate(ctx, &providers.GenerateRequest{
+			Model:      "default",
+			Messages:   messages,
+			Tools:      requestDefinitions,
+			ToolChoice: toolChoice,
+		})
+		if err != nil {
+			return "", fmt.Errorf("agent generation failed: %w", err)
+		}
+
+		if len(resp.Message.ToolCalls) > 0 {
+			assistantMessage := resp.Message
+			assistantMessage.Role = providers.RoleAssistant
+			payload, err := json.Marshal(assistantMessage)
+			if err != nil {
+				return "", fmt.Errorf("encode assistant tool calls: %w", err)
+			}
+			if err := a.store.SaveConversationMessage(ctx, channelID, senderID, "assistant", state.ContentToolCall, string(payload)); err != nil {
+				return "", fmt.Errorf("save assistant tool calls: %w", err)
+			}
+			messages = append(messages, assistantMessage)
+
+			for _, call := range assistantMessage.ToolCalls {
+				if call.Function.Name == "manage_reminders" {
+					reminderToolAttempted = true
+				}
+				result, err := a.tools.ExecuteAndRecord(ctx, toolCtx, call)
+				if err != nil {
+					return "", fmt.Errorf("execute tool %q: %w", call.Function.Name, err)
+				}
+				if call.Function.Name == "manage_reminders" && !result.IsError {
+					reminderToolSucceeded = true
+				}
+				messages = append(messages, result.Message())
+			}
+			continue
+		}
+		if requireReminderTool && !reminderToolAttempted {
+			return "", fmt.Errorf("local model did not call the required reminder tool")
+		}
+
+		reply := strings.TrimSpace(resp.Message.Content)
+		if requireReminderTool && !reminderToolSucceeded {
+			reply = "I couldn't change your reminders because the reminder tool rejected the request."
+		}
+		if reply == "" {
+			return "", fmt.Errorf("agent generation returned neither content nor tool calls")
+		}
+		if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", reply); err != nil {
+			return "", fmt.Errorf("save assistant turn: %w", err)
+		}
+
+		totalTokens := estimateTokens(messages) + len(reply)/4
+		if shouldCompact(totalTokens, defaultContextWindow, defaultReserveTokens) {
+			if err := a.runCompaction(ctx, channelID, senderID); err != nil {
+				log.Printf("Compaction failed for %s/%s: %v", channelID, senderID, err)
+			}
+		}
+		return reply, nil
+	}
+
+	reply := "I couldn't complete that request because the tool workflow exceeded its safety limit."
+	if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", reply); err != nil {
+		return "", fmt.Errorf("save tool limit response: %w", err)
+	}
+	return reply, nil
+}
+
+func (a *Agent) loadPersonalityPrompt(ctx context.Context) (string, error) {
+	documents, err := a.store.LoadPersonality(ctx)
+	if err != nil {
+		return "", fmt.Errorf("load personality: %w", err)
+	}
+	var prompt strings.Builder
+	for _, document := range documents {
+		if prompt.Len() > 0 {
+			prompt.WriteString("\n\n")
+		}
+		fmt.Fprintf(&prompt, "## %s\n%s", document.Name, document.Content)
+	}
+	return prompt.String(), nil
+}
+
+func isReminderRequest(content string) bool {
+	lower := strings.ToLower(content)
+	for _, marker := range []string{"remind", "reminder", "schedule", "recurring"} {
+		if strings.Contains(lower, marker) {
+			return true
 		}
 	}
+	return false
+}
 
-	return resp.Content, nil
+func historyMessage(turn state.ConversationTurn) (providers.Message, error) {
+	switch turn.ContentType {
+	case state.ContentText:
+		role := providers.MessageRole(turn.Role)
+		if role != providers.RoleUser && role != providers.RoleAssistant && role != providers.RoleSystem {
+			return providers.Message{}, fmt.Errorf("invalid text role %q", turn.Role)
+		}
+		return providers.Message{Role: role, Content: turn.Content}, nil
+	case state.ContentToolCall:
+		var message providers.Message
+		if err := json.Unmarshal([]byte(turn.Content), &message); err != nil {
+			return providers.Message{}, fmt.Errorf("decode tool call: %w", err)
+		}
+		if message.Role != providers.RoleAssistant || len(message.ToolCalls) == 0 {
+			return providers.Message{}, fmt.Errorf("invalid assistant tool-call payload")
+		}
+		return message, nil
+	case state.ContentToolResult:
+		var result tools.Result
+		if err := json.Unmarshal([]byte(turn.Content), &result); err != nil {
+			return providers.Message{}, fmt.Errorf("decode tool result: %w", err)
+		}
+		if result.ToolCallID == "" {
+			return providers.Message{}, fmt.Errorf("tool result is missing tool_call_id")
+		}
+		return result.Message(), nil
+	default:
+		return providers.Message{}, fmt.Errorf("unknown content type %q", turn.ContentType)
+	}
+}
+
+func reconstructHistory(turns []state.ConversationTurn) ([]providers.Message, error) {
+	start := 0
+	for start < len(turns) && (turns[start].ContentType != state.ContentText || turns[start].Role != "user") {
+		start++
+	}
+	turns = turns[start:]
+	messages := make([]providers.Message, 0, len(turns))
+	for index := 0; index < len(turns); index++ {
+		message, err := historyMessage(turns[index])
+		if err != nil {
+			return nil, fmt.Errorf("load structured history row %d: %w", turns[index].ID, err)
+		}
+		if len(message.ToolCalls) == 0 {
+			if message.Role == providers.RoleTool {
+				return nil, fmt.Errorf("load structured history row %d: tool result without assistant call", turns[index].ID)
+			}
+			messages = append(messages, message)
+			continue
+		}
+
+		callIDs := make(map[string]struct{}, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			callIDs[call.ID] = struct{}{}
+		}
+		if len(turns)-index-1 < len(callIDs) {
+			break // an interrupted final tool sequence is not replayable
+		}
+		sequence := []providers.Message{message}
+		complete := true
+		for offset := 1; offset <= len(callIDs); offset++ {
+			result, err := historyMessage(turns[index+offset])
+			if err != nil || result.Role != providers.RoleTool {
+				complete = false
+				break
+			}
+			if _, ok := callIDs[result.ToolCallID]; !ok {
+				complete = false
+				break
+			}
+			delete(callIDs, result.ToolCallID)
+			sequence = append(sequence, result)
+		}
+		if !complete || len(callIDs) != 0 {
+			break
+		}
+		messages = append(messages, sequence...)
+		index += len(sequence) - 1
+	}
+	return messages, nil
+}
+
+func summaryContent(turn state.ConversationTurn) string {
+	message, err := historyMessage(turn)
+	if err != nil {
+		return turn.Content
+	}
+	if len(message.ToolCalls) > 0 {
+		parts := make([]string, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			parts = append(parts, fmt.Sprintf("%s(%s)", call.Function.Name, call.Function.Arguments))
+		}
+		return "Assistant called tools: " + strings.Join(parts, ", ")
+	}
+	if message.Role == providers.RoleTool {
+		return "Tool result: " + message.Content
+	}
+	return message.Content
 }
 
 // HandleMessage is the callback triggered by any channel receiving a message.

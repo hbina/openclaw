@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,14 +25,23 @@ func newTestStore(t *testing.T) *Store {
 func TestReminderLifecycle(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Now()
-	if err := store.AddReminder("telegram", "user-1", "due", now.Add(-time.Minute)); err != nil {
-		t.Fatalf("add due reminder: %v", err)
-	}
-	if err := store.AddReminder("telegram", "user-1", "future", now.Add(time.Hour)); err != nil {
-		t.Fatalf("add future reminder: %v", err)
-	}
-	if err := store.AddReminder("discord", "user-2", "other", now.Add(time.Hour)); err != nil {
-		t.Fatalf("add other reminder: %v", err)
+	ctx := context.Background()
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		for _, item := range []struct {
+			channel, sender, message string
+			at                       time.Time
+		}{
+			{"telegram", "user-1", "due", now.Add(-time.Minute)},
+			{"telegram", "user-1", "future", now.Add(time.Hour)},
+			{"discord", "user-2", "other", now.Add(time.Hour)},
+		} {
+			if _, err := tx.AddReminder(ctx, item.channel, item.sender, item.message, ReminderSchedule{Kind: ScheduleAt, At: item.at}, item.at); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed reminders: %v", err)
 	}
 
 	listed, err := store.ListReminders("telegram", "user-1")
@@ -57,8 +67,8 @@ func TestReminderLifecycle(t *testing.T) {
 	if len(beforeDelete) != 2 {
 		t.Fatalf("reminder count before delivery delete = %d, want 2", len(beforeDelete))
 	}
-	if err := store.DeleteReminder(due[0].ID); err != nil {
-		t.Fatalf("DeleteReminder: %v", err)
+	if err := store.CompleteReminder(due[0], now); err != nil {
+		t.Fatalf("CompleteReminder: %v", err)
 	}
 
 	remaining, err := store.ListReminders("telegram", "user-1")
@@ -67,6 +77,83 @@ func TestReminderLifecycle(t *testing.T) {
 	}
 	if len(remaining) != 1 || remaining[0].Message != "future" {
 		t.Fatalf("unexpected remaining reminders: %#v", remaining)
+	}
+}
+
+func TestRecurringReminderAdvancesAfterDelivery(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	schedule := ReminderSchedule{Kind: ScheduleCron, CronExpr: "0 8 * * 1-5", Timezone: "Asia/Kuala_Lumpur"}
+	next, err := NextReminderRun(schedule, now)
+	if err != nil || !next.Equal(time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("NextReminderRun: next=%v err=%v", next, err)
+	}
+	var id int64
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		id, err = tx.AddReminder(ctx, "telegram", "user-1", "briefing", schedule, next)
+		return err
+	}); err != nil {
+		t.Fatalf("add recurring reminder: %v", err)
+	}
+	listed, err := store.ListReminders("telegram", "user-1")
+	if err != nil || len(listed) != 1 || listed[0].ID != int(id) {
+		t.Fatalf("list recurring reminder: %#v err=%v", listed, err)
+	}
+	if err := store.CompleteReminder(listed[0], next.Add(time.Minute)); err != nil {
+		t.Fatalf("complete recurring reminder: %v", err)
+	}
+	advanced, err := store.ListReminders("telegram", "user-1")
+	want := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	if err != nil || len(advanced) != 1 || !advanced[0].FireAt.Equal(want) {
+		t.Fatalf("advanced reminder: %#v err=%v", advanced, err)
+	}
+}
+
+func TestNextReminderRunRejectsOverflowingInterval(t *testing.T) {
+	_, err := NextReminderRun(ReminderSchedule{Kind: ScheduleEvery, EveryMS: int64(^uint64(0) >> 1)}, time.Now())
+	if err == nil {
+		t.Fatal("expected overflowing interval to fail")
+	}
+}
+
+func TestNextReminderRunSupportsAnchoredEveryAndSixFieldCron(t *testing.T) {
+	now := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name     string
+		schedule ReminderSchedule
+		want     time.Time
+	}{
+		{
+			name: "anchored every",
+			schedule: ReminderSchedule{
+				Kind: ScheduleEvery, EveryMS: int64(time.Hour / time.Millisecond),
+				AnchorAt: now.Add(-30 * time.Minute),
+			},
+			want: now.Add(30 * time.Minute),
+		},
+		{
+			name: "future every anchor",
+			schedule: ReminderSchedule{
+				Kind: ScheduleEvery, EveryMS: int64(time.Hour / time.Millisecond),
+				AnchorAt: now.Add(2 * time.Hour),
+			},
+			want: now.Add(2 * time.Hour),
+		},
+		{
+			name: "six field cron",
+			schedule: ReminderSchedule{
+				Kind: ScheduleCron, CronExpr: "30 0 8 * * *", Timezone: "Asia/Kuala_Lumpur",
+			},
+			want: time.Date(2026, 7, 15, 0, 0, 30, 0, time.UTC),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := NextReminderRun(test.schedule, now)
+			if err != nil || !got.Equal(test.want) {
+				t.Fatalf("NextReminderRun: got=%v want=%v err=%v", got, test.want, err)
+			}
+		})
 	}
 }
 
@@ -199,18 +286,6 @@ func TestCompactionLifecycle(t *testing.T) {
 func TestLoadPersonality(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	for _, document := range []PersonalityDocument{
-		{Name: "IDENTITY.md", Content: "Name: Claw"},
-		{Name: "SOUL.md", Content: "Be direct."},
-	} {
-		_, err := store.db.ExecContext(ctx, `
-			INSERT INTO personality_documents (name, content) VALUES (?, ?)
-		`, document.Name, document.Content)
-		if err != nil {
-			t.Fatalf("insert personality document: %v", err)
-		}
-	}
-
 	documents, err := store.LoadPersonality(ctx)
 	if err != nil {
 		t.Fatalf("LoadPersonality: %v", err)
@@ -218,7 +293,44 @@ func TestLoadPersonality(t *testing.T) {
 	if len(documents) != 2 {
 		t.Fatalf("personality document count = %d, want 2", len(documents))
 	}
-	if documents[0].Name != "SOUL.md" || documents[1].Name != "IDENTITY.md" {
+	if documents[0].Name != SoulDocumentName || documents[0].Content != DefaultSoul ||
+		documents[1].Name != IdentityDocumentName || documents[1].Content != DefaultIdentity {
 		t.Fatalf("unexpected personality order: %#v", documents)
+	}
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		return tx.UpdatePersonality(ctx, IdentityDocumentName, "# IDENTITY.md\n\n- **Name:** Jet")
+	}); err != nil {
+		t.Fatalf("UpdatePersonality: %v", err)
+	}
+	updated, err := store.LoadPersonality(ctx)
+	if err != nil || updated[1].Content != "# IDENTITY.md\n\n- **Name:** Jet" {
+		t.Fatalf("updated personality: %#v err=%v", updated, err)
+	}
+}
+
+func TestCustomPersonalitySurvivesStoreReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "personality.sqlite")
+	ctx := context.Background()
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		return tx.UpdatePersonality(ctx, IdentityDocumentName, "# IDENTITY.md\n\n- **Name:** Jet")
+	}); err != nil {
+		t.Fatalf("UpdatePersonality: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	reopened, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer reopened.Close()
+	documents, err := reopened.LoadPersonality(ctx)
+	if err != nil || len(documents) != 2 || !strings.Contains(documents[1].Content, "Name:** Jet") {
+		t.Fatalf("reopened personality: %#v err=%v", documents, err)
 	}
 }

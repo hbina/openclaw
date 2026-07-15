@@ -7,92 +7,121 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
-type openaiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type openAIMessage struct {
+	Role       string     `json:"role"`
+	Content    *string    `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
-type openaiRequest struct {
-	Model    string          `json:"model"`
-	Messages []openaiMessage `json:"messages"`
+type openAIRequest struct {
+	Model             string           `json:"model"`
+	Messages          []openAIMessage  `json:"messages"`
+	Tools             []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice        string           `json:"tool_choice,omitempty"`
+	ParallelToolCalls *bool            `json:"parallel_tool_calls,omitempty"`
 }
 
-type openaiResponse struct {
+type openAIResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Role      string     `json:"role"`
+			Content   *string    `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 }
 
+// OpenAIClient speaks the OpenAI-compatible protocol exposed by llama-server.
+// The historical config key remains "openai" so existing local config works.
 type OpenAIClient struct {
 	apiKey  string
 	baseURL string
 	client  *http.Client
 }
 
-func NewOpenAIClient(apiKey, baseURL string) *OpenAIClient {
+func NewOpenAIClient(apiKey, baseURL string) (*OpenAIClient, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		return nil, fmt.Errorf("local model base URL is required at models.providers.openai.baseUrl")
 	}
 	return &OpenAIClient{
-		apiKey:  apiKey,
+		apiKey:  strings.TrimSpace(apiKey),
 		baseURL: baseURL,
 		client:  &http.Client{},
-	}
-}
-
-func (c *OpenAIClient) ID() string {
-	return "openai"
+	}, nil
 }
 
 func (c *OpenAIClient) Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error) {
-	oReq := openaiRequest{
+	oReq := openAIRequest{
 		Model: req.Model,
+		Tools: req.Tools,
 	}
-	for _, m := range req.Messages {
-		oReq.Messages = append(oReq.Messages, openaiMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
-		})
+	if len(req.Tools) > 0 {
+		parallel := false
+		oReq.ToolChoice = req.ToolChoice
+		if oReq.ToolChoice == "" {
+			oReq.ToolChoice = "auto"
+		}
+		oReq.ParallelToolCalls = &parallel
+	}
+	for _, message := range req.Messages {
+		wire := openAIMessage{
+			Role:       string(message.Role),
+			ToolCalls:  message.ToolCalls,
+			ToolCallID: message.ToolCallID,
+		}
+		if message.Content != "" || len(message.ToolCalls) == 0 {
+			content := message.Content
+			wire.Content = &content
+		}
+		oReq.Messages = append(oReq.Messages, wire)
 	}
 
 	bodyBytes, err := json.Marshal(oReq)
 	if err != nil {
-		return nil, fmt.Errorf("openai marshal request: %w", err)
+		return nil, fmt.Errorf("local model marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("openai new request: %w", err)
+		return nil, fmt.Errorf("local model new request: %w", err)
 	}
-
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("openai execute request: %w", err)
+		return nil, fmt.Errorf("local model execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai unexpected status %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return nil, fmt.Errorf("local model unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var oResp openaiResponse
+	var oResp openAIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oResp); err != nil {
-		return nil, fmt.Errorf("openai decode response: %w", err)
+		return nil, fmt.Errorf("local model decode response: %w", err)
 	}
-
 	if len(oResp.Choices) == 0 {
-		return nil, fmt.Errorf("openai no choices returned")
+		return nil, fmt.Errorf("local model returned no choices")
 	}
 
-	return &GenerateResponse{
-		Content: oResp.Choices[0].Message.Content,
-	}, nil
+	choice := oResp.Choices[0]
+	message := Message{
+		Role:      RoleAssistant,
+		ToolCalls: choice.Message.ToolCalls,
+	}
+	if choice.Message.Content != nil {
+		message.Content = *choice.Message.Content
+	}
+	return &GenerateResponse{Message: message, FinishReason: choice.FinishReason}, nil
 }

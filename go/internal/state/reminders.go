@@ -1,78 +1,239 @@
 package state
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"math"
+	"strings"
 	"time"
+	_ "time/tzdata"
+
+	"github.com/robfig/cron/v3"
 )
+
+type ScheduleKind string
+
+const (
+	ScheduleAt    ScheduleKind = "at"
+	ScheduleEvery ScheduleKind = "every"
+	ScheduleCron  ScheduleKind = "cron"
+)
+
+type ReminderSchedule struct {
+	Kind     ScheduleKind
+	At       time.Time
+	EveryMS  int64
+	AnchorAt time.Time
+	CronExpr string
+	Timezone string
+}
 
 type Reminder struct {
 	ID        int
 	ChannelID string
 	SenderID  string
 	Message   string
+	Schedule  ReminderSchedule
 	FireAt    time.Time
+	Enabled   bool
 	CreatedAt time.Time
 }
 
-// AddReminder inserts a new reminder into the database.
-func (s *Store) AddReminder(channelID, senderID, message string, fireAt time.Time) error {
-	_, err := s.db.Exec(
-		"INSERT INTO reminders (channel_id, sender_id, message, fire_at) VALUES (?, ?, ?, ?)",
-		channelID, senderID, message, fireAt,
+var cronParser = cron.NewParser(
+	cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+)
+
+func NextReminderRun(schedule ReminderSchedule, now time.Time) (time.Time, error) {
+	switch schedule.Kind {
+	case ScheduleAt:
+		if !schedule.At.After(now) {
+			return time.Time{}, fmt.Errorf("at must be in the future")
+		}
+		return schedule.At, nil
+	case ScheduleEvery:
+		if schedule.EveryMS < 1 {
+			return time.Time{}, fmt.Errorf("every_ms must be a positive integer")
+		}
+		if schedule.EveryMS > math.MaxInt64/int64(time.Millisecond) {
+			return time.Time{}, fmt.Errorf("every_ms is too large")
+		}
+		interval := time.Duration(schedule.EveryMS) * time.Millisecond
+		anchor := schedule.AnchorAt
+		if anchor.IsZero() {
+			anchor = now
+		}
+		if now.Before(anchor) {
+			return anchor, nil
+		}
+		steps := now.Sub(anchor)/interval + 1
+		return anchor.Add(steps * interval), nil
+	case ScheduleCron:
+		expr := strings.TrimSpace(schedule.CronExpr)
+		if expr == "" {
+			return time.Time{}, fmt.Errorf("expr is required for cron schedules")
+		}
+		location := time.Local
+		if tz := strings.TrimSpace(schedule.Timezone); tz != "" {
+			var err error
+			location, err = time.LoadLocation(tz)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("invalid IANA timezone %q: %w", tz, err)
+			}
+		}
+		parsed, err := cronParser.Parse("CRON_TZ=" + location.String() + " " + expr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid cron expression: %w", err)
+		}
+		next := parsed.Next(now)
+		if next.IsZero() {
+			return time.Time{}, fmt.Errorf("cron expression has no future run")
+		}
+		return next, nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported schedule kind %q", schedule.Kind)
+	}
+}
+
+func (tx *Tx) AddReminder(ctx context.Context, channelID, senderID, message string, schedule ReminderSchedule, fireAt time.Time) (int64, error) {
+	var anchor any
+	if !schedule.AnchorAt.IsZero() {
+		anchor = schedule.AnchorAt
+	}
+	result, err := tx.tx.ExecContext(ctx, `
+		INSERT INTO reminders
+		(channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		channelID, senderID, message, fireAt, schedule.Kind, schedule.EveryMS, anchor, schedule.CronExpr, schedule.Timezone,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to add reminder: %w", err)
+		return 0, fmt.Errorf("failed to add reminder: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read reminder id: %w", err)
+	}
+	return id, nil
+}
+
+const reminderColumns = `id, channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled, created_at`
+
+func scanReminder(scanner interface{ Scan(...any) error }) (Reminder, error) {
+	var reminder Reminder
+	var kind string
+	var anchor sql.NullTime
+	var enabled int
+	err := scanner.Scan(&reminder.ID, &reminder.ChannelID, &reminder.SenderID, &reminder.Message, &reminder.FireAt,
+		&kind, &reminder.Schedule.EveryMS, &anchor, &reminder.Schedule.CronExpr, &reminder.Schedule.Timezone, &enabled, &reminder.CreatedAt)
+	if err != nil {
+		return Reminder{}, err
+	}
+	reminder.Schedule.Kind = ScheduleKind(kind)
+	reminder.Schedule.At = reminder.FireAt
+	if anchor.Valid {
+		reminder.Schedule.AnchorAt = anchor.Time
+	}
+	reminder.Enabled = enabled != 0
+	return reminder, nil
+}
+
+func (s *Store) ListReminders(channelID, senderID string) ([]Reminder, error) {
+	return listReminders(s.db.Query, channelID, senderID)
+}
+
+func (tx *Tx) ListReminders(ctx context.Context, channelID, senderID string) ([]Reminder, error) {
+	rows, err := tx.tx.QueryContext(ctx, "SELECT "+reminderColumns+" FROM reminders WHERE channel_id = ? AND sender_id = ? ORDER BY fire_at ASC", channelID, senderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list reminders: %w", err)
+	}
+	return collectReminders(rows)
+}
+
+func listReminders(query func(string, ...any) (*sql.Rows, error), channelID, senderID string) ([]Reminder, error) {
+	rows, err := query("SELECT "+reminderColumns+" FROM reminders WHERE channel_id = ? AND sender_id = ? ORDER BY fire_at ASC", channelID, senderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list reminders: %w", err)
+	}
+	return collectReminders(rows)
+}
+
+func collectReminders(rows *sql.Rows) ([]Reminder, error) {
+	defer rows.Close()
+	var reminders []Reminder
+	for rows.Next() {
+		reminder, err := scanReminder(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan reminder: %w", err)
+		}
+		reminders = append(reminders, reminder)
+	}
+	return reminders, rows.Err()
+}
+
+func (tx *Tx) GetReminderForUser(ctx context.Context, id int, channelID, senderID string) (Reminder, error) {
+	reminder, err := scanReminder(tx.tx.QueryRowContext(ctx, "SELECT "+reminderColumns+" FROM reminders WHERE id = ? AND channel_id = ? AND sender_id = ?", id, channelID, senderID))
+	if err == sql.ErrNoRows {
+		return Reminder{}, fmt.Errorf("reminder %d not found", id)
+	}
+	if err != nil {
+		return Reminder{}, fmt.Errorf("get reminder: %w", err)
+	}
+	return reminder, nil
+}
+
+func (tx *Tx) UpdateReminderForUser(ctx context.Context, reminder Reminder) error {
+	var anchor any
+	if !reminder.Schedule.AnchorAt.IsZero() {
+		anchor = reminder.Schedule.AnchorAt
+	}
+	result, err := tx.tx.ExecContext(ctx, `UPDATE reminders SET message = ?, fire_at = ?, schedule_kind = ?, every_ms = ?, anchor_at = ?, cron_expr = ?, timezone = ?, enabled = ? WHERE id = ? AND channel_id = ? AND sender_id = ?`,
+		reminder.Message, reminder.FireAt, reminder.Schedule.Kind, reminder.Schedule.EveryMS, anchor, reminder.Schedule.CronExpr, reminder.Schedule.Timezone, reminder.Enabled, reminder.ID, reminder.ChannelID, reminder.SenderID)
+	if err != nil {
+		return fmt.Errorf("failed to update reminder: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated reminder count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("reminder %d not found", reminder.ID)
 	}
 	return nil
 }
 
-// ListReminders returns all pending reminders for a specific user.
-func (s *Store) ListReminders(channelID, senderID string) ([]Reminder, error) {
-	rows, err := s.db.Query(
-		"SELECT id, channel_id, sender_id, message, fire_at, created_at FROM reminders WHERE channel_id = ? AND sender_id = ? ORDER BY fire_at ASC",
-		channelID, senderID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list reminders: %w", err)
-	}
-	defer rows.Close()
-
-	var reminders []Reminder
-	for rows.Next() {
-		var r Reminder
-		if err := rows.Scan(&r.ID, &r.ChannelID, &r.SenderID, &r.Message, &r.FireAt, &r.CreatedAt); err != nil {
-			return nil, err
-		}
-		reminders = append(reminders, r)
-	}
-	return reminders, nil
-}
-
-// FetchDueReminders returns all reminders that are due to fire.
 func (s *Store) FetchDueReminders() ([]Reminder, error) {
-	now := time.Now()
-	rows, err := s.db.Query(
-		"SELECT id, channel_id, sender_id, message, fire_at, created_at FROM reminders WHERE fire_at <= ?",
-		now,
-	)
+	rows, err := s.db.Query("SELECT "+reminderColumns+" FROM reminders WHERE enabled = 1 AND fire_at <= ? ORDER BY fire_at ASC", time.Now())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch due reminders: %w", err)
 	}
-	defer rows.Close()
-
-	var due []Reminder
-	for rows.Next() {
-		var r Reminder
-		if err := rows.Scan(&r.ID, &r.ChannelID, &r.SenderID, &r.Message, &r.FireAt, &r.CreatedAt); err != nil {
-			return nil, err
-		}
-		due = append(due, r)
-	}
-	return due, rows.Err()
+	return collectReminders(rows)
 }
 
-// DeleteReminder removes a reminder after successful delivery.
-func (s *Store) DeleteReminder(id int) error {
+// CompleteReminder deletes one-shots and advances recurring reminders only
+// after successful delivery, so failed sends remain due for retry.
+func (s *Store) CompleteReminder(reminder Reminder, now time.Time) error {
+	if reminder.Schedule.Kind == ScheduleAt {
+		return s.deleteReminder(reminder.ID)
+	}
+	next, err := NextReminderRun(reminder.Schedule, now)
+	if err != nil {
+		return fmt.Errorf("advance reminder %d: %w", reminder.ID, err)
+	}
+	result, err := s.db.Exec("UPDATE reminders SET fire_at = ? WHERE id = ? AND fire_at = ?", next, reminder.ID, reminder.FireAt)
+	if err != nil {
+		return fmt.Errorf("advance reminder %d: %w", reminder.ID, err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read advanced reminder count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("reminder %d changed while delivering", reminder.ID)
+	}
+	return nil
+}
+
+func (s *Store) deleteReminder(id int) error {
 	result, err := s.db.Exec("DELETE FROM reminders WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete reminder: %w", err)
@@ -85,4 +246,38 @@ func (s *Store) DeleteReminder(id int) error {
 		return fmt.Errorf("reminder %d not found", id)
 	}
 	return nil
+}
+
+func (tx *Tx) DeleteReminderForUser(ctx context.Context, id int, channelID, senderID string) error {
+	result, err := tx.tx.ExecContext(ctx, "DELETE FROM reminders WHERE id = ? AND channel_id = ? AND sender_id = ?", id, channelID, senderID)
+	if err != nil {
+		return fmt.Errorf("failed to delete reminder: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted reminder count: %w", err)
+	}
+	if deleted == 0 {
+		return fmt.Errorf("reminder %d not found", id)
+	}
+	return nil
+}
+
+func ScheduleDescription(schedule ReminderSchedule) map[string]any {
+	result := map[string]any{"kind": schedule.Kind}
+	switch schedule.Kind {
+	case ScheduleAt:
+		result["at"] = schedule.At.Format(time.RFC3339)
+	case ScheduleEvery:
+		result["every_ms"] = schedule.EveryMS
+		if !schedule.AnchorAt.IsZero() {
+			result["anchor_at"] = schedule.AnchorAt.Format(time.RFC3339)
+		}
+	case ScheduleCron:
+		result["expr"] = schedule.CronExpr
+		if schedule.Timezone != "" {
+			result["timezone"] = schedule.Timezone
+		}
+	}
+	return result
 }

@@ -30,6 +30,17 @@ func (s *Store) SaveConversationMessage(ctx context.Context, channelID, senderID
 	return nil
 }
 
+func (tx *Tx) SaveConversationMessage(ctx context.Context, channelID, senderID, role, contentType, content string) error {
+	_, err := tx.tx.ExecContext(ctx,
+		`INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, ?, ?, ?)`,
+		channelID, senderID, role, contentType, content,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save conversation message: %w", err)
+	}
+	return nil
+}
+
 // SaveConversationTurn saves a plain-text user or assistant turn.
 func (s *Store) SaveConversationTurn(ctx context.Context, channelID, senderID, role, content string) error {
 	return s.SaveConversationMessage(ctx, channelID, senderID, role, ContentText, content)

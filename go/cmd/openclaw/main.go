@@ -2,38 +2,20 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/openclaw/openclaw/go/internal/channels"
 	"github.com/openclaw/openclaw/go/internal/config"
 	"github.com/openclaw/openclaw/go/internal/gateway"
-	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
 )
-
-func loadPersonalityPrompt(ctx context.Context, store *state.Store) string {
-	documents, err := store.LoadPersonality(ctx)
-	if err != nil {
-		log.Printf("Warning: failed to load personality: %v", err)
-		return ""
-	}
-
-	var prompt strings.Builder
-	for _, document := range documents {
-		if prompt.Len() > 0 {
-			prompt.WriteString("\n\n")
-		}
-		fmt.Fprintf(&prompt, "## %s\n%s", document.Name, document.Content)
-	}
-	return prompt.String()
-}
 
 func main() {
 	dataDir := strings.TrimSpace(os.Getenv("OPENCLAW_DATA_DIR"))
@@ -43,16 +25,6 @@ func main() {
 	configDir := strings.TrimSpace(os.Getenv("OPENCLAW_CONFIG_DIR"))
 	if configDir == "" {
 		log.Fatal("OPENCLAW_CONFIG_DIR must be set")
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
-		dbPath := filepath.Join(dataDir, "openclaw-agent.sqlite")
-		store, err := state.NewStore(dbPath)
-		if err != nil {
-			log.Fatalf("Failed to open DB for MCP: %v", err)
-		}
-		providers.RunMCPServer(store)
-		return
 	}
 
 	log.Println("Starting OpenClaw (Go Core)...")
@@ -76,34 +48,19 @@ func main() {
 		log.Fatalf("Failed to initialize state store: %v", err)
 	}
 	defer store.Close()
-	memCore := memory.NewCore(store)
 
-	// 3. Providers
-	provReg := providers.NewRegistry()
-	if sec.Models.Providers.OpenAI.APIKey != "" {
-		provReg.Register(providers.NewOpenAIClient(sec.Models.Providers.OpenAI.APIKey, cfg.Models.Providers.OpenAI.BaseURL))
-	}
-	if sec.Models.Providers.Anthropic.APIKey != "" {
-		provReg.Register(providers.NewAnthropicClient(sec.Models.Providers.Anthropic.APIKey))
-	}
-	provReg.Register(providers.NewClaudeCLIProvider())
-
-	primaryProviderID := "openai" // default
+	// 3. Local OpenAI-compatible provider
+	primaryProviderID := "openai"
 	if cfg.Agents.Defaults.Model.Primary != "" {
 		parts := strings.SplitN(cfg.Agents.Defaults.Model.Primary, "/", 2)
 		primaryProviderID = parts[0]
 	}
-
-	primaryProv, err := provReg.Get(primaryProviderID)
+	if primaryProviderID != "openai" {
+		log.Fatalf("Unsupported provider %q: the Go runtime requires an OpenAI-compatible local llama-server endpoint", primaryProviderID)
+	}
+	primaryProv, err := providers.NewOpenAIClient(sec.Models.Providers.OpenAI.APIKey, cfg.Models.Providers.OpenAI.BaseURL)
 	if err != nil {
-		log.Printf("Warning: Primary provider %q not found, falling back", primaryProviderID)
-		primaryProv, err = provReg.Get("claude-cli")
-		if err != nil {
-			primaryProv, err = provReg.Get("openai")
-			if err != nil {
-				log.Println("Warning: No providers registered. Agent will fail to reply.")
-			}
-		}
+		log.Fatalf("Failed to configure local model provider: %v", err)
 	}
 
 	// 4. Channels
@@ -131,7 +88,9 @@ func main() {
 	}
 
 	// 5. Agent & Gateway
-	agent := gateway.NewAgent(primaryProv, memCore, chanReg, store, cfg, loadPersonalityPrompt(context.Background(), store))
+	serverTimezone := time.Local
+	log.Printf("Using server timezone %s", serverTimezone.String())
+	agent := gateway.NewAgent(primaryProv, chanReg, store, cfg, serverTimezone)
 	gw := gateway.NewGateway(agent, chanReg, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
