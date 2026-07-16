@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func writeTestFile(t *testing.T, name, content string) string {
 
 func TestLoadConfig(t *testing.T) {
 	path := writeTestFile(t, "openclaw.json", `{
-		"agents":{"defaults":{"model":{"primary":"openai/gpt-5.5"}}},
+		"agents":{"defaults":{"soul":"  Be direct.  ","identity":"\n Jet the fox. \t","model":{"primary":"openai/gpt-5.5"}}},
 		"channels":{"telegram":{"enabled":true},"whatsapp":{"enabled":false},"discord":{"enabled":true}},
 		"models":{"providers":{"openai":{"baseUrl":"http://127.0.0.1:8080/v1","models":["default"]}}},
 		"plugins":{"enabled":true,"entries":{"memory-core":{"enabled":true}}}
@@ -29,6 +30,12 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if got := cfg.Agents.Defaults.Model.Primary; got != "openai/gpt-5.5" {
 		t.Fatalf("primary model = %q", got)
+	}
+	if got := cfg.Agents.Defaults.Soul; got != "Be direct." {
+		t.Fatalf("soul = %q", got)
+	}
+	if got := cfg.Agents.Defaults.Identity; got != "Jet the fox." {
+		t.Fatalf("identity = %q", got)
 	}
 	if !cfg.Channels.Telegram.Enabled || !cfg.Channels.Discord.Enabled {
 		t.Fatal("expected retained channels to be enabled")
@@ -63,5 +70,29 @@ func TestLoadConfigRejectsInvalidJSON(t *testing.T) {
 	path := writeTestFile(t, "openclaw.json", `{`)
 	if _, err := LoadConfig(path); err == nil {
 		t.Fatal("expected invalid JSON error")
+	}
+}
+
+func TestLoadConfigRequiresPersona(t *testing.T) {
+	tests := []struct {
+		name      string
+		persona   string
+		wantError string
+	}{
+		{name: "missing soul", persona: `"identity":"Jet"`, wantError: "agents.defaults.soul"},
+		{name: "empty soul", persona: `"soul":"","identity":"Jet"`, wantError: "agents.defaults.soul"},
+		{name: "whitespace soul", persona: `"soul":"  \n\t","identity":"Jet"`, wantError: "agents.defaults.soul"},
+		{name: "missing identity", persona: `"soul":"Be kind"`, wantError: "agents.defaults.identity"},
+		{name: "empty identity", persona: `"soul":"Be kind","identity":""`, wantError: "agents.defaults.identity"},
+		{name: "whitespace identity", persona: `"soul":"Be kind","identity":" \n\t "`, wantError: "agents.defaults.identity"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeTestFile(t, "openclaw.json", `{"agents":{"defaults":{`+test.persona+`}}}`)
+			_, err := LoadConfig(path)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("LoadConfig error = %v, want field %q", err, test.wantError)
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config represents the canonical openclaw.json structure
@@ -19,7 +20,9 @@ type AgentsConfig struct {
 }
 
 type AgentDefaults struct {
-	Model struct {
+	Soul     string `json:"soul"`
+	Identity string `json:"identity"`
+	Model    struct {
 		Primary string `json:"primary"`
 	} `json:"model"`
 }
@@ -93,6 +96,14 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
+	}
+	cfg.Agents.Defaults.Soul = strings.TrimSpace(cfg.Agents.Defaults.Soul)
+	if cfg.Agents.Defaults.Soul == "" {
+		return nil, fmt.Errorf("agents.defaults.soul must be a non-empty string")
+	}
+	cfg.Agents.Defaults.Identity = strings.TrimSpace(cfg.Agents.Defaults.Identity)
+	if cfg.Agents.Defaults.Identity == "" {
+		return nil, fmt.Errorf("agents.defaults.identity must be a non-empty string")
 	}
 
 	return &cfg, nil

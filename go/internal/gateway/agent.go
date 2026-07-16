@@ -29,6 +29,8 @@ type Agent struct {
 	chanReg  *channels.Registry
 	store    *state.Store
 	cfg      *config.Config
+	soul     string
+	identity string
 	location *time.Location
 }
 
@@ -42,12 +44,19 @@ func NewAgent(
 	if location == nil {
 		location = time.Local
 	}
+	var soul, identity string
+	if cfg != nil {
+		soul = cfg.Agents.Defaults.Soul
+		identity = cfg.Agents.Defaults.Identity
+	}
 	return &Agent{
 		provider: provider,
 		tools:    tools.NewExecutor(store, time.Now, location),
 		chanReg:  chanReg,
 		store:    store,
 		cfg:      cfg,
+		soul:     soul,
+		identity: identity,
 		location: location,
 	}
 }
@@ -225,14 +234,12 @@ Interpret times without an explicit timezone in the server timezone. For cron, k
 Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
 These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
 When listing reminders, report each persisted id from the tool result rather than numbering the display independently.
-`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339))
-	personality, err := a.loadPersonalityPrompt(ctx)
-	if err != nil {
-		return "", err
-	}
-	if personality != "" {
-		systemPrompt += "\nFollow this SQLite-backed personality and identity context:\n" + personality + "\n"
-	}
+Soul:
+%s
+
+Identity:
+%s
+`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), a.soul, a.identity)
 
 	messages := []providers.Message{
 		{Role: providers.RoleSystem, Content: systemPrompt},
@@ -335,21 +342,6 @@ When listing reminders, report each persisted id from the tool result rather tha
 		return "", fmt.Errorf("save tool limit response: %w", err)
 	}
 	return reply, nil
-}
-
-func (a *Agent) loadPersonalityPrompt(ctx context.Context) (string, error) {
-	documents, err := a.store.LoadPersonality(ctx)
-	if err != nil {
-		return "", fmt.Errorf("load personality: %w", err)
-	}
-	var prompt strings.Builder
-	for _, document := range documents {
-		if prompt.Len() > 0 {
-			prompt.WriteString("\n\n")
-		}
-		fmt.Fprintf(&prompt, "## %s\n%s", document.Name, document.Content)
-	}
-	return prompt.String(), nil
 }
 
 func isReminderRequest(content string) bool {

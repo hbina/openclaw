@@ -14,9 +14,10 @@ runtime dependencies.
 The TypeScript/Node runtime remains the production reference. The Go runtime is
 an active prototype: local text generation, structured reminder/memory tools,
 persisted at/every/cron schedules, reminder CRUD, and standalone-container
-restart persistence are proven. SQLite-backed SOUL/IDENTITY defaults, updates,
-and per-turn prompt injection are implemented. Channel parity, scheduled agent
-jobs, security, state migration, and production cutover remain incomplete.
+restart persistence are proven. Required operator-owned Soul and Identity
+configuration is loaded once at startup and injected into the system prompt.
+Channel parity, scheduled agent jobs, security, state migration, and production
+cutover remain incomplete.
 
 ## Target
 
@@ -46,9 +47,9 @@ and full upstream Gateway parity are not first-cut requirements.
   hosted OpenAI, Anthropic, Claude API/CLI, ChatGPT, MCP subprocess, or cloud
   fallback paths. `models.providers.openai` is only the compatibility wire key.
 - Keep one primary agent and only Telegram, WhatsApp, and Discord text channels.
-- SQLite is canonical for reminders, history, compaction, memory, personality,
-  and other OpenClaw-owned runtime state. Do not add state sidecars or runtime
-  fallback readers.
+- SQLite is canonical for reminders, history, compaction, memory, and other
+  OpenClaw-owned runtime state. Persona is required non-secret configuration in
+  `openclaw.json`; do not add state sidecars, persona tables, or fallback readers.
 - Prefer deletion and one canonical implementation over compatibility shims for
   fork surfaces that have never shipped.
 - Keep secrets out of git, build contexts, image layers, logs, and reports.
@@ -68,7 +69,7 @@ and full upstream Gateway parity are not first-cut requirements.
 | Go Gateway and agent        | Keep         | One primary assistant, authenticated operator/chat surface, health endpoint                              |
 | Local model                 | Keep         | OpenAI-compatible `llama-server`, required local base URL, optional LAN bearer token, model id `default` |
 | Reminders                   | Keep         | Atomic batch CRUD, `at`/`every`/timezone-aware `cron`, durable delivery                                  |
-| Memory and personality      | Keep         | SQLite recall/search, history/compaction, canonical `SOUL.md` and `IDENTITY.md` rows                     |
+| Memory and persona          | Keep         | SQLite recall/search and history/compaction; required startup-loaded `agents.defaults.soul`/`identity`   |
 | Telegram                    | Keep         | Pairing/allowlist, inbound/outbound DM text, reminder delivery                                           |
 | WhatsApp                    | Keep         | QR/device setup, pairing/allowlist, inbound/outbound text, reminder delivery                             |
 | Discord                     | Keep         | Required intents, pairing/allowlist, conservative DM text, reminder delivery                             |
@@ -92,7 +93,7 @@ protocol compatibility remain explicit decisions rather than assumed scope.
   runtime. The root Docker/Compose production path has not cut over.
 - Basic Go channel adapters exist, but pairing, access control, WhatsApp setup,
   richer channel semantics, and credential-backed live proof are incomplete.
-- Local text, structured tools, reminders, memory, personality, transcripts,
+- Local text, structured tools, reminders, memory, configured persona, transcripts,
   SQLite persistence, and restart behavior are implemented and tested as
   detailed below.
 - Go release/distribution, Node-state migration, rollback, and production
@@ -105,8 +106,7 @@ protocol compatibility remain explicit decisions rather than assumed scope.
 - `go/internal/providers`: OpenAI-compatible structured chat contract and local
   HTTP client.
 - `go/internal/tools`: Trusted in-process reminder and memory tool execution.
-- `go/internal/state`: SQLite reminders, history, compaction, personality, and
-  memory state.
+- `go/internal/state`: SQLite reminders, history, compaction, and memory state.
 - `go/internal/channels`: Telegram, Discord, and WhatsApp adapters.
 - `go/internal/gateway`: Agent loop, HTTP server, reminder delivery, and
   compaction.
@@ -118,6 +118,10 @@ protocol compatibility remain explicit decisions rather than assumed scope.
 Implemented:
 
 - `OPENCLAW_DATA_DIR` and `OPENCLAW_CONFIG_DIR` select mounted state and config.
+- `openclaw.json` is required. Startup fails if it cannot be read or parsed, or
+  if `agents.defaults.soul` or `agents.defaults.identity` is missing, empty, or
+  whitespace-only. Both persona strings are trimmed and loaded once; edits take
+  effect only after process restart.
 - `models.providers.openai.baseUrl` is retained as the compatibility key for a
   local OpenAI-compatible endpoint.
 - The base URL is mandatory; there is no public OpenAI endpoint default.
@@ -135,8 +139,6 @@ Implemented:
 Limitations:
 
 - Config decoding validates JSON syntax but not all semantic constraints.
-- Missing config files still initially decode through the prototype's empty
-  defaults before local-provider construction fails with an actionable error.
 - Plugin config is parsed but does not activate a Go plugin system.
 - Streaming, usage accounting, retries, capability negotiation, media, and
   structured output beyond tool calls are not implemented.
@@ -148,7 +150,7 @@ Implemented:
 - The provider contract carries system, user, assistant, and tool messages;
   assistant tool calls; exact call ids; JSON arguments; tool definitions; and
   finish reasons.
-- Normal Chat Completions requests send four function tools with sequential
+- Normal Chat Completions requests send three function tools with sequential
   execution. Reminder-intent turns expose only `manage_reminders` and send
   `tool_choice: required` until a reminder operation succeeds.
 - The agent supports up to four tool rounds and returns a deterministic safety
@@ -160,9 +162,9 @@ Implemented:
   error results so the model can correct its request.
 - Channel and sender identifiers come from trusted agent context and are absent
   from model-visible schemas.
-- `SOUL.md` and `IDENTITY.md` are canonical SQLite documents. A new database
-  receives useful defaults with the name OpenClaw; startup uses insert-if-missing
-  semantics so user edits are never reset. Both documents reload on every turn.
+- The startup-loaded persona is appended to every system prompt in stable plain
+  text sections named `Soul:` and `Identity:`. Chat callers cannot view or mutate
+  it through a model tool.
 
 Available tools:
 
@@ -176,8 +178,6 @@ Available tools:
   an optional IANA timezone. An omitted cron timezone is persisted as the
   resolved server timezone, and next-fire values are rendered in that timezone.
   IANA data is embedded for the minimal Alpine image.
-- `manage_personality(action, ...)` views or explicitly replaces `SOUL.md` or
-  `IDENTITY.md`. Updates and their tool-result transcript commit atomically.
 - `store_memory(content)` stores a global durable fact and deduplicates exact
   repeats.
 - `search_memory(query)` returns up to five global substring matches.
@@ -202,9 +202,8 @@ Limitations:
   the server timezone changes. Vague phrases such as "tonight" still require an
   exact time decision or clarification; this change fixes the timezone basis,
   not the missing-hour ambiguity.
-- Personality is global to the single agent. Until Gateway/channel access
-  control is implemented, any caller that can reach chat can request a global
-  `manage_personality` update; deployments must restrict access accordingly.
+- Persona is global to the single agent and operator-controlled. Configuration
+  changes require a restart; there is no runtime reload endpoint.
 - The fixed history-row limit can retain fewer natural-language turns when a
   conversation contains many tool rows.
 - Context size still uses a fixed 100,000-token assumption and a four-character
@@ -239,11 +238,11 @@ Implemented:
 
 - SQLite stores reminders, including canonical schedule kind/definition,
   timezone, enabled state, and next-fire timestamp, plus global memory,
-  personality documents, conversation rows, compaction records, and generic
-  agent state. Existing Go one-shot rows migrate to `schedule_kind = at`.
-- Personality documents live only in `personality_documents`; the Go runtime
-  does not depend on mounted workspace Markdown files. Default insertion is
-  idempotent and custom identity content survives store/container restart.
+  conversation rows, compaction records, and generic agent state. Existing Go
+  one-shot rows migrate to `schedule_kind = at`.
+- Fresh databases do not create `personality_documents`. Opening an older Go
+  database drops that table without importing or preserving its contents and
+  without changing reminders, memory, or history.
 - Compaction summaries preserve readable tool activity and retained history is
   aligned to a user-turn boundary.
 - The Go image is now a Go binary plus Alpine CA certificates and SQLite runtime
@@ -269,8 +268,9 @@ Automated Go coverage includes:
   calculation, server-timezone defaulting and display, recurring post-delivery
   advancement, global memory, exact deduplication, and structured result
   persistence.
-- Default personality seeding, stable SOUL-before-IDENTITY ordering, validated
-  updates, restart persistence, and per-turn system-prompt refresh.
+- Required persona validation/trimming, exact Soul-before-Identity prompt
+  sections, startup snapshot behavior, removed personality tool handling, and
+  legacy personality-table removal without runtime-state loss.
 - Multi-round agent execution, validation-error recovery, tool-call/result
   replay, the four-round limit, prompt/tool identity separation, history,
   compaction decisions, Gateway health, and SQLite state.
@@ -300,13 +300,6 @@ Live recurring-reminder proof on 2026-07-15 includes:
 - A second model/tool turn listing the persisted reminders and a third removing
   all seven test rows. Final SQLite count for the test sender was zero; the
   structured call/result audit rows remain.
-- The personality build inserted `SOUL.md` and `IDENTITY.md` into the existing
-  SQLite state. Before restart the local model identified itself as OpenClaw and
-  described the seeded voice; after container restart it again answered from the
-  same persisted identity. No workspace Markdown mount was present.
-- A natural-language identity-change request produced a structured
-  `manage_personality` update, SQLite contained the replacement Markdown, and a
-  subsequent restart preserved the name, vibe, and emoji.
 
 Server-timezone proof on 2026-07-16 includes:
 
@@ -323,12 +316,40 @@ Server-timezone proof on 2026-07-16 includes:
   container was removed; the persistent test container and its state were not
   changed.
 
+Operator-owned persona proof on 2026-07-16 includes:
+
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with a writable Go
+  cache. Focused coverage proves trimming and required-field failures, exact
+  Soul/Identity prompt sections and startup snapshots, a three-tool catalog with
+  no persona mutation tool, and legacy-table removal without reminder, memory,
+  or history loss.
+- Building `openclaw-go-ubuntu-test:persona-config` from `go/Dockerfile` with
+  image id `sha256:6e81012ca4737ba90334daea28c8446d3100e1668470ea9a64b939157b3bc8fe`.
+- Recreating `openclaw-go-test-ubuntu` from that image while preserving both
+  named volumes, read-only config/secret binds, the existing `/data` bind, port
+  18792, `OPENCLAW_CONFIG_DIR`, `OPENCLAW_DATA_DIR`, `TZ=Asia/Kuala_Lumpur`, and
+  restart policy `unless-stopped`.
+- Verifying the local llama-server health endpoint from both the host bridge and
+  inside the container, followed by Gateway health and startup in
+  `Asia/Kuala_Lumpur`.
+- Opening the existing SQLite database dropped `personality_documents` while
+  retaining its eight existing reminders and 33 pre-proof conversation rows.
+  A unique live `/chat` turn added paired user/assistant text rows.
+- The real local Gemma response was: “I'm Jet 🦊, your local AI familiar and
+  personal assistant, and I'm warm, direct, curious, resourceful, and
+  occasionally mischievous.” A container restart then passed health with the
+  table still absent, both proof transcript rows retained, and all eight
+  reminders retained.
+
 Canonical local commands:
 
 ```text
 cd go
 go test ./...
-go build ./cmd/openclaw
+go test -race ./...
+go vet ./...
+go build -o /tmp/openclaw-go ./cmd/openclaw
 ```
 
 Still required before cutover:
@@ -350,7 +371,7 @@ As of 2026-07-16, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:server-timezone
+image: openclaw-go-ubuntu-test:persona-config
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -362,12 +383,12 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the server-timezone image on 2026-07-16 with
-a fresh `openclaw-agent.sqlite`. Startup resolved
-`Asia/Kuala_Lumpur` from the container environment; health passed; reminders,
-conversation history, and memories were empty; and first-run initialization
-seeded only the two SQLite personality documents. The previous database is
-retained locally as
+The container was recreated from the persona-config image on 2026-07-16 using
+the existing `openclaw-agent.sqlite`. Startup resolved `Asia/Kuala_Lumpur` from
+the container environment; health passed before and after restart; the legacy
+persona table was removed; existing reminder/history state remained; and a real
+local-model response used the required Jet configuration. The database predating
+the earlier server-timezone deployment remains retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
 ## Migration Roadmap
@@ -415,7 +436,7 @@ and recurring reminder delivery after container restart.
 - Decide whether substring search is sufficient or add local embeddings; decide
   whether deterministic automatic recall and dreaming belong in the first
   release. No cloud dependency is allowed.
-- Define one-way migration for retained Node config, personality, memory,
+- Define one-way migration for retained Node config, memory,
   reminders, and conversation state. Define unsupported data explicitly.
 - Add migration verification, rollback, backup/restore, corruption, and
   interrupted-migration tests. Runtime reads only the canonical Go SQLite shape.

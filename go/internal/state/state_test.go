@@ -3,7 +3,6 @@ package state
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -283,42 +282,36 @@ func TestCompactionLifecycle(t *testing.T) {
 	}
 }
 
-func TestLoadPersonality(t *testing.T) {
+func TestFreshDatabaseDoesNotContainPersonalityDocuments(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-	documents, err := store.LoadPersonality(ctx)
-	if err != nil {
-		t.Fatalf("LoadPersonality: %v", err)
-	}
-	if len(documents) != 2 {
-		t.Fatalf("personality document count = %d, want 2", len(documents))
-	}
-	if documents[0].Name != SoulDocumentName || documents[0].Content != DefaultSoul ||
-		documents[1].Name != IdentityDocumentName || documents[1].Content != DefaultIdentity {
-		t.Fatalf("unexpected personality order: %#v", documents)
-	}
-	if err := store.WithTx(ctx, func(tx *Tx) error {
-		return tx.UpdatePersonality(ctx, IdentityDocumentName, "# IDENTITY.md\n\n- **Name:** Jet")
-	}); err != nil {
-		t.Fatalf("UpdatePersonality: %v", err)
-	}
-	updated, err := store.LoadPersonality(ctx)
-	if err != nil || updated[1].Content != "# IDENTITY.md\n\n- **Name:** Jet" {
-		t.Fatalf("updated personality: %#v err=%v", updated, err)
+	if databaseTableExists(t, store, "personality_documents") {
+		t.Fatal("fresh database contains personality_documents")
 	}
 }
 
-func TestCustomPersonalitySurvivesStoreReopen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "personality.sqlite")
+func TestOpeningOlderDatabaseDropsPersonalityWithoutAffectingRuntimeState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.sqlite")
 	ctx := context.Background()
 	store, err := NewStore(path)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	if _, err := store.db.Exec(`CREATE TABLE personality_documents (
+		name TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	); INSERT INTO personality_documents (name, content) VALUES ('SOUL.md', 'legacy soul');`); err != nil {
+		t.Fatalf("seed legacy personality table: %v", err)
+	}
+	if err := store.SaveMemory(ctx, "likes espresso"); err != nil {
+		t.Fatalf("seed memory: %v", err)
+	}
+	if err := store.SaveConversationTurn(ctx, "cli", "owner", "user", "hello"); err != nil {
+		t.Fatalf("seed history: %v", err)
+	}
 	if err := store.WithTx(ctx, func(tx *Tx) error {
-		return tx.UpdatePersonality(ctx, IdentityDocumentName, "# IDENTITY.md\n\n- **Name:** Jet")
+		_, err := tx.AddReminder(ctx, "cli", "owner", "call home", ReminderSchedule{Kind: ScheduleAt, At: time.Now().Add(time.Hour)}, time.Now().Add(time.Hour))
+		return err
 	}); err != nil {
-		t.Fatalf("UpdatePersonality: %v", err)
+		t.Fatalf("seed reminder: %v", err)
 	}
 	if err := store.Close(); err != nil {
 		t.Fatalf("close first store: %v", err)
@@ -329,8 +322,28 @@ func TestCustomPersonalitySurvivesStoreReopen(t *testing.T) {
 		t.Fatalf("reopen store: %v", err)
 	}
 	defer reopened.Close()
-	documents, err := reopened.LoadPersonality(ctx)
-	if err != nil || len(documents) != 2 || !strings.Contains(documents[1].Content, "Name:** Jet") {
-		t.Fatalf("reopened personality: %#v err=%v", documents, err)
+	if databaseTableExists(t, reopened, "personality_documents") {
+		t.Fatal("legacy personality_documents table was not dropped")
 	}
+	reminders, err := reopened.ListReminders("cli", "owner")
+	if err != nil || len(reminders) != 1 || reminders[0].Message != "call home" {
+		t.Fatalf("reminders after migration: %#v err=%v", reminders, err)
+	}
+	memories, err := reopened.SearchMemory(ctx, "espresso", 5)
+	if err != nil || len(memories) != 1 || memories[0].Content != "likes espresso" {
+		t.Fatalf("memory after migration: %#v err=%v", memories, err)
+	}
+	history, err := reopened.GetRecentHistory(ctx, "cli", "owner", 5, 0)
+	if err != nil || len(history) != 1 || history[0].Content != "hello" {
+		t.Fatalf("history after migration: %#v err=%v", history, err)
+	}
+}
+
+func databaseTableExists(t *testing.T, store *Store, name string) bool {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&count); err != nil {
+		t.Fatalf("query table %q: %v", name, err)
+	}
+	return count != 0
 }

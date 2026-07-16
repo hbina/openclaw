@@ -58,9 +58,6 @@ func NewStore(dbPath string) (*Store, error) {
 	if err := store.migrate(); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
-	if err := store.EnsureDefaultPersonality(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to seed personality: %w", err)
-	}
 
 	return store, nil
 }
@@ -77,12 +74,6 @@ func (s *Store) migrate() error {
 	CREATE TABLE IF NOT EXISTS agent_state (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE IF NOT EXISTS personality_documents (
-		name TEXT PRIMARY KEY,
-		content TEXT NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -123,6 +114,8 @@ func (s *Store) migrate() error {
 		first_kept_id INTEGER NOT NULL,
 		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	DROP TABLE IF EXISTS personality_documents;
 	`
 
 	if _, err := s.db.Exec(query); err != nil {

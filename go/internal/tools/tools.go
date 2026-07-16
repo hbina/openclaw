@@ -54,14 +54,6 @@ func NewExecutor(store *state.Store, now func() time.Time, location *time.Locati
 func Definitions(location *time.Location) []providers.ToolDefinition {
 	return []providers.ToolDefinition{
 		ReminderDefinition(location),
-		definition("manage_personality", "View or update the agent's SQLite-backed SOUL.md or IDENTITY.md. Only update when the user explicitly asks to change the agent's identity, name, voice, values, or personality.", `{
-			"type":"object","additionalProperties":false,
-			"properties":{
-				"action":{"type":"string","enum":["view","update"]},
-				"document":{"type":"string","enum":["SOUL.md","IDENTITY.md"]},
-				"content":{"type":"string","description":"Complete replacement Markdown for update."}
-			},"required":["action"]
-		}`),
 		definition("store_memory", "Store a stable preference or durable fact in the agent's global memory.", `{
 			"type":"object","additionalProperties":false,
 			"properties":{"content":{"type":"string","description":"One concise durable fact."}},"required":["content"]
@@ -162,9 +154,6 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 	switch call.Function.Name {
 	case "manage_reminders":
 		return executor.manageReminders(ctx, tx, toolCtx, call.Function.Arguments)
-	case "manage_personality":
-		return executor.managePersonality(ctx, tx, call.Function.Arguments)
-
 	case "store_memory":
 		var args struct {
 			Content string `json:"content"`
@@ -205,37 +194,6 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 
 	default:
 		return "", fmt.Errorf("unknown tool %q", call.Function.Name)
-	}
-}
-
-func (executor *Executor) managePersonality(ctx context.Context, tx *state.Tx, raw string) (string, error) {
-	var args struct {
-		Action   string `json:"action"`
-		Document string `json:"document"`
-		Content  string `json:"content"`
-	}
-	if err := decodeArguments(raw, &args); err != nil {
-		return "", err
-	}
-	switch args.Action {
-	case "view":
-		if args.Document != "" || args.Content != "" {
-			return "", fmt.Errorf("view does not accept document or content")
-		}
-		documents, err := tx.LoadPersonality(ctx)
-		if err != nil {
-			return "", err
-		}
-		return marshalContent(map[string]any{"documents": documents})
-	case "update":
-		if err := tx.UpdatePersonality(ctx, args.Document, args.Content); err != nil {
-			return "", err
-		}
-		return marshalContent(map[string]any{
-			"updated": true, "document": args.Document, "content": strings.TrimSpace(args.Content),
-		})
-	default:
-		return "", fmt.Errorf("action must be view or update")
 	}
 }
 

@@ -18,7 +18,7 @@ The production target is one local personal assistant with:
 - a standalone Go Gateway and agent loop;
 - Telegram, WhatsApp, and Discord text channels;
 - recurring and one-shot reminders;
-- SQLite-backed memory, conversation history, compaction, `SOUL.md`, and `IDENTITY.md`;
+- SQLite-backed memory, conversation history, and compaction, plus required operator-owned persona strings in `openclaw.json`;
 - one OpenAI-compatible **local `llama-server`** provider;
 - mounted non-secret config, separate secrets, and persistent SQLite state.
 
@@ -36,7 +36,7 @@ Implemented under `go/`:
 - server-derived local-time prompt context, omitted-cron timezone defaults, and local next-fire display without an application-specific hardcoded timezone;
 - recurring advancement after successful delivery and one-shot deletion;
 - global memory store/search;
-- SQLite-canonical `SOUL.md` and `IDENTITY.md`, first-run defaults, per-turn reload, and `manage_personality` updates;
+- required startup-loaded `agents.defaults.soul` and `agents.defaults.identity` persona configuration;
 - history limits, compaction, `/healthz`, `/chat`, and basic channel adapters;
 - standalone Alpine image without Node, npm, Claude, OpenAI-hosted, or Anthropic runtime dependencies.
 
@@ -60,7 +60,7 @@ Continue from `MIGRATION.md` “Immediate Next Actions” unless the user sets a
 - `MIGRATION.md`: fork goals, retained scope, current Go behavior, proof, roadmap, cutover gates, and next actions.
 - `config_test/`: ignored local test config, secrets, and persisted Go SQLite state.
 
-OpenClaw-owned runtime state belongs in SQLite, not new JSON/JSONL/TXT sidecars. The live Go database is `config_test/agent_data_go/openclaw-agent.sqlite`. Personality documents are rows in `personality_documents`; do not reintroduce mounted `SOUL.md` or `IDENTITY.md` files.
+OpenClaw-owned runtime state belongs in SQLite, not new JSON/JSONL/TXT sidecars. The live Go database is `config_test/agent_data_go/openclaw-agent.sqlite`. Persona is operator-owned configuration under `agents.defaults`; changes require editing `openclaw.json` and restarting the process. Do not add a chat mutation tool, persona state table, mounted persona files, defaults, or compatibility fallback.
 
 ## Local Model Contract
 
@@ -78,11 +78,11 @@ As of 2026-07-16, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:server-timezone
+image: openclaw-go-ubuntu-test:persona-config
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `261c47d0ee5f`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `0f9ed9f3a4a1`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu
@@ -105,7 +105,7 @@ Useful inspection:
 
 ```bash
 sqlite3 -header -column config_test/agent_data_go/openclaw-agent.sqlite \
-  "SELECT name, length(content) FROM personality_documents ORDER BY name;"
+  "SELECT count(*) AS personality_tables FROM sqlite_master WHERE type = 'table' AND name = 'personality_documents';"
 ```
 
 Never display secret-file contents or bearer/channel tokens in logs or reports.
@@ -125,7 +125,7 @@ Do not build without `-o`; the repository contains a tracked `go/openclaw` binar
 
 For Node reference changes, use repository commands only: `pnpm test <path>`, `pnpm check:changed --staged`, `pnpm build`, and oxfmt wrappers. Never run bare Vitest watch mode or introduce `tsc --noEmit`.
 
-Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`; keep `*_test.go` colocated. Cover success, validation, ownership boundaries, persistence/reopen, and failure behavior. User-visible provider, reminder, personality, state, Docker, or channel changes require proportional live proof.
+Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`; keep `*_test.go` colocated. Cover success, validation, ownership boundaries, persistence/reopen, and failure behavior. User-visible provider, reminder, persona, state, Docker, or channel changes require proportional live proof.
 
 ## Coding and Architecture Rules
 
@@ -137,7 +137,7 @@ Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`
 - Preserve deterministic prompt/tool ordering and exact tool-call ids.
 - Inspect direct dependency source/docs/types before changing dependency-backed behavior. Pin new Go dependencies and run `go mod tidy`.
 - Config/env additions require strong justification. Keep non-secrets in `openclaw.json`, credentials in `secrets.json`, and state outside the image.
-- Personality is global to the single agent. Until access control lands, any chat caller may request `manage_personality`; document and test changes affecting this risk.
+- Persona is global to the single agent, loaded once at startup, and controlled only by operators through required plain strings in `openclaw.json`.
 
 ## Migration Workflow
 

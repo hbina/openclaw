@@ -64,7 +64,7 @@ func (c *recordingChannel) SendMessage(_ context.Context, recipientID, content s
 	return nil
 }
 
-func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, personality string) (*Agent, *state.Store) {
+func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, soul string) (*Agent, *state.Store) {
 	t.Helper()
 	store, err := state.NewStore(filepath.Join(t.TempDir(), "agent.sqlite"))
 	if err != nil {
@@ -76,14 +76,13 @@ func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, p
 	if ch != nil {
 		registry.Register(ch)
 	}
-	if personality != "" {
-		if err := store.WithTx(context.Background(), func(tx *state.Tx) error {
-			return tx.UpdatePersonality(context.Background(), state.SoulDocumentName, personality)
-		}); err != nil {
-			t.Fatalf("seed test personality: %v", err)
-		}
+	if soul == "" {
+		soul = "Be helpful."
 	}
-	agent := NewAgent(prov, registry, store, nil, time.UTC)
+	cfg := &config.Config{}
+	cfg.Agents.Defaults.Soul = soul
+	cfg.Agents.Defaults.Identity = "Your name is Test."
+	agent := NewAgent(prov, registry, store, cfg, time.UTC)
 	return agent, store
 }
 
@@ -123,7 +122,10 @@ func TestAgentHandlesMessage(t *testing.T) {
 		t.Fatalf("system prompt missing routing identity: %q", sys)
 	}
 	if !strings.Contains(sys, "Be concise and direct.") {
-		t.Fatalf("system prompt missing personality: %q", sys)
+		t.Fatalf("system prompt missing soul: %q", sys)
+	}
+	if !strings.Contains(sys, "Soul:\nBe concise and direct.\n\nIdentity:\nYour name is Test.\n") {
+		t.Fatalf("system prompt missing exact persona sections: %q", sys)
 	}
 }
 
@@ -152,27 +154,34 @@ func TestAgentHistoryCarriedForward(t *testing.T) {
 	}
 }
 
-func TestAgentReloadsSQLitePersonalityEachTurn(t *testing.T) {
+func TestAgentUsesStartupPersonaSnapshot(t *testing.T) {
 	provider := &recordingProvider{}
-	agent, store := newTestAgent(t, provider, nil, "")
+	store := newTestStoreForAgent(t)
+	cfg := &config.Config{}
+	cfg.Agents.Defaults.Soul = "Be warm and direct."
+	cfg.Agents.Defaults.Identity = "Your name is Jet."
+	agent := NewAgent(provider, channels.NewRegistry(), store, cfg, time.UTC)
+	cfg.Agents.Defaults.Soul = "Changed after startup."
+	cfg.Agents.Defaults.Identity = "Your name is Other."
 	ctx := context.Background()
 	if _, err := agent.Chat(ctx, "cli", "user-1", "Who are you?"); err != nil {
-		t.Fatalf("first Chat: %v", err)
+		t.Fatalf("Chat: %v", err)
 	}
-	if !strings.Contains(provider.request.Messages[0].Content, "Name:** OpenClaw") {
-		t.Fatalf("default identity missing from system prompt: %q", provider.request.Messages[0].Content)
+	systemPrompt := provider.request.Messages[0].Content
+	if !strings.Contains(systemPrompt, "Soul:\nBe warm and direct.\n\nIdentity:\nYour name is Jet.\n") ||
+		strings.Contains(systemPrompt, "Changed after startup") || strings.Contains(systemPrompt, "Your name is Other") {
+		t.Fatalf("system prompt did not preserve startup persona: %q", systemPrompt)
 	}
-	if err := store.WithTx(ctx, func(tx *state.Tx) error {
-		return tx.UpdatePersonality(ctx, state.IdentityDocumentName, "# IDENTITY.md\n\n- **Name:** Jet")
-	}); err != nil {
-		t.Fatalf("update identity: %v", err)
+}
+
+func newTestStoreForAgent(t *testing.T) *state.Store {
+	t.Helper()
+	store, err := state.NewStore(filepath.Join(t.TempDir(), "agent.sqlite"))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
 	}
-	if _, err := agent.Chat(ctx, "cli", "user-1", "What is your name now?"); err != nil {
-		t.Fatalf("second Chat: %v", err)
-	}
-	if !strings.Contains(provider.request.Messages[0].Content, "Name:** Jet") || strings.Contains(provider.request.Messages[0].Content, "Name:** OpenClaw") {
-		t.Fatalf("updated identity was not reloaded: %q", provider.request.Messages[0].Content)
-	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 func TestResolveHistoryLimit(t *testing.T) {
@@ -265,8 +274,8 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("provider request count = %d, want 2", len(provider.requests))
 	}
 	followup := provider.requests[1]
-	if len(followup.Tools) != 4 {
-		t.Fatalf("tool definition count = %d, want 4", len(followup.Tools))
+	if len(followup.Tools) != 3 {
+		t.Fatalf("tool definition count = %d, want 3", len(followup.Tools))
 	}
 	if len(followup.Messages) != 4 {
 		t.Fatalf("follow-up message count = %d, want 4", len(followup.Messages))
@@ -338,7 +347,7 @@ func TestReminderRequestRequiresUnifiedReminderTool(t *testing.T) {
 	if first.ToolChoice != "required" || len(first.Tools) != 1 || first.Tools[0].Function.Name != "manage_reminders" {
 		t.Fatalf("first reminder request did not require unified tool: %#v", first)
 	}
-	if provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 4 {
+	if provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 3 {
 		t.Fatalf("follow-up request controls: %#v", provider.requests[1])
 	}
 }

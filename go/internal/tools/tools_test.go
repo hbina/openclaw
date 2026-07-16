@@ -189,22 +189,29 @@ func TestGlobalMemoryToolsAreIdempotentAndSearchable(t *testing.T) {
 	}
 }
 
-func TestPersonalityToolViewsAndUpdatesSQLiteDocuments(t *testing.T) {
-	executor, store, _ := newTestExecutor(t)
+func TestPersonalityToolIsNotAvailable(t *testing.T) {
+	definitions := Definitions(time.UTC)
+	wantNames := []string{"manage_reminders", "store_memory", "search_memory"}
+	for _, definition := range definitions {
+		if definition.Function.Name == "manage_personality" {
+			t.Fatal("manage_personality remains in the model tool catalog")
+		}
+	}
+	if len(definitions) != 3 {
+		t.Fatalf("tool definition count = %d, want 3", len(definitions))
+	}
+	for index, want := range wantNames {
+		if got := definitions[index].Function.Name; got != want {
+			t.Fatalf("tool definition %d = %q, want %q", index, got, want)
+		}
+	}
+
+	executor, _, _ := newTestExecutor(t)
 	ctx := context.Background()
 	toolCtx := Context{ChannelID: "cli", SenderID: "owner"}
-
-	viewed, err := executor.ExecuteAndRecord(ctx, toolCtx, call("personality-view", "manage_personality", `{"action":"view"}`))
-	if err != nil || viewed.IsError || !stringsContain(viewed.Content, `"name":"SOUL.md"`) || !stringsContain(viewed.Content, "OpenClaw") {
-		t.Fatalf("view personality: %#v err=%v", viewed, err)
-	}
-	updated, err := executor.ExecuteAndRecord(ctx, toolCtx, call("personality-update", "manage_personality", `{"action":"update","document":"IDENTITY.md","content":"# IDENTITY.md\n\n- **Name:** Jet"}`))
-	if err != nil || updated.IsError {
-		t.Fatalf("update personality: %#v err=%v", updated, err)
-	}
-	documents, err := store.LoadPersonality(ctx)
-	if err != nil || len(documents) != 2 || !stringsContain(documents[1].Content, "Name:** Jet") {
-		t.Fatalf("persisted personality: %#v err=%v", documents, err)
+	result, err := executor.ExecuteAndRecord(ctx, toolCtx, call("personality", "manage_personality", `{"action":"view"}`))
+	if err != nil || !result.IsError || !stringsContain(result.Content, `unknown tool \"manage_personality\"`) {
+		t.Fatalf("removed personality tool result: %#v err=%v", result, err)
 	}
 }
 

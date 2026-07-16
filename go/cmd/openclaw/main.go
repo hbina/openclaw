@@ -33,8 +33,7 @@ func main() {
 	// For skeleton, we use dummy paths. In production these are injected via ENV.
 	cfg, err := config.LoadConfig(filepath.Join(configDir, "openclaw.json"))
 	if err != nil {
-		log.Printf("Warning: openclaw.json not found, using defaults: %v", err)
-		cfg = &config.Config{}
+		log.Fatalf("Failed to load openclaw.json: %v", err)
 	}
 	sec, err := config.LoadSecrets(filepath.Join(configDir, "secrets.json"))
 	if err != nil {
