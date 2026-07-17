@@ -3,10 +3,12 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewOpenAIClientRequiresLocalBaseURL(t *testing.T) {
@@ -76,6 +78,7 @@ func TestOpenAIClientStructuredToolContract(t *testing.T) {
 		Tools             []ToolDefinition `json:"tools"`
 		ToolChoice        string           `json:"tool_choice"`
 		ParallelToolCalls *bool            `json:"parallel_tool_calls"`
+		MaxTokens         int              `json:"max_tokens"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer local-secret" {
@@ -103,7 +106,8 @@ func TestOpenAIClientStructuredToolContract(t *testing.T) {
 			{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "old-call", Type: "function", Function: FunctionCall{Name: "store_memory", Arguments: `{}`}}}},
 			{Role: RoleTool, ToolCallID: "old-call", Content: `{"stored":true}`},
 		},
-		Tools: []ToolDefinition{definition},
+		Tools:     []ToolDefinition{definition},
+		MaxTokens: 4096,
 	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -114,6 +118,9 @@ func TestOpenAIClientStructuredToolContract(t *testing.T) {
 	}
 	if request.ParallelToolCalls == nil || *request.ParallelToolCalls {
 		t.Fatalf("parallel_tool_calls = %#v, want false", request.ParallelToolCalls)
+	}
+	if request.MaxTokens != 4096 {
+		t.Fatalf("max_tokens = %d, want 4096", request.MaxTokens)
 	}
 	if len(request.Tools) != 1 || len(request.Messages) != 3 {
 		t.Fatalf("unexpected request payload: %#v", request)
@@ -148,5 +155,33 @@ func TestOpenAIClientOmitsAuthorizationWithoutKey(t *testing.T) {
 	}
 	if response.Message.Content != "ok" {
 		t.Fatalf("content = %q", response.Message.Content)
+	}
+}
+
+func TestOpenAIClientHonorsContextCancellation(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAIClient("", server.URL)
+	if err != nil {
+		t.Fatalf("NewOpenAIClient: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	_, err = client.Generate(ctx, &GenerateRequest{Model: "default", MaxTokens: 1})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Generate error = %v, want context deadline exceeded", err)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("request did not reach the test server")
 	}
 }

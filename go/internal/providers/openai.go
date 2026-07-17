@@ -23,6 +23,7 @@ type openAIRequest struct {
 	Tools             []ToolDefinition `json:"tools,omitempty"`
 	ToolChoice        string           `json:"tool_choice,omitempty"`
 	ParallelToolCalls *bool            `json:"parallel_tool_calls,omitempty"`
+	MaxTokens         int              `json:"max_tokens,omitempty"`
 }
 
 type openAIResponse struct {
@@ -58,8 +59,9 @@ func NewOpenAIClient(apiKey, baseURL string) (*OpenAIClient, error) {
 
 func (c *OpenAIClient) Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error) {
 	oReq := openAIRequest{
-		Model: req.Model,
-		Tools: req.Tools,
+		Model:     req.Model,
+		Tools:     req.Tools,
+		MaxTokens: req.MaxTokens,
 	}
 	if len(req.Tools) > 0 {
 		parallel := false

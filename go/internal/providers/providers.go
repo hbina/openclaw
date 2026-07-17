@@ -53,6 +53,7 @@ type GenerateRequest struct {
 	Messages   []Message
 	Tools      []ToolDefinition
 	ToolChoice string
+	MaxTokens  int
 }
 
 type GenerateResponse struct {

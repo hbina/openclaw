@@ -30,7 +30,7 @@ Node remains the behavioral reference while migration is incomplete. Inspect its
 
 Implemented under `go/`:
 
-- local Chat Completions text and structured tool calls;
+- local Chat Completions text and context-aware structured tool calls;
 - atomic tool execution plus structured SQLite transcripts;
 - `manage_reminders`: batch add, list, update, remove; `at`, anchored `every`, and timezone-aware five/six-field `cron` schedules;
 - server-derived local-time prompt context, omitted-cron timezone defaults, and local next-fire display without an application-specific hardcoded timezone;
@@ -70,19 +70,19 @@ The configured provider must be the local llama.cpp server, currently reachable 
 http://172.17.0.1:8080/v1
 ```
 
-Before provider/tool work, verify both the host server and container path. Use the live endpoint for user-visible behavior proof; mocked HTTP tests alone are insufficient. Keep tool schemas simple and strict because the deployed local Gemma model must call them reliably. For reminder requests, preserve the required-tool guard so the model cannot claim success without a committed tool result.
+Before provider/tool work, verify both the host server and container path. Use the live endpoint for user-visible behavior proof; mocked HTTP tests alone are insufficient. Keep tool schemas simple and strict because the deployed local Gemma model must call them reliably. Reminder selection is semantic with `tool_choice: auto`; do not reintroduce keyword-based forcing. Preserve the result-backed guard so an assistant mutation claim without a committed reminder tool result is explicitly corrected.
 
 ## Running Test Container
 
-As of 2026-07-16, the persistent live test deployment is:
+As of 2026-07-17, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:persona-config
+image: openclaw-go-ubuntu-test:node-reminder-routing
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `0f9ed9f3a4a1`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `90b8831e8dcb`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu

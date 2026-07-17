@@ -130,6 +130,9 @@ Implemented:
   to a cloud provider or subprocess.
 - Generation intentionally sends model id `default`, matching the verified
   llama-server deployment.
+- Normal agent calls send a 4,096-token output cap; compaction calls send a
+  2,048-token cap. Every provider call has a five-minute deadline, with an
+  earlier caller deadline taking precedence.
 - Startup resolves Go's server-local timezone once from the host/container
   environment and passes that same location to the prompt and reminder tools.
   No application timezone is hardcoded or added to config.
@@ -151,8 +154,17 @@ Implemented:
   assistant tool calls; exact call ids; JSON arguments; tool definitions; and
   finish reasons.
 - Normal Chat Completions requests send three function tools with sequential
-  execution. Reminder-intent turns expose only `manage_reminders` and send
-  `tool_choice: required` until a reminder operation succeeds.
+  execution and `tool_choice: auto`. The model decides from full conversation
+  context whether the user is actually asking for a reminder operation;
+  quotations, mentions, and questions about reminder wording do not force the
+  reminder tool.
+- Successful `manage_reminders` mutations are tracked from non-error tool
+  results. If the assistant claims it added, scheduled, updated, removed, or
+  cancelled a reminder without a committed mutation, the delivered and stored
+  response states that no reminder change was committed.
+- Turns are serialized by trusted channel and sender identity with a
+  context-aware in-memory lock. Different conversations can still generate
+  concurrently, and cancellation releases the lock.
 - The agent supports up to four tool rounds and returns a deterministic safety
   response if the model does not terminate the workflow.
 - Tool calls and results persist as structured SQLite transcript rows and are
@@ -194,6 +206,9 @@ Limitations:
 - Memory search is SQL substring matching, not semantic/vector retrieval.
 - There is no deterministic pre-generation memory injection; the model must
   choose `search_memory`.
+- Semantic reminder selection depends on the local model. An unsupported
+  mutation claim receives a deterministic corrective note rather than an
+  automatic forced-tool retry.
 - Reminder polling has no durable claim/lease or delivery-idempotency protocol.
 - Static Go reminders cannot yet execute Node-style isolated agent turns. A
   watcher that stays silent unless data changes and a task that contacts another
@@ -261,8 +276,9 @@ Limitations:
 
 Automated Go coverage includes:
 
-- Local HTTP request/response wire shape, optional authorization, tool calls,
-  call ids, malformed responses, empty choices, and HTTP failures.
+- Local HTTP request/response wire shape, optional authorization, automatic tool
+  choice, bounded `max_tokens`, cancellation, tool calls, call ids, malformed
+  responses, empty choices, and HTTP failures.
 - Tool schemas, strict arguments, trusted identity, scoped mutation, atomic
   batch rollback, add/list/update/remove, at/every/cron validation and next-run
   calculation, server-timezone defaulting and display, recurring post-delivery
@@ -272,8 +288,10 @@ Automated Go coverage includes:
   sections, startup snapshot behavior, removed personality tool handling, and
   legacy personality-table removal without runtime-state loss.
 - Multi-round agent execution, validation-error recovery, tool-call/result
-  replay, the four-round limit, prompt/tool identity separation, history,
-  compaction decisions, Gateway health, and SQLite state.
+  replay, semantic reminder routing, uncommitted-claim correction, per-conversation
+  serialization and cancellation, bounded compaction, the four-round limit,
+  prompt/tool identity separation, history, compaction decisions, Gateway
+  health, and SQLite state.
 
 Live standalone-container proof includes:
 
@@ -342,6 +360,33 @@ Operator-owned persona proof on 2026-07-16 includes:
   table still absent, both proof transcript rows retained, and all eight
   reminders retained.
 
+Context-aware reminder-routing proof on 2026-07-17 includes:
+
+- Running `go test ./...`, `go vet ./...`, `go test -race ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
+  `GOCACHE=/tmp/openclaw-go-cache`.
+- Building `openclaw-go-ubuntu-test:node-reminder-routing` from
+  `go/Dockerfile`, image id
+  `sha256:f8c82202523ac57838bdf05956fc6413c20d34a274a6a6c2e852ba5cce724864`,
+  and recreating `openclaw-go-test-ubuntu` while preserving all mounts,
+  environment, port 18792, and restart policy.
+- Sending a fresh-sender request that quoted “I will keep the reminder active”
+  and asked for an opinion. The real local Gemma returned a normal wording
+  critique in 12 seconds; SQLite contained only the user and assistant text
+  rows and zero reminder or tool rows.
+- Sending genuine natural-language add, list, and remove requests under the same
+  sender. Automatic tool selection created reminder id 15 for
+  `2026-07-18T09:25:00+08:00`, listed that persisted id, and removed it. Final
+  SQLite inspection showed 22 proof transcript rows, five paired structured
+  call/results, zero proof reminders, and the seven pre-existing reminders
+  unchanged.
+- Gateway and llama-server health remained HTTP 200 with no OpenClaw generation
+  errors or context-size errors during proof. Verbose server metadata confirmed
+  the 4,096-token cap on all 11 live generation calls. Restarting the container
+  preserved all 22 proof transcript rows, zero proof reminders, and all seven
+  pre-existing reminders; the host llama-server remained on pid 7675 without a
+  restart.
+
 Canonical local commands:
 
 ```text
@@ -367,11 +412,11 @@ Still required before cutover:
 
 ## Deployment Baseline
 
-As of 2026-07-16, the persistent live test deployment is:
+As of 2026-07-17, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:persona-config
+image: openclaw-go-ubuntu-test:node-reminder-routing
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -383,12 +428,13 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the persona-config image on 2026-07-16 using
-the existing `openclaw-agent.sqlite`. Startup resolved `Asia/Kuala_Lumpur` from
-the container environment; health passed before and after restart; the legacy
-persona table was removed; existing reminder/history state remained; and a real
-local-model response used the required Jet configuration. The database predating
-the earlier server-timezone deployment remains retained locally as
+The container was recreated from the node-reminder-routing image on 2026-07-17
+using the existing `openclaw-agent.sqlite`. Startup resolved
+`Asia/Kuala_Lumpur`; health passed before and after restart; quoted reminder
+discussion stayed a normal text turn; genuine reminder CRUD used structured
+tools; proof cleanup restored the seven pre-existing reminders; and the required
+Jet configuration remained active. The database predating the earlier
+server-timezone deployment remains retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
 ## Migration Roadmap

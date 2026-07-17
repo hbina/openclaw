@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,18 +21,30 @@ const (
 	defaultReserveTokens = 16_384  // tokens reserved for compaction summary + next response
 	defaultHistoryLimit  = 20      // turns to load when no config override is present
 	maxToolRounds        = 4
+	defaultMaxTokens     = 4_096
+	compactionMaxTokens  = 2_048
+	modelRequestTimeout  = 5 * time.Minute
 )
+
+const uncommittedReminderNote = "Note: no reminder change was committed in this turn, so your stored reminders are unchanged."
+
+var unbackedReminderCommitmentPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ll|i will)\s+(?:make sure to\s+)?(?:remind|ping|follow up|follow-up|check back|circle back)\b`),
+	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ll|i will)\s+(?:successfully\s+)?(?:set|create|schedule|add|update|change|remove|delete|cancel)\b[^.!?\n]{0,80}\breminders?\b`),
+	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ve|i have|i)\s+(?:successfully\s+)?(?:set|created|scheduled|added|updated|changed|removed|deleted|cancelled|canceled)\b[^.!?\n]{0,80}\breminders?\b`),
+}
 
 // Agent runs the primary interaction loop.
 type Agent struct {
-	provider providers.Provider
-	tools    *tools.Executor
-	chanReg  *channels.Registry
-	store    *state.Store
-	cfg      *config.Config
-	soul     string
-	identity string
-	location *time.Location
+	provider          providers.Provider
+	tools             *tools.Executor
+	chanReg           *channels.Registry
+	store             *state.Store
+	cfg               *config.Config
+	soul              string
+	identity          string
+	location          *time.Location
+	conversationLocks *conversationLockManager
 }
 
 func NewAgent(
@@ -50,15 +63,22 @@ func NewAgent(
 		identity = cfg.Agents.Defaults.Identity
 	}
 	return &Agent{
-		provider: provider,
-		tools:    tools.NewExecutor(store, time.Now, location),
-		chanReg:  chanReg,
-		store:    store,
-		cfg:      cfg,
-		soul:     soul,
-		identity: identity,
-		location: location,
+		provider:          provider,
+		tools:             tools.NewExecutor(store, time.Now, location),
+		chanReg:           chanReg,
+		store:             store,
+		cfg:               cfg,
+		soul:              soul,
+		identity:          identity,
+		location:          location,
+		conversationLocks: newConversationLockManager(),
 	}
+}
+
+func (a *Agent) generate(ctx context.Context, request *providers.GenerateRequest) (*providers.GenerateResponse, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
+	defer cancel()
+	return a.provider.Generate(requestCtx, request)
 }
 
 // resolveHistoryLimit returns the configured turn limit for the given channel and sender.
@@ -177,9 +197,10 @@ func (a *Agent) runCompaction(ctx context.Context, channelID, senderID string) e
 		summaryMessages = append(summaryMessages, providers.Message{Role: role, Content: summaryContent(t)})
 	}
 
-	resp, err := a.provider.Generate(ctx, &providers.GenerateRequest{
-		Model:    "default",
-		Messages: summaryMessages,
+	resp, err := a.generate(ctx, &providers.GenerateRequest{
+		Model:     "default",
+		Messages:  summaryMessages,
+		MaxTokens: compactionMaxTokens,
 	})
 	if err != nil {
 		return fmt.Errorf("compaction: summarization: %w", err)
@@ -205,6 +226,12 @@ func (a *Agent) runCompaction(ctx context.Context, channelID, senderID string) e
 // history in SQLite, injects any compaction summary as context, and triggers
 // compaction when the estimated context exceeds the configured threshold.
 func (a *Agent) Chat(ctx context.Context, channelID, senderID, content string) (string, error) {
+	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(channelID, senderID))
+	if err != nil {
+		return "", fmt.Errorf("wait for conversation turn: %w", err)
+	}
+	defer releaseConversation()
+
 	// Determine the lower-bound history row from the latest compaction (if any).
 	compaction, err := a.store.GetLatestCompaction(ctx, channelID, senderID)
 	if err != nil {
@@ -228,7 +255,8 @@ Reference UTC time is %s.
 Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
 You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
 Search memory when a past durable fact could improve the answer.
-For reminders, always use manage_reminders; never claim a reminder changed unless its tool result succeeded.
+Use manage_reminders only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
+Never claim a reminder changed unless its tool result succeeded.
 Use one batch add for multiple reminders. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
 Interpret times without an explicit timezone in the server timezone. For cron, keep the requested wall-clock fields and omit timezone to use the server timezone; never convert them to UTC first.
 Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
@@ -266,21 +294,14 @@ Identity:
 
 	toolCtx := tools.Context{ChannelID: channelID, SenderID: senderID}
 	definitions := tools.Definitions(a.location)
-	requireReminderTool := isReminderRequest(content)
-	reminderToolSucceeded := false
-	reminderToolAttempted := false
+	reminderMutationSucceeded := false
 	for round := 0; round < maxToolRounds; round++ {
-		requestDefinitions := definitions
-		toolChoice := "auto"
-		if requireReminderTool && !reminderToolSucceeded {
-			requestDefinitions = []providers.ToolDefinition{tools.ReminderDefinition(a.location)}
-			toolChoice = "required"
-		}
-		resp, err := a.provider.Generate(ctx, &providers.GenerateRequest{
+		resp, err := a.generate(ctx, &providers.GenerateRequest{
 			Model:      "default",
 			Messages:   messages,
-			Tools:      requestDefinitions,
-			ToolChoice: toolChoice,
+			Tools:      definitions,
+			ToolChoice: "auto",
+			MaxTokens:  defaultMaxTokens,
 		})
 		if err != nil {
 			return "", fmt.Errorf("agent generation failed: %w", err)
@@ -299,30 +320,24 @@ Identity:
 			messages = append(messages, assistantMessage)
 
 			for _, call := range assistantMessage.ToolCalls {
-				if call.Function.Name == "manage_reminders" {
-					reminderToolAttempted = true
-				}
 				result, err := a.tools.ExecuteAndRecord(ctx, toolCtx, call)
 				if err != nil {
 					return "", fmt.Errorf("execute tool %q: %w", call.Function.Name, err)
 				}
-				if call.Function.Name == "manage_reminders" && !result.IsError {
-					reminderToolSucceeded = true
+				if isSuccessfulReminderMutation(call, result) {
+					reminderMutationSucceeded = true
 				}
 				messages = append(messages, result.Message())
 			}
 			continue
 		}
-		if requireReminderTool && !reminderToolAttempted {
-			return "", fmt.Errorf("local model did not call the required reminder tool")
-		}
 
 		reply := strings.TrimSpace(resp.Message.Content)
-		if requireReminderTool && !reminderToolSucceeded {
-			reply = "I couldn't change your reminders because the reminder tool rejected the request."
-		}
 		if reply == "" {
 			return "", fmt.Errorf("agent generation returned neither content nor tool calls")
+		}
+		if !reminderMutationSucceeded && hasUnbackedReminderCommitment(reply) {
+			reply = appendUncommittedReminderNote(reply)
 		}
 		if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", reply); err != nil {
 			return "", fmt.Errorf("save assistant turn: %w", err)
@@ -344,14 +359,38 @@ Identity:
 	return reply, nil
 }
 
-func isReminderRequest(content string) bool {
-	lower := strings.ToLower(content)
-	for _, marker := range []string{"remind", "reminder", "schedule", "recurring"} {
-		if strings.Contains(lower, marker) {
+func isSuccessfulReminderMutation(call providers.ToolCall, result tools.Result) bool {
+	if call.Function.Name != "manage_reminders" || result.IsError {
+		return false
+	}
+	var arguments struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &arguments); err != nil {
+		return false
+	}
+	switch arguments.Action {
+	case "add", "update", "remove":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasUnbackedReminderCommitment(content string) bool {
+	if strings.Contains(strings.ToLower(content), strings.ToLower(uncommittedReminderNote)) {
+		return false
+	}
+	for _, pattern := range unbackedReminderCommitmentPatterns {
+		if pattern.MatchString(content) {
 			return true
 		}
 	}
 	return false
+}
+
+func appendUncommittedReminderNote(content string) string {
+	return strings.TrimSpace(content) + "\n\n" + uncommittedReminderNote
 }
 
 func historyMessage(turn state.ConversationTurn) (providers.Message, error) {

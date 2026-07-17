@@ -3,8 +3,10 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +23,41 @@ type recordingProvider struct {
 type scriptedProvider struct {
 	responses []providers.GenerateResponse
 	requests  []providers.GenerateRequest
+}
+
+type blockingFirstProvider struct {
+	calls        atomic.Int32
+	started      chan int
+	releaseFirst <-chan struct{}
+}
+
+func (provider *blockingFirstProvider) Generate(ctx context.Context, _ *providers.GenerateRequest) (*providers.GenerateResponse, error) {
+	call := int(provider.calls.Add(1))
+	provider.started <- call
+	if call == 1 && provider.releaseFirst != nil {
+		select {
+		case <-provider.releaseFirst:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return &providers.GenerateResponse{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: fmt.Sprintf("reply-%d", call)},
+	}, nil
+}
+
+type timeoutFirstProvider struct {
+	calls atomic.Int32
+}
+
+func (provider *timeoutFirstProvider) Generate(ctx context.Context, _ *providers.GenerateRequest) (*providers.GenerateResponse, error) {
+	if provider.calls.Add(1) == 1 {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return &providers.GenerateResponse{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "recovered"},
+	}, nil
 }
 
 func (provider *scriptedProvider) Generate(_ context.Context, request *providers.GenerateRequest) (*providers.GenerateResponse, error) {
@@ -105,6 +142,9 @@ func TestAgentHandlesMessage(t *testing.T) {
 	}
 	if provider.request == nil || provider.request.Model != "default" {
 		t.Fatalf("unexpected provider request: %#v", provider.request)
+	}
+	if provider.request.ToolChoice != "auto" || provider.request.MaxTokens != defaultMaxTokens {
+		t.Fatalf("unexpected provider controls: %#v", provider.request)
 	}
 	if system := provider.request.Messages[0].Content; !strings.Contains(system, "The current server time is") ||
 		!strings.Contains(system, "(UTC)") || !strings.Contains(system, "Reference UTC time is") {
@@ -249,6 +289,30 @@ func TestShouldCompact(t *testing.T) {
 	}
 }
 
+func TestCompactionUsesBoundedGeneration(t *testing.T) {
+	provider := &recordingProvider{}
+	agent, store := newTestAgent(t, provider, nil, "")
+	ctx := context.Background()
+	for _, turn := range []struct {
+		role    string
+		content string
+	}{
+		{role: "user", content: strings.Repeat("a", defaultReserveTokens*4+1)},
+		{role: "assistant", content: "old reply"},
+		{role: "user", content: "recent request"},
+	} {
+		if err := store.SaveConversationTurn(ctx, "cli", "user-1", turn.role, turn.content); err != nil {
+			t.Fatalf("SaveConversationTurn: %v", err)
+		}
+	}
+	if err := agent.runCompaction(ctx, "cli", "user-1"); err != nil {
+		t.Fatalf("runCompaction: %v", err)
+	}
+	if provider.request == nil || provider.request.MaxTokens != compactionMaxTokens {
+		t.Fatalf("compaction provider request = %#v", provider.request)
+	}
+}
+
 func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 	toolCall := providers.ToolCall{
 		ID:   "memory-1",
@@ -326,7 +390,7 @@ func TestAgentReturnsToolValidationErrorToModel(t *testing.T) {
 	}
 }
 
-func TestReminderRequestRequiresUnifiedReminderTool(t *testing.T) {
+func TestReminderRequestUsesAutomaticUnifiedReminderTool(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{
 			ID: "list-required", Type: "function", Function: providers.FunctionCall{
@@ -344,11 +408,284 @@ func TestReminderRequestRequiresUnifiedReminderTool(t *testing.T) {
 		t.Fatalf("request count = %d, want 2", len(provider.requests))
 	}
 	first := provider.requests[0]
-	if first.ToolChoice != "required" || len(first.Tools) != 1 || first.Tools[0].Function.Name != "manage_reminders" {
-		t.Fatalf("first reminder request did not require unified tool: %#v", first)
+	if first.ToolChoice != "auto" || len(first.Tools) != 3 || first.Tools[0].Function.Name != "manage_reminders" {
+		t.Fatalf("first reminder request did not expose automatic unified tool: %#v", first)
 	}
-	if provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 3 {
+	if first.MaxTokens != defaultMaxTokens || provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 3 {
 		t.Fatalf("follow-up request controls: %#v", provider.requests[1])
+	}
+}
+
+func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{
+			Role:    providers.RoleAssistant,
+			Content: "It sounds supportive, but it could be more direct.",
+		},
+	}}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	content := `The message says "I will keep the reminder active." What do you think about this?`
+	reply, err := agent.Chat(context.Background(), "cli", "user-1", content)
+	if err != nil || reply != "It sounds supportive, but it could be more direct." {
+		t.Fatalf("Chat: reply=%q err=%v", reply, err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider request count = %d, want 1", len(provider.requests))
+	}
+	request := provider.requests[0]
+	if request.ToolChoice != "auto" || len(request.Tools) != 3 {
+		t.Fatalf("quoted reminder text forced tool controls: %#v", request)
+	}
+	reminders, err := store.ListReminders("cli", "user-1")
+	if err != nil || len(reminders) != 0 {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
+	}
+	history, err := store.GetRecentHistory(context.Background(), "cli", "user-1", 10, 0)
+	if err != nil || len(history) != 2 || history[0].ContentType != state.ContentText || history[1].ContentType != state.ContentText {
+		t.Fatalf("history=%#v err=%v", history, err)
+	}
+}
+
+func TestAgentWarnsAboutUncommittedReminderClaim(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{
+			Role:    providers.RoleAssistant,
+			Content: "I have scheduled a reminder for Tuesday.",
+		},
+	}}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please remind me Tuesday")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if !strings.HasSuffix(reply, uncommittedReminderNote) {
+		t.Fatalf("reply missing uncommitted reminder note: %q", reply)
+	}
+	history, err := store.GetRecentHistory(context.Background(), "cli", "user-1", 10, 0)
+	if err != nil || len(history) != 2 || history[1].Content != reply {
+		t.Fatalf("stored warning reply history=%#v err=%v", history, err)
+	}
+}
+
+func TestAgentDoesNotWarnAfterCommittedReminderMutation(t *testing.T) {
+	call := providers.ToolCall{
+		ID:   "add-reminder",
+		Type: "function",
+		Function: providers.FunctionCall{
+			Name:      "manage_reminders",
+			Arguments: `{"action":"add","items":[{"message":"Workout","schedule":{"kind":"at","at":"2099-01-02T19:00:00Z"}}]}`,
+		},
+	}
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{call}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I have scheduled a reminder for Tuesday."}},
+	}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please remind me Tuesday")
+	if err != nil || reply != "I have scheduled a reminder for Tuesday." {
+		t.Fatalf("Chat: reply=%q err=%v", reply, err)
+	}
+	reminders, err := store.ListReminders("cli", "user-1")
+	if err != nil || len(reminders) != 1 {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
+	}
+}
+
+func TestRejectedReminderMutationCannotBackSuccessClaim(t *testing.T) {
+	call := providers.ToolCall{
+		ID:   "bad-add",
+		Type: "function",
+		Function: providers.FunctionCall{
+			Name:      "manage_reminders",
+			Arguments: `{"action":"add","unexpected":true}`,
+		},
+	}
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{call}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I have added the reminder."}},
+	}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please add a reminder")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if !strings.HasSuffix(reply, uncommittedReminderNote) {
+		t.Fatalf("reply missing uncommitted reminder note: %q", reply)
+	}
+	reminders, err := store.ListReminders("cli", "user-1")
+	if err != nil || len(reminders) != 0 {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
+	}
+}
+
+func TestReminderDiscussionDoesNotReceiveCommitmentWarning(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{
+			Role:    providers.RoleAssistant,
+			Content: "The quoted reminder wording sounds supportive.",
+		},
+	}}}
+	agent, _ := newTestAgent(t, provider, nil, "")
+	reply, err := agent.Chat(context.Background(), "cli", "user-1", "What do you think of this reminder wording?")
+	if err != nil || strings.Contains(reply, uncommittedReminderNote) {
+		t.Fatalf("Chat: reply=%q err=%v", reply, err)
+	}
+}
+
+func TestUnbackedReminderCommitmentDetection(t *testing.T) {
+	tests := []struct {
+		content string
+		want    bool
+	}{
+		{"I'll remind you tomorrow.", true},
+		{"I will create a reminder for Tuesday.", true},
+		{"I've removed the reminder.", true},
+		{"I have updated your reminders.", true},
+		{"The quoted reminder wording sounds supportive.", false},
+		{"You asked whether an existing reminder is useful.", false},
+		{"I couldn't schedule that reminder.", false},
+		{"I have scheduled a reminder.\n\n" + uncommittedReminderNote, false},
+	}
+	for _, test := range tests {
+		if got := hasUnbackedReminderCommitment(test.content); got != test.want {
+			t.Errorf("hasUnbackedReminderCommitment(%q) = %v, want %v", test.content, got, test.want)
+		}
+	}
+}
+
+func TestAgentSerializesTurnsWithinConversation(t *testing.T) {
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	provider := &blockingFirstProvider{
+		started:      make(chan int, 2),
+		releaseFirst: release,
+	}
+	agent, store := newTestAgent(t, provider, nil, "")
+	errs := make(chan error, 2)
+
+	go func() {
+		_, err := agent.Chat(context.Background(), "telegram", "user-1", "first")
+		errs <- err
+	}()
+	if call := <-provider.started; call != 1 {
+		t.Fatalf("first provider call = %d, want 1", call)
+	}
+	go func() {
+		_, err := agent.Chat(context.Background(), "telegram", "user-1", "second")
+		errs <- err
+	}()
+
+	select {
+	case call := <-provider.started:
+		t.Fatalf("same-conversation call %d started before call 1 completed", call)
+	case <-time.After(75 * time.Millisecond):
+	}
+
+	close(release)
+	released = true
+	select {
+	case call := <-provider.started:
+		if call != 2 {
+			t.Fatalf("second provider call = %d, want 2", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second same-conversation call did not start after release")
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+	}
+
+	history, err := store.GetRecentHistory(context.Background(), "telegram", "user-1", 10, 0)
+	if err != nil {
+		t.Fatalf("GetRecentHistory: %v", err)
+	}
+	if len(history) != 4 ||
+		history[0].Role != "user" || history[0].Content != "first" ||
+		history[1].Role != "assistant" || history[1].Content != "reply-1" ||
+		history[2].Role != "user" || history[2].Content != "second" ||
+		history[3].Role != "assistant" || history[3].Content != "reply-2" {
+		t.Fatalf("conversation history was not serialized: %#v", history)
+	}
+}
+
+func TestAgentAllowsDifferentConversationsToRunConcurrently(t *testing.T) {
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	provider := &blockingFirstProvider{
+		started:      make(chan int, 2),
+		releaseFirst: release,
+	}
+	agent, _ := newTestAgent(t, provider, nil, "")
+	errs := make(chan error, 2)
+
+	go func() {
+		_, err := agent.Chat(context.Background(), "telegram", "user-1", "first")
+		errs <- err
+	}()
+	if call := <-provider.started; call != 1 {
+		t.Fatalf("first provider call = %d, want 1", call)
+	}
+	go func() {
+		_, err := agent.Chat(context.Background(), "telegram", "user-2", "second")
+		errs <- err
+	}()
+
+	select {
+	case call := <-provider.started:
+		if call != 2 {
+			t.Fatalf("concurrent provider call = %d, want 2", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("different conversation was unnecessarily serialized")
+	}
+	close(release)
+	released = true
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+	}
+}
+
+func TestAgentReleasesConversationLockAfterTimeout(t *testing.T) {
+	provider := &timeoutFirstProvider{}
+	agent, _ := newTestAgent(t, provider, nil, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	if _, err := agent.Chat(ctx, "telegram", "user-1", "first"); err == nil {
+		t.Fatal("first Chat succeeded, want timeout")
+	}
+
+	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), time.Second)
+	defer recoveryCancel()
+	reply, err := agent.Chat(recoveryCtx, "telegram", "user-1", "second")
+	if err != nil || reply != "recovered" {
+		t.Fatalf("second Chat: reply=%q err=%v", reply, err)
+	}
+}
+
+func TestAgentRejectsCanceledContextBeforeTurn(t *testing.T) {
+	provider := &timeoutFirstProvider{}
+	agent, _ := newTestAgent(t, provider, nil, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := agent.Chat(ctx, "telegram", "user-1", "message"); err == nil {
+		t.Fatal("Chat succeeded with a canceled context")
+	}
+	if calls := provider.calls.Load(); calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
 	}
 }
 
