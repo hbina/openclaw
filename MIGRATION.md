@@ -16,8 +16,8 @@ an active prototype: local text generation, structured reminder/memory tools,
 persisted at/every/cron schedules, reminder CRUD, and standalone-container
 restart persistence are proven. Required operator-owned Soul and Identity
 configuration is loaded once at startup and injected into the system prompt.
-Channel parity, scheduled agent jobs, security, state migration, and production
-cutover remain incomplete.
+Channel parity, scheduled agent jobs, Gateway reliability, state migration, and
+production cutover remain incomplete.
 
 ## Target
 
@@ -30,13 +30,14 @@ The Go runtime retains:
   and delivery.
 - Global durable memory storage and search.
 - Persistent structured conversation history and compaction.
-- A small authenticated Gateway surface.
+- A small unauthenticated HTTP Gateway for a trusted local network.
 - Canonical non-secret config plus a separate optional credential file.
 - SQLite state outside the container image.
 - A standalone Go image with no Node or cloud-model runtime dependency.
 
 Streaming, media input, embeddings, reasoning fields, cloud-provider fallback,
-and full upstream Gateway parity are not first-cut requirements.
+full upstream Gateway parity, and public-internet or untrusted-network Gateway
+deployment are not first-cut requirements.
 
 ## Product and Migration Principles
 
@@ -47,6 +48,13 @@ and full upstream Gateway parity are not first-cut requirements.
   hosted OpenAI, Anthropic, Claude API/CLI, ChatGPT, MCP subprocess, or cloud
   fallback paths. `models.providers.openai` is only the compatibility wire key.
 - Keep one primary agent and only Telegram, WhatsApp, and Discord text channels.
+- The HTTP Gateway is intentionally unauthenticated and reachable on all host
+  interfaces for trusted local-network clients. LAN clients and caller-selected
+  `sender_id` values are trusted; `sender_id` is a conversation key, not a
+  security principal. Public-internet and untrusted-network deployment are
+  unsupported, and the operator owns the router/firewall boundary.
+- Gateway request limits, timeouts, and stable errors are reliability contracts,
+  not authentication or hostile-network hardening.
 - SQLite is canonical for reminders, history, compaction, memory, and other
   OpenClaw-owned runtime state. Persona is required non-secret configuration in
   `openclaw.json`; do not add state sidecars, persona tables, or fallback readers.
@@ -66,7 +74,7 @@ and full upstream Gateway parity are not first-cut requirements.
 
 | Surface                     | Decision     | Required contract                                                                                        |
 | --------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
-| Go Gateway and agent        | Keep         | One primary assistant, authenticated operator/chat surface, health endpoint                              |
+| Go Gateway and agent        | Keep         | One primary assistant, unauthenticated trusted-LAN HTTP chat surface, health endpoint                    |
 | Local model                 | Keep         | OpenAI-compatible `llama-server`, required local base URL, optional LAN bearer token, model id `default` |
 | Reminders                   | Keep         | Atomic batch CRUD, `at`/`every`/timezone-aware `cron`, durable delivery                                  |
 | Memory and persona          | Keep         | SQLite recall/search and history/compaction; required startup-loaded `agents.defaults.soul`/`identity`   |
@@ -101,14 +109,14 @@ protocol compatibility remain explicit decisions rather than assumed scope.
 
 ## Package Map
 
-- `go/cmd/openclaw`: Startup and dependency wiring.
-- `go/internal/config`: Slim config and secret decoding.
-- `go/internal/providers`: OpenAI-compatible structured chat contract and local
+- `golang/cmd/openclaw`: Startup and dependency wiring.
+- `golang/internal/config`: Slim config and secret decoding.
+- `golang/internal/providers`: OpenAI-compatible structured chat contract and local
   HTTP client.
-- `go/internal/tools`: Trusted in-process reminder and memory tool execution.
-- `go/internal/state`: SQLite reminders, history, compaction, and memory state.
-- `go/internal/channels`: Telegram, Discord, and WhatsApp adapters.
-- `go/internal/gateway`: Agent loop, HTTP server, reminder delivery, and
+- `golang/internal/tools`: Trusted in-process reminder and memory tool execution.
+- `golang/internal/state`: SQLite reminders, history, compaction, and memory state.
+- `golang/internal/channels`: Telegram, Discord, and WhatsApp adapters.
+- `golang/internal/gateway`: Agent loop, HTTP server, reminder delivery, and
   compaction.
 
 ## Current Implementation
@@ -229,6 +237,9 @@ Limitations:
 Implemented:
 
 - `GET /healthz` and unauthenticated `POST /chat` over HTTP.
+- The Gateway listens on all interfaces for its intended trusted-LAN deployment.
+  `/chat` accepts a caller-selected `sender_id` as a conversation key; it is not
+  an authenticated identity.
 - A 30-second reminder loop delivers due reminders through the matching channel.
   It deletes a successfully delivered one-shot and advances a successfully
   delivered recurring reminder to its next anchored/cron occurrence. Failed
@@ -238,8 +249,9 @@ Implemented:
 Limitations:
 
 - The Node WebSocket Gateway protocol is not implemented.
-- HTTP has no authentication, request-size policy, stable public error schema,
-  or safe bind policy and currently listens on all interfaces.
+- HTTP has no request-size policy, explicit server timeout/concurrency policy,
+  or stable HTTP error schema. These are local reliability gaps; inbound
+  authentication and hostile-network hardening are explicit non-goals.
 - Pairing, allowlists, group policy, mentions, media, threads, reactions,
   commands, streaming updates, and multi-account routing are absent.
 - WhatsApp requires an existing device session; QR/device setup is absent.
@@ -270,7 +282,7 @@ Limitations:
 - No Node-to-Go migration, rollback, production first-run acceptance,
   backup/restore, or secret-layer audit is implemented.
 - The root `Dockerfile` still builds Node; production has not cut over to
-  `go/Dockerfile`.
+  `golang/Dockerfile`.
 
 ## Verification
 
@@ -295,7 +307,7 @@ Automated Go coverage includes:
 
 Live standalone-container proof includes:
 
-- Building `openclaw-go-local-tools:test` from `go/Dockerfile`.
+- Building `openclaw-go-local-tools:test` from `golang/Dockerfile`.
 - Health and text replies through the current local Gemma llama-server.
 - Global memory storage and recall from a different sender.
 - Relative reminder add/list/delete and absolute RFC3339 scheduling.
@@ -306,7 +318,7 @@ Live standalone-container proof includes:
 
 Live recurring-reminder proof on 2026-07-15 includes:
 
-- Rebuilding and restarting `openclaw-go-test-ubuntu` from `go/Dockerfile` while
+- Rebuilding and restarting `openclaw-go-test-ubuntu` from `golang/Dockerfile` while
   preserving its config, secret, state mounts, local llama-server URL, restart
   policy, and host port 18792.
 - Sending one natural-language request containing five recurring schedules and
@@ -321,7 +333,7 @@ Live recurring-reminder proof on 2026-07-15 includes:
 
 Server-timezone proof on 2026-07-16 includes:
 
-- Building `openclaw-go-ubuntu-test:server-timezone` from `go/Dockerfile` and
+- Building `openclaw-go-ubuntu-test:server-timezone` from `golang/Dockerfile` and
   starting an isolated container with `TZ=Asia/Kuala_Lumpur`, separate config,
   and a fresh SQLite database.
 - Startup logging `Using server timezone Asia/Kuala_Lumpur`; `/healthz` passed.
@@ -342,7 +354,7 @@ Operator-owned persona proof on 2026-07-16 includes:
   Soul/Identity prompt sections and startup snapshots, a three-tool catalog with
   no persona mutation tool, and legacy-table removal without reminder, memory,
   or history loss.
-- Building `openclaw-go-ubuntu-test:persona-config` from `go/Dockerfile` with
+- Building `openclaw-go-ubuntu-test:persona-config` from `golang/Dockerfile` with
   image id `sha256:6e81012ca4737ba90334daea28c8446d3100e1668470ea9a64b939157b3bc8fe`.
 - Recreating `openclaw-go-test-ubuntu` from that image while preserving both
   named volumes, read-only config/secret binds, the existing `/data` bind, port
@@ -366,7 +378,7 @@ Context-aware reminder-routing proof on 2026-07-17 includes:
   `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
   `GOCACHE=/tmp/openclaw-go-cache`.
 - Building `openclaw-go-ubuntu-test:node-reminder-routing` from
-  `go/Dockerfile`, image id
+  `golang/Dockerfile`, image id
   `sha256:f8c82202523ac57838bdf05956fc6413c20d34a274a6a6c2e852ba5cce724864`,
   and recreating `openclaw-go-test-ubuntu` while preserving all mounts,
   environment, port 18792, and restart policy.
@@ -387,10 +399,31 @@ Context-aware reminder-routing proof on 2026-07-17 includes:
   pre-existing reminders; the host llama-server remained on pid 7675 without a
   restart.
 
+Renamed-directory redeployment proof on 2026-07-21 includes:
+
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully from `golang/` for
+  commit `8a572e723817`.
+- Building `openclaw-go-ubuntu-test:golang-dir-20260721` from `golang/`. The
+  resulting image id remained
+  `sha256:f8c82202523ac57838bdf05956fc6413c20d34a274a6a6c2e852ba5cce724864`
+  because the commit renamed the directory without changing runtime source
+  bytes.
+- Recreating `openclaw-go-test-ubuntu` from the new tag while preserving both
+  named volumes, all three binds, the three explicit environment overrides,
+  bridge networking, host port 18792, and restart policy `unless-stopped`.
+- Verifying host and container access to the configured local llama-server,
+  Gateway health, `Asia/Kuala_Lumpur` startup, and SQLite integrity. The
+  pre-recreation baseline was four enabled cron reminders, 177 transcript rows,
+  zero memory rows, and no legacy personality table.
+- Sending a unique harmless live `/chat` request through the local model. It
+  produced one user and one assistant text row; a final container restart
+  retained all four reminders, both proof rows, and all 179 transcript rows.
+
 Canonical local commands:
 
 ```text
-cd go
+cd golang
 go test ./...
 go test -race ./...
 go vet ./...
@@ -406,17 +439,18 @@ Still required before cutover:
   rescheduling after an actual successful send.
 - Node-style scheduled agent execution for conditional watchers or explicit
   acceptance that the Go product supports static reminders only.
-- Gateway authentication and hostile-input tests.
+- Gateway request limits, timeouts, stable errors, and malformed/oversized-input
+  reliability tests.
 - Go/Node fixture parity for the retained channel, config, and state contracts.
 - Node-to-Go migration and rollback proof.
 
 ## Deployment Baseline
 
-As of 2026-07-17, the persistent live test deployment is:
+As of 2026-07-21, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:node-reminder-routing
+image: openclaw-go-ubuntu-test:golang-dir-20260721
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -428,21 +462,23 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the node-reminder-routing image on 2026-07-17
+The container was recreated from the `golang-dir-20260721` tag on 2026-07-21
 using the existing `openclaw-agent.sqlite`. Startup resolved
-`Asia/Kuala_Lumpur`; health passed before and after restart; quoted reminder
-discussion stayed a normal text turn; genuine reminder CRUD used structured
-tools; proof cleanup restored the seven pre-existing reminders; and the required
-Jet configuration remained active. The database predating the earlier
-server-timezone deployment remains retained locally as
+`Asia/Kuala_Lumpur`; Gateway and local-model health passed before and after the
+final restart; SQLite integrity passed; the four existing reminders remained
+unchanged; and a unique live-model proof turn persisted as two text rows,
+bringing the transcript total from 177 to 179. The image bytes match the prior
+`node-reminder-routing` tag because the latest commit only renamed `go/` to
+`golang/`. The database predating the earlier server-timezone deployment remains
+retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
 ## Migration Roadmap
 
 ### 1. Freeze the retained contract
 
-- Decide whether the public Gateway is a compatible Node WebSocket subset or a
-  smaller authenticated HTTP v1.
+- Retain a smaller unauthenticated HTTP v1 for trusted-LAN use; exact Node
+  WebSocket compatibility and public/untrusted-network exposure are non-goals.
 - Capture focused Node fixtures for config, provider calls, channel envelopes,
   pairing, memory, state, startup, health, and retained error behavior.
 - Audit inherited Node docs/UI/setup and stop advertising unsupported features.
@@ -450,18 +486,20 @@ server-timezone deployment remains retained locally as
 Exit: every retained behavior has an owner, fixture or explicit test, config
 shape, and documented non-goals.
 
-### 2. Harden the Gateway and scheduler
+### 2. Stabilize the Gateway and scheduler
 
-- Add authentication, request-size limits, safe bind defaults, stable errors,
-  hostile-input tests, and an explicit trusted-transport policy.
+- Add request-size limits, explicit server timeouts/concurrency policy, stable
+  errors, and malformed/oversized-input tests for local reliability. Preserve
+  the intentional unauthenticated all-interface trusted-LAN contract.
 - Add durable reminder claim/lease and delivery idempotency so concurrent or
   restarted workers cannot duplicate successful delivery.
 - Decide whether first release includes scheduled agent jobs for conditional
   watchers/contacting another recipient or explicitly supports static reminders
   only.
 
-Exit: exposed endpoints are reviewed and authenticated; reminder delivery has
-restart/concurrency proof; scheduled behavior is accurately documented.
+Exit: Gateway behavior matches the documented trusted-LAN contract and has
+reliability proof; reminder delivery has restart/concurrency proof; scheduled
+behavior is accurately documented.
 
 ### 3. Complete retained channels
 
@@ -520,20 +558,19 @@ the shipped product.
 
 ## Immediate Next Actions
 
-1. Define the authenticated Gateway protocol and bind policy.
-2. Add request limits, stable errors, and hostile-input tests.
-3. Define channel identity/access control, then implement pairing and correct
+1. Add Gateway request limits, timeouts, stable errors, and
+   malformed/oversized-input reliability tests.
+2. Define channel identity/access control, then implement pairing and correct
    DM/group session keys.
-4. Implement WhatsApp QR/device setup and record live pairing/reply/reminder
+3. Implement WhatsApp QR/device setup and record live pairing/reply/reminder
    delivery proof for all three channels.
-5. Add durable reminder lease/idempotency behavior.
-6. Decide the first-release scheduled-job and local-memory contracts.
-7. Capture Node fixtures and implement migration, rollback, and backup/restore.
-8. Integrate the Go image into Compose and run clean-volume/secret-layer proof.
+4. Add durable reminder lease/idempotency behavior.
+5. Decide the first-release scheduled-job and local-memory contracts.
+6. Capture Node fixtures and implement migration, rollback, and backup/restore.
+7. Integrate the Go image into Compose and run clean-volume/secret-layer proof.
 
 ## Open Decisions
 
-- Smaller authenticated HTTP v1 or retained Node Gateway protocol subset?
 - Static reminders only, or scheduled agent turns for watchers and delegated
   delivery?
 - Substring memory only, or local embeddings, automatic recall, and dreaming?
@@ -542,7 +579,6 @@ the shipped product.
 - Which Discord intents and group/server behavior are enabled by default?
 - Which browser, canvas, file-transfer, streaming, media, and reasoning features
   are genuinely required?
-- Loopback-only Docker ports by default or opt-in LAN exposure?
 - Docker-only distribution, and should fork image/package names change?
 - Keep SSH in the production image or provide it only in a debug/operator image?
 
@@ -558,8 +594,9 @@ Go replaces Node only when:
   outbound live scenarios, including recurring reminder delivery.
 - Existing retained config/state have a documented tested migration or are
   explicitly declared unsupported before the first release.
-- Gateway exposure is authenticated, safely bound, request-limited, and
-  reviewed; durable reminder delivery is lease/idempotency safe.
+- Gateway exposure matches the documented unauthenticated trusted-LAN contract,
+  is request-limited and reliability-tested, and remains unsupported on public
+  or untrusted networks; durable reminder delivery is lease/idempotency safe.
 - A clean image passes build, startup, restart, health, persistence, backup,
   and secret-audit acceptance without Node or cloud-provider dependencies.
 - Operator documentation and visible UI advertise only retained functionality.

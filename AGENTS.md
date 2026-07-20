@@ -6,7 +6,7 @@ This branch is a slim, Docker-first OpenClaw fork migrating the retained reminde
 
 - Run `git status -sb` first. The migration is intentionally staged and may be dirty; never reset, restore, stash, delete, or overwrite unrelated work.
 - Read the complete nearest scoped `AGENTS.md` before subtree work.
-- Use repo-root references in reports, for example `go/internal/gateway/agent.go:220`; do not report absolute paths.
+- Use repo-root references in reports, for example `golang/internal/gateway/agent.go:220`; do not report absolute paths.
 - For docs/user-visible work, run `pnpm docs:list` and read only the relevant docs.
 - Diagnose from source, callers, tests, current behavior, and dependency contracts. Do not guess API behavior or declare parity from a diff alone.
 - Never print, commit, copy into images, or expose credentials. `config_test/secrets.json` is local-only.
@@ -28,7 +28,7 @@ Node remains the behavioral reference while migration is incomplete. Inspect its
 
 ## Current Go Status
 
-Implemented under `go/`:
+Implemented under `golang/`:
 
 - local Chat Completions text and context-aware structured tool calls;
 - atomic tool execution plus structured SQLite transcripts;
@@ -53,8 +53,8 @@ Continue from `MIGRATION.md` “Immediate Next Actions” unless the user sets a
 
 ## Project Structure
 
-- `go/cmd/openclaw`: Go startup and dependency wiring.
-- `go/internal/{config,providers,tools,state,channels,gateway}`: retained Go runtime.
+- `golang/cmd/openclaw`: Go startup and dependency wiring.
+- `golang/internal/{config,providers,tools,state,channels,gateway}`: retained Go runtime.
 - `src/`, `packages/`, `extensions/`: Node reference runtime, protocol, and plugins.
 - `docs/`: upstream/source documentation.
 - `MIGRATION.md`: fork goals, retained scope, current Go behavior, proof, roadmap, cutover gates, and next actions.
@@ -74,15 +74,15 @@ Before provider/tool work, verify both the host server and container path. Use t
 
 ## Running Test Container
 
-As of 2026-07-17, the persistent live test deployment is:
+As of 2026-07-21, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:node-reminder-routing
+image: openclaw-go-ubuntu-test:golang-dir-20260721
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `90b8831e8dcb`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `3e8b4fbebd66`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu
@@ -96,7 +96,7 @@ It mounts local config at `/config`, persistent state at `/data`, and uses `OPEN
 Build a candidate with:
 
 ```bash
-docker build -t openclaw-go-ubuntu-test:<tag> go
+docker build -t openclaw-go-ubuntu-test:<tag> golang
 ```
 
 After rebuilding, recreate the named container with its existing mounts, then prove health, a real `/chat` request through the local model, the expected structured transcript, and SQLite state. Use a unique test sender and clean up test reminders so the 30-second delivery loop does not retain undeliverable `cli` jobs.
@@ -112,7 +112,7 @@ Never display secret-file contents or bearer/channel tokens in logs or reports.
 
 ## Build and Test Commands
 
-Run Go commands from `go/`. Use a writable cache when the default cache is read-only:
+Run Go commands from `golang/`. Use a writable cache when the default cache is read-only:
 
 ```bash
 GOCACHE=/tmp/openclaw-go-cache go test ./...
@@ -121,7 +121,7 @@ GOCACHE=/tmp/openclaw-go-cache go test -race ./...
 GOCACHE=/tmp/openclaw-go-cache go build -o /tmp/openclaw-go ./cmd/openclaw
 ```
 
-Do not build without `-o`; the repository contains a tracked `go/openclaw` binary that must not be changed as a side effect. Run `gofmt -w` on touched Go files and `git diff --check` before handoff.
+Do not build without `-o`; the repository contains a tracked `golang/openclaw` binary that must not be changed as a side effect. Run `gofmt -w` on touched Go files and `git diff --check` before handoff.
 
 For Node reference changes, use repository commands only: `pnpm test <path>`, `pnpm check:changed --staged`, `pnpm build`, and oxfmt wrappers. Never run bare Vitest watch mode or introduce `tsc --noEmit`.
 
