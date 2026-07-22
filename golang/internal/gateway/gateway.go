@@ -12,6 +12,8 @@ import (
 	"github.com/openclaw/openclaw/go/internal/state"
 )
 
+const reminderPollInterval = time.Minute
+
 // Gateway exposes the HTTP health and orchestration endpoints.
 type Gateway struct {
 	agent   *Agent
@@ -66,7 +68,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 }
 
 func (g *Gateway) startReminderLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(reminderPollInterval)
 	defer ticker.Stop()
 
 	for {

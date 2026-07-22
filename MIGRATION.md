@@ -240,7 +240,7 @@ Implemented:
 - The Gateway listens on all interfaces for its intended trusted-LAN deployment.
   `/chat` accepts a caller-selected `sender_id` as a conversation key; it is not
   an authenticated identity.
-- A 30-second reminder loop delivers due reminders through the matching channel.
+- A one-minute reminder loop delivers due reminders through the matching channel.
   It deletes a successfully delivered one-shot and advances a successfully
   delivered recurring reminder to its next anchored/cron occurrence. Failed
   sends remain due for retry.
@@ -302,8 +302,8 @@ Automated Go coverage includes:
 - Multi-round agent execution, validation-error recovery, tool-call/result
   replay, semantic reminder routing, uncommitted-claim correction, per-conversation
   serialization and cancellation, bounded compaction, the four-round limit,
-  prompt/tool identity separation, history, compaction decisions, Gateway
-  health, and SQLite state.
+  prompt/tool identity separation, history, compaction decisions, the one-minute
+  reminder polling interval, Gateway health, and SQLite state.
 
 Live standalone-container proof includes:
 
@@ -420,6 +420,25 @@ Renamed-directory redeployment proof on 2026-07-21 includes:
   produced one user and one assistant text row; a final container restart
   retained all four reminders, both proof rows, and all 179 transcript rows.
 
+One-minute reminder polling proof on 2026-07-22 includes:
+
+- Replacing the hardcoded 30-second ticker with a named one-minute interval and
+  adding a focused Gateway regression test for the exact duration.
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
+  `GOCACHE=/tmp/openclaw-go-cache`.
+- Building `openclaw-go-ubuntu-test:minute-poll-20260722` from `golang/`, image
+  id `sha256:05fb757d771812a7bb97058f6f01c0251e2b5804df2b876632503d022b4c492c`,
+  and recreating `openclaw-go-test-ubuntu` while preserving both volumes, all
+  three binds, the three explicit environment overrides, bridge networking,
+  host port 18792, and restart policy `unless-stopped`.
+- Verifying Gateway health, host and container access to the local llama-server,
+  and a harmless live `/chat` turn through the real local model. SQLite held the
+  paired user/assistant proof rows, five reminders, 223 transcript rows, one
+  memory row, and passed `PRAGMA integrity_check`.
+- Restarting the final container and verifying host and in-container health;
+  both proof rows and all existing SQLite state remained intact.
+
 Canonical local commands:
 
 ```text
@@ -446,11 +465,11 @@ Still required before cutover:
 
 ## Deployment Baseline
 
-As of 2026-07-21, the persistent live test deployment is:
+As of 2026-07-22, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:golang-dir-20260721
+image: openclaw-go-ubuntu-test:minute-poll-20260722
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -462,15 +481,13 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the `golang-dir-20260721` tag on 2026-07-21
+The container was recreated from the `minute-poll-20260722` tag on 2026-07-22
 using the existing `openclaw-agent.sqlite`. Startup resolved
 `Asia/Kuala_Lumpur`; Gateway and local-model health passed before and after the
-final restart; SQLite integrity passed; the four existing reminders remained
-unchanged; and a unique live-model proof turn persisted as two text rows,
-bringing the transcript total from 177 to 179. The image bytes match the prior
-`node-reminder-routing` tag because the latest commit only renamed `go/` to
-`golang/`. The database predating the earlier server-timezone deployment remains
-retained locally as
+final restart; SQLite integrity passed; all five existing reminders remained
+unchanged; and a unique live-model proof turn persisted as two text rows. The
+final database contained 223 transcript rows and one memory row. The database
+predating the earlier server-timezone deployment remains retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
 ## Migration Roadmap

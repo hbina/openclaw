@@ -74,15 +74,15 @@ Before provider/tool work, verify both the host server and container path. Use t
 
 ## Running Test Container
 
-As of 2026-07-21, the persistent live test deployment is:
+As of 2026-07-22, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:golang-dir-20260721
+image: openclaw-go-ubuntu-test:minute-poll-20260722
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `3e8b4fbebd66`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `29fa7bb19006`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu
@@ -99,7 +99,7 @@ Build a candidate with:
 docker build -t openclaw-go-ubuntu-test:<tag> golang
 ```
 
-After rebuilding, recreate the named container with its existing mounts, then prove health, a real `/chat` request through the local model, the expected structured transcript, and SQLite state. Use a unique test sender and clean up test reminders so the 30-second delivery loop does not retain undeliverable `cli` jobs.
+After rebuilding, recreate the named container with its existing mounts, then prove health, a real `/chat` request through the local model, the expected structured transcript, and SQLite state. Use a unique test sender and clean up test reminders so the one-minute delivery loop does not retain undeliverable `cli` jobs.
 
 Useful inspection:
 

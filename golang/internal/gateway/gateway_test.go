@@ -5,10 +5,17 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/openclaw/openclaw/go/internal/channels"
 	"github.com/openclaw/openclaw/go/internal/state"
 )
+
+func TestReminderPollInterval(t *testing.T) {
+	if reminderPollInterval != time.Minute {
+		t.Fatalf("reminder poll interval = %s, want %s", reminderPollInterval, time.Minute)
+	}
+}
 
 func TestGatewayHealth(t *testing.T) {
 	store, err := state.NewStore(filepath.Join(t.TempDir(), "gateway.sqlite"))
