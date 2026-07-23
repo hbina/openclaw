@@ -153,7 +153,7 @@ func TestAgentHandlesMessage(t *testing.T) {
 	if description := provider.request.Tools[0].Function.Description; !strings.Contains(description, "server timezone is UTC") {
 		t.Fatalf("reminder tool does not expose server timezone: %q", description)
 	}
-	// First message: [system, user] — no compaction summary, no prior history.
+	// First message: [system, user] — no prior history.
 	if len(provider.request.Messages) != 2 {
 		t.Fatalf("provider message count = %d, want 2", len(provider.request.Messages))
 	}
@@ -194,7 +194,7 @@ func TestAgentHistoryCarriedForward(t *testing.T) {
 	}
 }
 
-func TestAgentLoadsAllUncompactedHistory(t *testing.T) {
+func TestAgentLoadsCompleteHistory(t *testing.T) {
 	provider := &recordingProvider{}
 	agent, store := newTestAgent(t, provider, nil, "")
 	ctx := context.Background()
@@ -214,13 +214,47 @@ func TestAgentLoadsAllUncompactedHistory(t *testing.T) {
 		t.Fatalf("Chat: %v", err)
 	}
 
-	// The provider receives the system prompt, every uncompacted row, and the
-	// current message. This guards against reintroducing a fixed row cap.
+	// The provider receives the system prompt, every stored row, and the current
+	// message. This remains the temporary behavior until retrieval is implemented.
 	if got, want := len(provider.request.Messages), historyRows+2; got != want {
 		t.Fatalf("provider message count = %d, want %d", got, want)
 	}
 	if got := provider.request.Messages[1].Content; got != "history-00" {
 		t.Fatalf("first history message = %q, want %q", got, "history-00")
+	}
+}
+
+func TestAgentDoesNotSummarizeOrTrimLargeHistory(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "reply"},
+	}}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	ctx := context.Background()
+	for _, turn := range []struct {
+		role    string
+		content string
+	}{
+		{role: "user", content: strings.Repeat("old question ", 15_000)},
+		{role: "assistant", content: strings.Repeat("old answer ", 15_000)},
+		{role: "user", content: "most recent stored question"},
+	} {
+		if err := store.SaveConversationTurn(ctx, "cli", "user-1", turn.role, turn.content); err != nil {
+			t.Fatalf("SaveConversationTurn: %v", err)
+		}
+	}
+
+	if _, err := agent.Chat(ctx, "cli", "user-1", "current question"); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider request count = %d, want one normal generation", len(provider.requests))
+	}
+	history, err := store.GetConversationHistory(ctx, "cli", "user-1", 0)
+	if err != nil {
+		t.Fatalf("GetConversationHistory: %v", err)
+	}
+	if len(history) != 5 {
+		t.Fatalf("history row count = %d, want all 5 rows retained", len(history))
 	}
 }
 
@@ -252,50 +286,6 @@ func newTestStoreForAgent(t *testing.T) *state.Store {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
-}
-
-func TestEstimateTokens(t *testing.T) {
-	msgs := []providers.Message{
-		{Content: "hello world"}, // 11 chars → 2 tokens
-		{Content: "foo"},         // 3 chars → 0 tokens (truncated)
-	}
-	got := estimateTokens(msgs)
-	if got != 3 { // (11+3)/4 = 3
-		t.Errorf("estimateTokens = %d, want 3", got)
-	}
-}
-
-func TestShouldCompact(t *testing.T) {
-	if shouldCompact(80_000, 100_000, 16_384) {
-		t.Error("shouldCompact(80000) should be false")
-	}
-	if !shouldCompact(90_000, 100_000, 16_384) {
-		t.Error("shouldCompact(90000) should be true")
-	}
-}
-
-func TestCompactionUsesBoundedGeneration(t *testing.T) {
-	provider := &recordingProvider{}
-	agent, store := newTestAgent(t, provider, nil, "")
-	ctx := context.Background()
-	for _, turn := range []struct {
-		role    string
-		content string
-	}{
-		{role: "user", content: strings.Repeat("a", defaultReserveTokens*4+1)},
-		{role: "assistant", content: "old reply"},
-		{role: "user", content: "recent request"},
-	} {
-		if err := store.SaveConversationTurn(ctx, "cli", "user-1", turn.role, turn.content); err != nil {
-			t.Fatalf("SaveConversationTurn: %v", err)
-		}
-	}
-	if err := agent.runCompaction(ctx, "cli", "user-1"); err != nil {
-		t.Fatalf("runCompaction: %v", err)
-	}
-	if provider.request == nil || provider.request.MaxTokens != compactionMaxTokens {
-		t.Fatalf("compaction provider request = %#v", provider.request)
-	}
 }
 
 func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {

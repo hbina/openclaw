@@ -105,16 +105,6 @@ func (s *Store) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_conversation_history_lookup
 		ON conversation_history(channel_id, sender_id, created_at);
 
-	CREATE TABLE IF NOT EXISTS conversation_compactions (
-		id            INTEGER PRIMARY KEY AUTOINCREMENT,
-		channel_id    TEXT    NOT NULL,
-		sender_id     TEXT    NOT NULL,
-		summary       TEXT    NOT NULL,
-		tokens_before INTEGER NOT NULL,
-		first_kept_id INTEGER NOT NULL,
-		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
 	DROP TABLE IF EXISTS personality_documents;
 	`
 

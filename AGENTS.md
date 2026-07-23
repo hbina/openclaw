@@ -89,11 +89,11 @@ As of 2026-07-23, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:telegram-only-20260723
+image: openclaw-go-ubuntu-test:no-compaction-20260723
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `91077583cb2f`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `d947777408ad`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu

@@ -206,67 +206,10 @@ func TestConversationHistory(t *testing.T) {
 	}
 }
 
-func TestCompactionLifecycle(t *testing.T) {
+func TestFreshDatabaseDoesNotContainConversationCompactions(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-
-	// No compaction yet.
-	c, err := store.GetLatestCompaction(ctx, "telegram", "u1")
-	if err != nil {
-		t.Fatalf("GetLatestCompaction (empty): %v", err)
-	}
-	if c != nil {
-		t.Fatalf("expected nil compaction, got %#v", c)
-	}
-
-	// Insert a few turns and remember the last ID before the "keep" window.
-	for range 5 {
-		if err := store.SaveConversationTurn(ctx, "telegram", "u1", "user", "message"); err != nil {
-			t.Fatalf("SaveConversationTurn: %v", err)
-		}
-	}
-	allTurns, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
-	if err != nil {
-		t.Fatalf("GetConversationHistory: %v", err)
-	}
-	if len(allTurns) != 5 {
-		t.Fatalf("expected 5 turns, got %d", len(allTurns))
-	}
-	firstKeptID := allTurns[3].ID // keep turns 3 and 4, summarize 0-2
-
-	id, err := store.SaveCompaction(ctx, "telegram", "u1", "summary text", 1000, firstKeptID)
-	if err != nil {
-		t.Fatalf("SaveCompaction: %v", err)
-	}
-	if id == 0 {
-		t.Fatal("SaveCompaction returned id=0")
-	}
-
-	// Retrieve and verify.
-	loaded, err := store.GetLatestCompaction(ctx, "telegram", "u1")
-	if err != nil {
-		t.Fatalf("GetLatestCompaction: %v", err)
-	}
-	if loaded == nil {
-		t.Fatal("GetLatestCompaction returned nil after save")
-	}
-	if loaded.Summary != "summary text" || loaded.FirstKeptID != firstKeptID || loaded.TokensBefore != 1000 {
-		t.Fatalf("unexpected compaction: %#v", loaded)
-	}
-
-	// Trim history before firstKeptID.
-	if err := store.TrimHistoryBefore(ctx, "telegram", "u1", firstKeptID); err != nil {
-		t.Fatalf("TrimHistoryBefore: %v", err)
-	}
-	remaining, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
-	if err != nil {
-		t.Fatalf("GetConversationHistory after trim: %v", err)
-	}
-	if len(remaining) != 2 {
-		t.Fatalf("remaining turn count after trim = %d, want 2", len(remaining))
-	}
-	if remaining[0].ID != firstKeptID {
-		t.Fatalf("first remaining id = %d, want %d", remaining[0].ID, firstKeptID)
+	if databaseTableExists(t, store, "conversation_compactions") {
+		t.Fatal("fresh database contains conversation_compactions")
 	}
 }
 
@@ -277,7 +220,7 @@ func TestFreshDatabaseDoesNotContainPersonalityDocuments(t *testing.T) {
 	}
 }
 
-func TestOpeningOlderDatabaseDropsPersonalityWithoutAffectingRuntimeState(t *testing.T) {
+func TestOpeningOlderDatabaseDropsPersonalityAndPreservesLegacyCompactionData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.sqlite")
 	ctx := context.Background()
 	store, err := NewStore(path)
@@ -286,8 +229,21 @@ func TestOpeningOlderDatabaseDropsPersonalityWithoutAffectingRuntimeState(t *tes
 	}
 	if _, err := store.db.Exec(`CREATE TABLE personality_documents (
 		name TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	); INSERT INTO personality_documents (name, content) VALUES ('SOUL.md', 'legacy soul');`); err != nil {
-		t.Fatalf("seed legacy personality table: %v", err)
+	);
+	INSERT INTO personality_documents (name, content) VALUES ('SOUL.md', 'legacy soul');
+	CREATE TABLE conversation_compactions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		channel_id TEXT NOT NULL,
+		sender_id TEXT NOT NULL,
+		summary TEXT NOT NULL,
+		tokens_before INTEGER NOT NULL,
+		first_kept_id INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	INSERT INTO conversation_compactions
+		(channel_id, sender_id, summary, tokens_before, first_kept_id)
+		VALUES ('cli', 'owner', 'legacy summary', 1000, 1);`); err != nil {
+		t.Fatalf("seed legacy state tables: %v", err)
 	}
 	if err := store.SaveMemory(ctx, "likes espresso"); err != nil {
 		t.Fatalf("seed memory: %v", err)
@@ -312,6 +268,16 @@ func TestOpeningOlderDatabaseDropsPersonalityWithoutAffectingRuntimeState(t *tes
 	defer reopened.Close()
 	if databaseTableExists(t, reopened, "personality_documents") {
 		t.Fatal("legacy personality_documents table was not dropped")
+	}
+	if !databaseTableExists(t, reopened, "conversation_compactions") {
+		t.Fatal("unused legacy conversation_compactions data was deleted")
+	}
+	var legacyCompactions int
+	if err := reopened.db.QueryRow(`SELECT count(*) FROM conversation_compactions`).Scan(&legacyCompactions); err != nil {
+		t.Fatalf("count legacy compactions: %v", err)
+	}
+	if legacyCompactions != 1 {
+		t.Fatalf("legacy compaction count = %d, want 1", legacyCompactions)
 	}
 	reminders, err := reopened.ListReminders("cli", "owner")
 	if err != nil || len(reminders) != 1 || reminders[0].Message != "call home" {

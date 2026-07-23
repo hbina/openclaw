@@ -31,7 +31,8 @@ The Go runtime retains:
 - Batch reminder creation, listing, editing, cancellation, recurring schedules,
   and delivery.
 - Global durable memory storage and search.
-- Persistent structured conversation history and compaction.
+- Persistent structured conversation history, with retrieval-augmented context
+  selection planned as a future replacement for full-history replay.
 - A small unauthenticated HTTP Gateway for a trusted local network.
 - Canonical non-secret config plus a separate optional credential file.
 - SQLite state outside the container image.
@@ -67,7 +68,7 @@ deployment are not first-cut requirements.
   Go runtime.
 - Gateway request limits, timeouts, and stable errors are reliability contracts,
   not authentication or hostile-network hardening.
-- SQLite is canonical for reminders, history, compaction, memory, and other
+- SQLite is canonical for reminders, history, memory, and other
   OpenClaw-owned runtime state. Persona is required non-secret configuration in
   `openclaw.json`; do not add state sidecars, persona tables, or fallback readers.
 - Prefer deletion and one canonical implementation over compatibility shims for
@@ -89,7 +90,7 @@ deployment are not first-cut requirements.
 | Go Gateway and agent        | Keep         | One owner and primary assistant per deployment; unauthenticated trusted-LAN HTTP chat surface; health    |
 | Local model                 | Keep         | OpenAI-compatible `llama-server`, required local base URL, optional LAN bearer token, model id `default` |
 | Reminders                   | Keep         | Atomic batch CRUD, `at`/`every`/timezone-aware `cron`, durable delivery                                  |
-| Memory and persona          | Keep         | SQLite recall/search and history/compaction; required startup-loaded `agents.defaults.soul`/`identity`   |
+| Memory and persona          | Keep         | SQLite recall/search and history; required startup-loaded `agents.defaults.soul`/`identity`              |
 | Telegram                    | Keep         | Pairing/allowlist, inbound/outbound DM text, reminder delivery                                           |
 | WhatsApp                    | Remove       | No Go adapter, startup/config surface, session database, or runtime dependency                           |
 | Discord                     | Remove       | No Go adapter, startup/config surface, token, intents, or runtime dependency                             |
@@ -126,10 +127,9 @@ protocol compatibility remain explicit decisions rather than assumed scope.
 - `golang/internal/providers`: OpenAI-compatible structured chat contract and local
   HTTP client.
 - `golang/internal/tools`: Trusted in-process reminder and memory tool execution.
-- `golang/internal/state`: SQLite reminders, history, compaction, and memory state.
+- `golang/internal/state`: SQLite reminders, history, and memory state.
 - `golang/internal/channels`: the Telegram adapter and generic channel registry.
-- `golang/internal/gateway`: Agent loop, HTTP server, reminder delivery, and
-  compaction.
+- `golang/internal/gateway`: Agent loop, HTTP server, and reminder delivery.
 
 ## Current Implementation
 
@@ -150,9 +150,8 @@ Implemented:
   to a cloud provider or subprocess.
 - Generation intentionally sends model id `default`, matching the verified
   llama-server deployment.
-- Normal agent calls send a 4,096-token output cap; compaction calls send a
-  2,048-token cap. Every provider call has a five-minute deadline, with an
-  earlier caller deadline taking precedence.
+- Agent calls send a 4,096-token output cap. Every provider call has a
+  five-minute deadline, with an earlier caller deadline taking precedence.
 - Startup resolves Go's server-local timezone once from the host/container
   environment and passes that same location to the prompt and reminder tools.
   No application timezone is hardcoded or added to config.
@@ -189,9 +188,9 @@ Implemented:
   response if the model does not terminate the workflow.
 - Tool calls and results persist as structured SQLite transcript rows and are
   reconstructed as native assistant/tool messages on later turns.
-- Each model request loads all uncompacted SQLite transcript rows for its
-  conversation. There is no fixed row limit or channel/DM history-limit config;
-  compaction is the canonical context-bounding mechanism.
+- Each model request loads all SQLite transcript rows for its conversation.
+  There is no fixed row limit, channel/DM history-limit config, summarization,
+  trimming, or current context-bounding mechanism.
 - Mutating tool state and the matching result row commit in one transaction.
 - Invalid arguments, unknown tools, and execution failures return structured
   error results so the model can correct its request.
@@ -243,8 +242,9 @@ Limitations:
   not the missing-hour ambiguity.
 - Persona is global to the single agent and operator-controlled. Configuration
   changes require a restart; there is no runtime reload endpoint.
-- Context size still uses a fixed 100,000-token assumption and a four-character
-  estimate rather than tokenizer/model metadata.
+- Full-history replay can exceed the local model context window as transcripts
+  grow. Retrieval-augmented context selection is planned but is not implemented;
+  the runtime currently performs no input token estimation or context bounding.
 
 ### Gateway and channels
 
@@ -276,13 +276,14 @@ Implemented:
 
 - SQLite stores reminders, including canonical schedule kind/definition,
   timezone, enabled state, and next-fire timestamp, plus global memory,
-  conversation rows, compaction records, and generic agent state. Existing Go
-  one-shot rows migrate to `schedule_kind = at`.
+  conversation rows, and generic agent state. Existing Go one-shot rows migrate
+  to `schedule_kind = at`.
 - Fresh databases do not create `personality_documents`. Opening an older Go
   database drops that table without importing or preserving its contents and
   without changing reminders, memory, or history.
-- Compaction summaries preserve readable tool activity and retained history is
-  aligned to a user-turn boundary.
+- Fresh databases do not create `conversation_compactions`. Older databases may
+  retain that table as unused legacy data; startup does not read, write, trim,
+  migrate, or delete it.
 - The Go image is now a Go binary plus Alpine CA certificates and SQLite runtime
   libraries; it no longer installs Node/npm/Claude.
 
@@ -312,10 +313,9 @@ Automated Go coverage includes:
   legacy personality-table removal without runtime-state loss.
 - Multi-round agent execution, validation-error recovery, tool-call/result
   replay, semantic reminder routing, uncommitted-claim correction, per-conversation
-  serialization and cancellation, complete uncompacted-history loading, bounded
-  compaction, the four-round limit, prompt/tool identity separation, history,
-  compaction decisions, the one-minute reminder polling interval, Gateway health,
-  and SQLite state.
+  serialization and cancellation, complete-history loading, the four-round
+  limit, prompt/tool identity separation, history, the one-minute reminder
+  polling interval, Gateway health, and SQLite state.
 
 Live standalone-container proof includes:
 
@@ -470,6 +470,40 @@ Unlimited conversation-history proof on 2026-07-23 includes:
 - Leaving the persistent `openclaw-go-test-ubuntu` deployment on
   `minute-poll-20260722`; its health remained HTTP 200.
 
+Compaction-removal proof on 2026-07-23 includes:
+
+- Removing the Go summarization prompt and model call, token-threshold decision,
+  summary injection, history trimming, compaction store API, and fresh-database
+  `conversation_compactions` schema. Retrieval-augmented context selection was
+  explicitly deferred; complete-history replay remains the interim behavior.
+- Focused coverage proves a transcript larger than the former threshold causes
+  only one normal generation and retains every row. State coverage proves fresh
+  databases omit the compaction table while older unused compaction data is not
+  deleted during startup.
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
+  `GOCACHE=/tmp/openclaw-go-cache`.
+- Building `openclaw-go-ubuntu-test:no-compaction-20260723` from `golang/`,
+  image id `sha256:cc92c5f9f763db379ccf454b92c05304b6f8f9bf9e50981bf6756dd48f1eaa18`.
+- Starting an isolated candidate with a tmpfs database and disabled Telegram
+  credentials, confirming Gateway health, and receiving the exact replies
+  `compaction removal smoke passed` and `compaction removal sqlite proof`
+  through the real local model. SQLite contained the paired user/assistant
+  rows, no `conversation_compactions` table, and passed `PRAGMA integrity_check`.
+- Removing the isolated candidate, then recreating the persistent
+  `openclaw-go-test-ubuntu` deployment on
+  `openclaw-go-ubuntu-test:no-compaction-20260723`, container id
+  `d947777408ad`, while preserving both named volumes, all three bind mounts,
+  the three explicit environment overrides, bridge networking, host port
+  `18792`, and restart policy `unless-stopped`.
+- Recording five reminders, 237 transcript rows, one memory, and an empty
+  legacy compaction table before recreation. After a real-model `/chat` request,
+  SQLite held the expected paired proof rows, all five reminders, the memory,
+  zero legacy compaction records, and passed `PRAGMA integrity_check`.
+- Receiving the exact reply `updated deployment healthy`, restarting the
+  recreated container, and verifying HTTP 200 health plus persistence of the
+  proof transcript and all pre-existing state.
+
 Telegram-only Go runtime proof on 2026-07-23 includes:
 
 - Deleting the Discord and WhatsApp Go adapters, startup/config fields, and
@@ -593,8 +627,11 @@ reminder delivery after container restart.
 
 ### 4. Finalize memory and state contracts
 
-- Decide whether substring search is sufficient or add local embeddings; decide
-  whether deterministic automatic recall and dreaming belong in the first
+- Design and implement the retrieval-augmented replacement for full-history
+  replay, including the recent-turn budget, retrieval corpus, ranking contract,
+  structured tool-sequence handling, and failure behavior.
+- Decide whether retrieval and memory use deterministic lexical search or local
+  embeddings, and whether automatic recall and dreaming belong in the first
   release. No cloud dependency is allowed.
 - Define one-way migration for retained Node config, memory,
   reminders, and conversation state. Define unsupported data explicitly.
@@ -641,7 +678,7 @@ the shipped product.
    adding internal tenant isolation.
 3. Record live Telegram pairing/reply/reminder delivery proof.
 4. Add durable reminder lease/idempotency behavior.
-5. Decide the first-release scheduled-job and local-memory contracts.
+5. Define the first-release scheduled-job, RAG, and local-memory contracts.
 6. Capture Node fixtures and implement migration, rollback, and backup/restore.
 7. Integrate the Go image into Compose and run clean-volume/secret-layer proof.
 
@@ -649,7 +686,9 @@ the shipped product.
 
 - Static reminders only, or scheduled agent turns for watchers and delegated
   delivery?
-- Substring memory only, or local embeddings, automatic recall, and dreaming?
+- Which local RAG retrieval and context-budget contract replaces full-history
+  replay: lexical search or local embeddings, and how much recent history?
+- Substring memory only, or automatic recall and dreaming?
 - CLI/API-only operation, a trimmed dashboard, or the current dashboard?
 - Which browser, canvas, file-transfer, streaming, media, and reasoning features
   are genuinely required?
