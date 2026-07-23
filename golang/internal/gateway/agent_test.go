@@ -194,6 +194,36 @@ func TestAgentHistoryCarriedForward(t *testing.T) {
 	}
 }
 
+func TestAgentLoadsAllUncompactedHistory(t *testing.T) {
+	provider := &recordingProvider{}
+	agent, store := newTestAgent(t, provider, nil, "")
+	ctx := context.Background()
+
+	const historyRows = 24
+	for i := range historyRows {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		if err := store.SaveConversationTurn(ctx, "cli", "user-1", role, fmt.Sprintf("history-%02d", i)); err != nil {
+			t.Fatalf("SaveConversationTurn(%d): %v", i, err)
+		}
+	}
+
+	if _, err := agent.Chat(ctx, "cli", "user-1", "current message"); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	// The provider receives the system prompt, every uncompacted row, and the
+	// current message. This guards against reintroducing a fixed row cap.
+	if got, want := len(provider.request.Messages), historyRows+2; got != want {
+		t.Fatalf("provider message count = %d, want %d", got, want)
+	}
+	if got := provider.request.Messages[1].Content; got != "history-00" {
+		t.Fatalf("first history message = %q, want %q", got, "history-00")
+	}
+}
+
 func TestAgentUsesStartupPersonaSnapshot(t *testing.T) {
 	provider := &recordingProvider{}
 	store := newTestStoreForAgent(t)
@@ -222,51 +252,6 @@ func newTestStoreForAgent(t *testing.T) *state.Store {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
-}
-
-func TestResolveHistoryLimit(t *testing.T) {
-	limit := func(v int) *int { return &v }
-
-	tests := []struct {
-		name      string
-		cfg       func() *config.Config
-		channelID string
-		senderID  string
-		want      int
-	}{
-		{"nil config falls back to default", func() *config.Config { return nil }, "telegram", "u1", defaultHistoryLimit},
-		{"channel limit", func() *config.Config {
-			c := &config.Config{}
-			c.Channels.Telegram.HistoryLimit = limit(50)
-			return c
-		}, "telegram", "u1", 50},
-		{"dm limit", func() *config.Config {
-			c := &config.Config{}
-			c.Channels.Telegram.DMHistoryLimit = limit(10)
-			return c
-		}, "telegram-dm", "u1", 10},
-		{"per-DM override", func() *config.Config {
-			c := &config.Config{}
-			c.Channels.Telegram.DMHistoryLimit = limit(10)
-			c.Channels.Telegram.DMs = map[string]config.DMEntry{"u1": {HistoryLimit: limit(5)}}
-			return c
-		}, "telegram-dm", "u1", 5},
-		{"cli channel uses dm limit", func() *config.Config {
-			c := &config.Config{}
-			c.Channels.Telegram.DMHistoryLimit = limit(15)
-			return c
-		}, "cli", "u1", defaultHistoryLimit}, // cli doesn't match telegram prefix
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			agent := &Agent{cfg: tt.cfg()}
-			got := agent.resolveHistoryLimit(tt.channelID, tt.senderID)
-			if got != tt.want {
-				t.Errorf("resolveHistoryLimit(%q, %q) = %d, want %d", tt.channelID, tt.senderID, got, tt.want)
-			}
-		})
-	}
 }
 
 func TestEstimateTokens(t *testing.T) {
@@ -362,7 +347,7 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("structured history was not replayed: %#v", replay)
 	}
 
-	history, err := store.GetRecentHistory(ctx, "cli", "user-1", 20, 0)
+	history, err := store.GetConversationHistory(ctx, "cli", "user-1", 0)
 	if err != nil || len(history) != 6 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
@@ -440,7 +425,7 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 	if err != nil || len(reminders) != 0 {
 		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
-	history, err := store.GetRecentHistory(context.Background(), "cli", "user-1", 10, 0)
+	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1", 0)
 	if err != nil || len(history) != 2 || history[0].ContentType != state.ContentText || history[1].ContentType != state.ContentText {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
@@ -461,7 +446,7 @@ func TestAgentWarnsAboutUncommittedReminderClaim(t *testing.T) {
 	if !strings.HasSuffix(reply, uncommittedReminderNote) {
 		t.Fatalf("reply missing uncommitted reminder note: %q", reply)
 	}
-	history, err := store.GetRecentHistory(context.Background(), "cli", "user-1", 10, 0)
+	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1", 0)
 	if err != nil || len(history) != 2 || history[1].Content != reply {
 		t.Fatalf("stored warning reply history=%#v err=%v", history, err)
 	}
@@ -602,9 +587,9 @@ func TestAgentSerializesTurnsWithinConversation(t *testing.T) {
 		}
 	}
 
-	history, err := store.GetRecentHistory(context.Background(), "telegram", "user-1", 10, 0)
+	history, err := store.GetConversationHistory(context.Background(), "telegram", "user-1", 0)
 	if err != nil {
-		t.Fatalf("GetRecentHistory: %v", err)
+		t.Fatalf("GetConversationHistory: %v", err)
 	}
 	if len(history) != 4 ||
 		history[0].Role != "user" || history[0].Content != "first" ||

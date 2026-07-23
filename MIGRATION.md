@@ -24,6 +24,8 @@ production cutover remain incomplete.
 The Go runtime retains:
 
 - One primary assistant profile.
+- One trusted human owner per deployment; each additional person runs a separate
+  bot instance.
 - One local OpenAI-compatible `llama-server` endpoint.
 - Telegram, WhatsApp, and Discord text channels.
 - Batch reminder creation, listing, editing, cancellation, recurring schedules,
@@ -48,11 +50,19 @@ deployment are not first-cut requirements.
   hosted OpenAI, Anthropic, Claude API/CLI, ChatGPT, MCP subprocess, or cloud
   fallback paths. `models.providers.openai` is only the compatibility wire key.
 - Keep one primary agent and only Telegram, WhatsApp, and Discord text channels.
+- Keep one trusted owner per deployment. The instance owns one global body of
+  memory, persona, history, and operational state across the owner's channels.
+  Multi-user accounts, tenant boundaries, and per-user data isolation are
+  explicit non-goals; another person receives a separate deployment.
 - The HTTP Gateway is intentionally unauthenticated and reachable on all host
   interfaces for trusted local-network clients. LAN clients and caller-selected
-  `sender_id` values are trusted; `sender_id` is a conversation key, not a
-  security principal. Public-internet and untrusted-network deployment are
-  unsupported, and the operator owns the router/firewall boundary.
+  `sender_id` values are trusted; channel and sender identifiers are routing and
+  conversation keys for the owner, not security principals or data-ownership
+  boundaries. Public-internet and untrusted-network deployment are unsupported,
+  and the operator owns the router/firewall boundary.
+- Channel pairing or allowlists, if retained, enforce the single-owner admission
+  boundary at ingress. They do not create tenants or partition state inside the
+  Go runtime.
 - Gateway request limits, timeouts, and stable errors are reliability contracts,
   not authentication or hostile-network hardening.
 - SQLite is canonical for reminders, history, compaction, memory, and other
@@ -74,7 +84,7 @@ deployment are not first-cut requirements.
 
 | Surface                     | Decision     | Required contract                                                                                        |
 | --------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
-| Go Gateway and agent        | Keep         | One primary assistant, unauthenticated trusted-LAN HTTP chat surface, health endpoint                    |
+| Go Gateway and agent        | Keep         | One owner and primary assistant per deployment; unauthenticated trusted-LAN HTTP chat surface; health    |
 | Local model                 | Keep         | OpenAI-compatible `llama-server`, required local base URL, optional LAN bearer token, model id `default` |
 | Reminders                   | Keep         | Atomic batch CRUD, `at`/`every`/timezone-aware `cron`, durable delivery                                  |
 | Memory and persona          | Keep         | SQLite recall/search and history/compaction; required startup-loaded `agents.defaults.soul`/`identity`   |
@@ -177,6 +187,9 @@ Implemented:
   response if the model does not terminate the workflow.
 - Tool calls and results persist as structured SQLite transcript rows and are
   reconstructed as native assistant/tool messages on later turns.
+- Each model request loads all uncompacted SQLite transcript rows for its
+  conversation. There is no fixed row limit or channel/DM history-limit config;
+  compaction is the canonical context-bounding mechanism.
 - Mutating tool state and the matching result row commit in one transaction.
 - Invalid arguments, unknown tools, and execution failures return structured
   error results so the model can correct its request.
@@ -210,7 +223,8 @@ reminder delivery from unsupported scheduled agent work.
 
 Limitations:
 
-- Global memory is intentionally shared by every user reaching this agent.
+- Memory and inspectable bot state are intentionally instance-wide for the one
+  trusted owner; channel/sender conversation keys do not create data partitions.
 - Memory search is SQL substring matching, not semantic/vector retrieval.
 - There is no deterministic pre-generation memory injection; the model must
   choose `search_memory`.
@@ -227,8 +241,6 @@ Limitations:
   not the missing-hour ambiguity.
 - Persona is global to the single agent and operator-controlled. Configuration
   changes require a restart; there is no runtime reload endpoint.
-- The fixed history-row limit can retain fewer natural-language turns when a
-  conversation contains many tool rows.
 - Context size still uses a fixed 100,000-token assumption and a four-character
   estimate rather than tokenizer/model metadata.
 
@@ -255,8 +267,6 @@ Limitations:
 - Pairing, allowlists, group policy, mentions, media, threads, reactions,
   commands, streaming updates, and multi-account routing are absent.
 - WhatsApp requires an existing device session; QR/device setup is absent.
-- Adapter channel ids still do not match the `-dm` convention used by the Go
-  DM-history resolver.
 - No current credential-backed channel proof is recorded.
 
 ### State and compatibility
@@ -301,9 +311,10 @@ Automated Go coverage includes:
   legacy personality-table removal without runtime-state loss.
 - Multi-round agent execution, validation-error recovery, tool-call/result
   replay, semantic reminder routing, uncommitted-claim correction, per-conversation
-  serialization and cancellation, bounded compaction, the four-round limit,
-  prompt/tool identity separation, history, compaction decisions, the one-minute
-  reminder polling interval, Gateway health, and SQLite state.
+  serialization and cancellation, complete uncompacted-history loading, bounded
+  compaction, the four-round limit, prompt/tool identity separation, history,
+  compaction decisions, the one-minute reminder polling interval, Gateway health,
+  and SQLite state.
 
 Live standalone-container proof includes:
 
@@ -439,6 +450,25 @@ One-minute reminder polling proof on 2026-07-22 includes:
 - Restarting the final container and verifying host and in-container health;
   both proof rows and all existing SQLite state remained intact.
 
+Unlimited conversation-history proof on 2026-07-23 includes:
+
+- Removing the fixed 20-row query cap and the Go-only channel/DM history-limit
+  config fields. Focused coverage seeds 24 prior rows and proves that the next
+  provider request receives all 24 in order, plus the system and current-user
+  messages.
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
+  `GOCACHE=/tmp/openclaw-go-cache`.
+- Building `openclaw-go-ubuntu-test:unlimited-history-20260723` from `golang/`,
+  image id `sha256:14e68751bb34024e17468dec288c87f9b97636177415ed3f96412f7d677af446`.
+- Starting an isolated candidate container with a tmpfs database, confirming
+  Gateway and in-container llama-server health, and receiving the exact requested
+  reply `unlimited history smoke passed` through the real local model. SQLite
+  contained the paired user/assistant text rows, zero proof reminders, and passed
+  `PRAGMA integrity_check`.
+- Leaving the persistent `openclaw-go-test-ubuntu` deployment on
+  `minute-poll-20260722`; its health remained HTTP 200.
+
 Canonical local commands:
 
 ```text
@@ -520,7 +550,9 @@ behavior is accurately documented.
 
 ### 3. Complete retained channels
 
-- Define canonical sender, DM/group, account, pairing, and allowlist contracts.
+- Define canonical sender, DM/group, and account routing keys plus any
+  owner-admission pairing/allowlist contract. Do not add internal tenant or
+  per-user data isolation.
 - Fix adapter channel identities and implement pairing for Telegram, WhatsApp,
   and Discord; add WhatsApp QR/device setup and required Discord intents.
 - Add focused adapter tests and credential-backed live inbound, reply, recurring
@@ -577,8 +609,9 @@ the shipped product.
 
 1. Add Gateway request limits, timeouts, stable errors, and
    malformed/oversized-input reliability tests.
-2. Define channel identity/access control, then implement pairing and correct
-   DM/group session keys.
+2. Define channel routing identity and the owner-admission boundary, then
+   implement any retained pairing and correct DM/group session keys without
+   adding internal tenant isolation.
 3. Implement WhatsApp QR/device setup and record live pairing/reply/reminder
    delivery proof for all three channels.
 4. Add durable reminder lease/idempotency behavior.

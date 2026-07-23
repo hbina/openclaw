@@ -13,7 +13,13 @@ This branch is a slim, Docker-first OpenClaw fork migrating the retained reminde
 
 ## Product Direction
 
-The production target is one local personal assistant with:
+The production target is one local personal assistant for exactly one trusted
+owner per deployment. Each person runs a separate bot instance. Do not add
+multi-user accounts, tenant boundaries, or per-user data isolation inside the Go
+runtime. Channel and sender identifiers are conversation-routing keys for the
+owner's channels and topics, not authorization or data-ownership boundaries.
+
+The retained assistant has:
 
 - a standalone Go Gateway and agent loop;
 - Telegram, WhatsApp, and Discord text channels;
@@ -61,6 +67,12 @@ Continue from `MIGRATION.md` “Immediate Next Actions” unless the user sets a
 - `config_test/`: ignored local test config, secrets, and persisted Go SQLite state.
 
 OpenClaw-owned runtime state belongs in SQLite, not new JSON/JSONL/TXT sidecars. The live Go database is `config_test/agent_data_go/openclaw-agent.sqlite`. Persona is operator-owned configuration under `agents.defaults`; changes require editing `openclaw.json` and restarting the process. Do not add a chat mutation tool, persona state table, mounted persona files, defaults, or compatibility fallback.
+
+All non-secret bot state belongs to the one owner and may be inspected across
+that owner's conversation channels. Never expose credentials or secret config.
+If channel pairing or allowlists are retained, they enforce the single-owner
+admission boundary at ingress; they must not introduce internal tenant or
+per-user state partitioning.
 
 ## Local Model Contract
 
@@ -133,6 +145,8 @@ Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`
 - TypeScript: strict ESM, no `any`/`@ts-nocheck`, schemas at external boundaries, and oxfmt formatting.
 - Prefer one canonical path. Delete stale cloud/provider branches rather than adding compatibility shims.
 - Keep trusted channel/sender identity outside model-controlled tool arguments.
+- Treat channel/sender identity as routing metadata for the single owner, not as
+  an internal authorization or tenant-isolation boundary.
 - Commit state mutation and its matching tool-result transcript atomically.
 - Preserve deterministic prompt/tool ordering and exact tool-call ids.
 - Inspect direct dependency source/docs/types before changing dependency-backed behavior. Pin new Go dependencies and run `go mod tidy`.

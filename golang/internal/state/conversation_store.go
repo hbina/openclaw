@@ -46,18 +46,15 @@ func (s *Store) SaveConversationTurn(ctx context.Context, channelID, senderID, r
 	return s.SaveConversationMessage(ctx, channelID, senderID, role, ContentText, content)
 }
 
-// GetRecentHistory returns the last `limit` turns for a sender in oldest-first order,
-// including only rows after firstKeptID (0 = no lower bound).
-func (s *Store) GetRecentHistory(ctx context.Context, channelID, senderID string, limit, firstKeptID int) ([]ConversationTurn, error) {
+// GetConversationHistory returns all turns for a sender in oldest-first order,
+// including only rows from firstKeptID onward (0 = no lower bound).
+func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID string, firstKeptID int) ([]ConversationTurn, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, role, content_type, content FROM (
-			SELECT id, role, content_type, content
-			FROM conversation_history
-			WHERE channel_id = ? AND sender_id = ? AND id >= ?
-			ORDER BY id DESC
-			LIMIT ?
-		) ORDER BY id ASC
-	`, channelID, senderID, firstKeptID, limit)
+		SELECT id, role, content_type, content
+		FROM conversation_history
+		WHERE channel_id = ? AND sender_id = ? AND id >= ?
+		ORDER BY id ASC
+	`, channelID, senderID, firstKeptID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load conversation history: %w", err)
 	}

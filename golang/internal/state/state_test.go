@@ -194,27 +194,15 @@ func TestConversationHistory(t *testing.T) {
 		}
 	}
 
-	turns, err := store.GetRecentHistory(ctx, "telegram", "u1", 10, 0)
+	turns, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
 	if err != nil {
-		t.Fatalf("GetRecentHistory: %v", err)
+		t.Fatalf("GetConversationHistory: %v", err)
 	}
 	if len(turns) != 3 {
 		t.Fatalf("turn count = %d, want 3", len(turns))
 	}
 	if turns[0].Content != "hello" || turns[0].ContentType != ContentText {
 		t.Fatalf("unexpected first turn: %#v", turns[0])
-	}
-
-	// Limit to last 2 turns.
-	recent, err := store.GetRecentHistory(ctx, "telegram", "u1", 2, 0)
-	if err != nil {
-		t.Fatalf("GetRecentHistory(limit=2): %v", err)
-	}
-	if len(recent) != 2 {
-		t.Fatalf("limited turn count = %d, want 2", len(recent))
-	}
-	if recent[0].Content != "hi there" {
-		t.Fatalf("unexpected limited first turn: %#v", recent[0])
 	}
 }
 
@@ -237,9 +225,9 @@ func TestCompactionLifecycle(t *testing.T) {
 			t.Fatalf("SaveConversationTurn: %v", err)
 		}
 	}
-	allTurns, err := store.GetRecentHistory(ctx, "telegram", "u1", 100, 0)
+	allTurns, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
 	if err != nil {
-		t.Fatalf("GetRecentHistory (all): %v", err)
+		t.Fatalf("GetConversationHistory: %v", err)
 	}
 	if len(allTurns) != 5 {
 		t.Fatalf("expected 5 turns, got %d", len(allTurns))
@@ -270,9 +258,9 @@ func TestCompactionLifecycle(t *testing.T) {
 	if err := store.TrimHistoryBefore(ctx, "telegram", "u1", firstKeptID); err != nil {
 		t.Fatalf("TrimHistoryBefore: %v", err)
 	}
-	remaining, err := store.GetRecentHistory(ctx, "telegram", "u1", 100, 0)
+	remaining, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
 	if err != nil {
-		t.Fatalf("GetRecentHistory after trim: %v", err)
+		t.Fatalf("GetConversationHistory after trim: %v", err)
 	}
 	if len(remaining) != 2 {
 		t.Fatalf("remaining turn count after trim = %d, want 2", len(remaining))
@@ -333,7 +321,7 @@ func TestOpeningOlderDatabaseDropsPersonalityWithoutAffectingRuntimeState(t *tes
 	if err != nil || len(memories) != 1 || memories[0].Content != "likes espresso" {
 		t.Fatalf("memory after migration: %#v err=%v", memories, err)
 	}
-	history, err := reopened.GetRecentHistory(ctx, "cli", "owner", 5, 0)
+	history, err := reopened.GetConversationHistory(ctx, "cli", "owner", 0)
 	if err != nil || len(history) != 1 || history[0].Content != "hello" {
 		t.Fatalf("history after migration: %#v err=%v", history, err)
 	}

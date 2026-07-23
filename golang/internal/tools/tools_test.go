@@ -232,7 +232,7 @@ func TestToolResultsPersistAsStructuredHistory(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("list reminders: %#v err=%v", result, err)
 	}
-	history, err := store.GetRecentHistory(ctx, toolCtx.ChannelID, toolCtx.SenderID, 10, 0)
+	history, err := store.GetConversationHistory(ctx, toolCtx.ChannelID, toolCtx.SenderID, 0)
 	if err != nil || len(history) != 1 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}

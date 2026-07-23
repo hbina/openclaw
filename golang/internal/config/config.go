@@ -34,15 +34,7 @@ type ChannelsConfig struct {
 }
 
 type ChannelEntry struct {
-	Enabled        bool               `json:"enabled"`
-	HistoryLimit   *int               `json:"historyLimit,omitempty"`
-	DMHistoryLimit *int               `json:"dmHistoryLimit,omitempty"`
-	DMs            map[string]DMEntry `json:"dms,omitempty"`
-}
-
-// DMEntry holds per-user history limit overrides for a DM conversation.
-type DMEntry struct {
-	HistoryLimit *int `json:"historyLimit,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 type ModelsConfig struct {
