@@ -43,6 +43,19 @@ type Agent struct {
 	conversationLocks *conversationLockManager
 }
 
+// ChatInput is the canonical inbound turn passed to the agent.
+type ChatInput struct {
+	ChannelID string
+	SenderID  string
+	Content   string
+	Reply     *channels.ReplyContext
+}
+
+type persistedInboundMessage struct {
+	Content string                 `json:"content"`
+	Reply   *channels.ReplyContext `json:"reply,omitempty"`
+}
+
 func NewAgent(
 	provider providers.Provider,
 	chanReg *channels.Registry,
@@ -77,16 +90,16 @@ func (a *Agent) generate(ctx context.Context, request *providers.GenerateRequest
 	return a.provider.Generate(requestCtx, request)
 }
 
-// Chat generates a reply for the given channel+sender and loads and saves the
-// complete structured conversation history in SQLite.
-func (a *Agent) Chat(ctx context.Context, channelID, senderID, content string) (string, error) {
-	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(channelID, senderID))
+// Chat generates a reply for an inbound turn and loads and saves the complete
+// structured conversation history in SQLite.
+func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
+	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(input.ChannelID, input.SenderID))
 	if err != nil {
 		return "", fmt.Errorf("wait for conversation turn: %w", err)
 	}
 	defer releaseConversation()
 
-	history, err := a.store.GetConversationHistory(ctx, channelID, senderID, 0)
+	history, err := a.store.GetConversationHistory(ctx, input.ChannelID, input.SenderID, 0)
 	if err != nil {
 		log.Printf("Failed to load conversation history: %v", err)
 	}
@@ -96,6 +109,7 @@ func (a *Agent) Chat(ctx context.Context, channelID, senderID, content string) (
 The current server time is %s (%s).
 Reference UTC time is %s.
 Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
+When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
 You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
 Search memory when a past durable fact could improve the answer.
 Use manage_reminders only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
@@ -110,7 +124,7 @@ Soul:
 
 Identity:
 %s
-`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), a.soul, a.identity)
+`, input.SenderID, input.ChannelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), a.soul, a.identity)
 
 	messages := []providers.Message{
 		{Role: providers.RoleSystem, Content: systemPrompt},
@@ -121,13 +135,23 @@ Identity:
 		return "", err
 	}
 	messages = append(messages, historyMessages...)
-	messages = append(messages, providers.Message{Role: providers.RoleUser, Content: content})
 
-	if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "user", content); err != nil {
+	inbound := persistedInboundMessage{Content: input.Content, Reply: input.Reply}
+	renderedInbound, err := renderInboundMessage(inbound)
+	if err != nil {
+		return "", fmt.Errorf("render inbound message: %w", err)
+	}
+	messages = append(messages, providers.Message{Role: providers.RoleUser, Content: renderedInbound})
+
+	payload, err := json.Marshal(inbound)
+	if err != nil {
+		return "", fmt.Errorf("encode inbound message: %w", err)
+	}
+	if err := a.store.SaveConversationMessage(ctx, input.ChannelID, input.SenderID, "user", state.ContentInboundMessage, string(payload)); err != nil {
 		return "", fmt.Errorf("save user turn: %w", err)
 	}
 
-	toolCtx := tools.Context{ChannelID: channelID, SenderID: senderID}
+	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID}
 	definitions := tools.Definitions(a.location)
 	reminderMutationSucceeded := false
 	for round := 0; round < maxToolRounds; round++ {
@@ -149,7 +173,7 @@ Identity:
 			if err != nil {
 				return "", fmt.Errorf("encode assistant tool calls: %w", err)
 			}
-			if err := a.store.SaveConversationMessage(ctx, channelID, senderID, "assistant", state.ContentToolCall, string(payload)); err != nil {
+			if err := a.store.SaveConversationMessage(ctx, input.ChannelID, input.SenderID, "assistant", state.ContentToolCall, string(payload)); err != nil {
 				return "", fmt.Errorf("save assistant tool calls: %w", err)
 			}
 			messages = append(messages, assistantMessage)
@@ -174,7 +198,7 @@ Identity:
 		if !reminderMutationSucceeded && hasUnbackedReminderCommitment(reply) {
 			reply = appendUncommittedReminderNote(reply)
 		}
-		if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", reply); err != nil {
+		if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
 			return "", fmt.Errorf("save assistant turn: %w", err)
 		}
 
@@ -182,7 +206,7 @@ Identity:
 	}
 
 	reply := "I couldn't complete that request because the tool workflow exceeded its safety limit."
-	if err := a.store.SaveConversationTurn(ctx, channelID, senderID, "assistant", reply); err != nil {
+	if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
 		return "", fmt.Errorf("save tool limit response: %w", err)
 	}
 	return reply, nil
@@ -222,6 +246,42 @@ func appendUncommittedReminderNote(content string) string {
 	return strings.TrimSpace(content) + "\n\n" + uncommittedReminderNote
 }
 
+func renderInboundMessage(inbound persistedInboundMessage) (string, error) {
+	if inbound.Reply == nil {
+		return inbound.Content, nil
+	}
+
+	var author string
+	switch inbound.Reply.Author {
+	case channels.ReplyAuthorUser:
+		author = "user"
+	case channels.ReplyAuthorAssistant:
+		author = "assistant"
+	case channels.ReplyAuthorOther:
+		author = "other"
+	default:
+		return "", fmt.Errorf("invalid reply author %q", inbound.Reply.Author)
+	}
+
+	body := strings.TrimSpace(inbound.Reply.Body)
+	if body == "" {
+		if !inbound.Reply.ContentUnavailable {
+			return "", fmt.Errorf("reply body is empty without content-unavailable marker")
+		}
+		body = "[non-text Telegram message; content unavailable]"
+	} else if inbound.Reply.ContentUnavailable {
+		return "", fmt.Errorf("reply body conflicts with content-unavailable marker")
+	}
+
+	var rendered strings.Builder
+	fmt.Fprintf(&rendered, "Reply context:\nAuthor: %s\nMessage:\n%s", author, body)
+	if selectedText := strings.TrimSpace(inbound.Reply.SelectedText); selectedText != "" {
+		fmt.Fprintf(&rendered, "\n\nSelected text:\n%s", selectedText)
+	}
+	fmt.Fprintf(&rendered, "\n\nCurrent user message:\n%s", inbound.Content)
+	return rendered.String(), nil
+}
+
 func historyMessage(turn state.ConversationTurn) (providers.Message, error) {
 	switch turn.ContentType {
 	case state.ContentText:
@@ -230,6 +290,19 @@ func historyMessage(turn state.ConversationTurn) (providers.Message, error) {
 			return providers.Message{}, fmt.Errorf("invalid text role %q", turn.Role)
 		}
 		return providers.Message{Role: role, Content: turn.Content}, nil
+	case state.ContentInboundMessage:
+		if turn.Role != "user" {
+			return providers.Message{}, fmt.Errorf("invalid inbound message role %q", turn.Role)
+		}
+		var inbound persistedInboundMessage
+		if err := json.Unmarshal([]byte(turn.Content), &inbound); err != nil {
+			return providers.Message{}, fmt.Errorf("decode inbound message: %w", err)
+		}
+		content, err := renderInboundMessage(inbound)
+		if err != nil {
+			return providers.Message{}, err
+		}
+		return providers.Message{Role: providers.RoleUser, Content: content}, nil
 	case state.ContentToolCall:
 		var message providers.Message
 		if err := json.Unmarshal([]byte(turn.Content), &message); err != nil {
@@ -255,7 +328,7 @@ func historyMessage(turn state.ConversationTurn) (providers.Message, error) {
 
 func reconstructHistory(turns []state.ConversationTurn) ([]providers.Message, error) {
 	start := 0
-	for start < len(turns) && (turns[start].ContentType != state.ContentText || turns[start].Role != "user") {
+	for start < len(turns) && !isUserTurn(turns[start]) {
 		start++
 	}
 	turns = turns[start:]
@@ -304,11 +377,21 @@ func reconstructHistory(turns []state.ConversationTurn) ([]providers.Message, er
 	return messages, nil
 }
 
+func isUserTurn(turn state.ConversationTurn) bool {
+	return turn.Role == "user" &&
+		(turn.ContentType == state.ContentText || turn.ContentType == state.ContentInboundMessage)
+}
+
 // HandleMessage is the callback triggered by any channel receiving a message.
 func (a *Agent) HandleMessage(ctx context.Context, msg *channels.Message) error {
 	log.Printf("Agent received message from %s [%s]: %s\n", msg.ChannelID, msg.SenderID, msg.Content)
 
-	reply, err := a.Chat(ctx, msg.ChannelID, msg.SenderID, msg.Content)
+	reply, err := a.Chat(ctx, ChatInput{
+		ChannelID: msg.ChannelID,
+		SenderID:  msg.SenderID,
+		Content:   msg.Content,
+		Reply:     msg.Reply,
+	})
 	if err != nil {
 		return err
 	}

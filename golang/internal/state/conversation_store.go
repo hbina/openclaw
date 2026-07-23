@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	ContentText       = "text"
-	ContentToolCall   = "tool_call"
-	ContentToolResult = "tool_result"
+	ContentText           = "text"
+	ContentInboundMessage = "inbound_message"
+	ContentToolCall       = "tool_call"
+	ContentToolResult     = "tool_result"
 )
 
 type ConversationTurn struct {

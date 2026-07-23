@@ -188,6 +188,14 @@ Implemented:
   response if the model does not terminate the workflow.
 - Tool calls and results persist as structured SQLite transcript rows and are
   reconstructed as native assistant/tool messages on later turns.
+- New user turns persist as structured `inbound_message` JSON. Telegram reply
+  turns retain the referenced message id, author classification, text/caption,
+  selected quote, and content-availability marker; legacy plain-text user rows
+  remain replayable without a schema migration.
+- A Telegram reply is rendered to the local model as explicit reply context
+  followed by the current user message. The model sees the source author,
+  source body, and selected text, but not the Telegram message id. Ordinary
+  non-reply input remains unchanged at the provider boundary.
 - Each model request loads all SQLite transcript rows for its conversation.
   There is no fixed row limit, channel/DM history-limit config, summarization,
   trimming, or current context-bounding mechanism.
@@ -258,7 +266,11 @@ Implemented:
   It deletes a successfully delivered one-shot and advances a successfully
   delivered recurring reminder to its next anchored/cron occurrence. Failed
   sends remain due for retry.
-- Basic Telegram inbound/outbound text adapter.
+- Telegram inbound/outbound text adapter with one-level reply extraction for
+  `reply_to_message`, including text, caption fallback, selected quote, source
+  author classification, and an explicit unavailable-content marker.
+- Bot responses remain ordinary Telegram messages rather than native Telegram
+  replies.
 
 Limitations:
 
@@ -268,7 +280,10 @@ Limitations:
   authentication and hostile-network hardening are explicit non-goals.
 - Pairing, allowlists, group policy, mentions, media, threads, reactions,
   commands, streaming updates, and multi-account routing are absent.
-- No current credential-backed channel proof is recorded.
+- Replied-to media is not downloaded or interpreted, and external or recursive
+  reply chains are not reconstructed.
+- No credential-backed inbound Telegram reply or reminder-delivery proof is
+  recorded.
 
 ### State and compatibility
 
@@ -316,6 +331,11 @@ Automated Go coverage includes:
   serialization and cancellation, complete-history loading, the four-round
   limit, prompt/tool identity separation, history, the one-minute reminder
   polling interval, Gateway health, and SQLite state.
+- Telegram adapter extraction for plain text, assistant/user/other reply
+  authors, caption fallback, selected quotes, unavailable non-text sources, and
+  malformed updates. Agent coverage proves exact reply rendering, transport
+  metadata exclusion, structured persistence/reopen/replay, ordinary-input
+  preservation, and invalid reply rejection before persistence.
 
 Live standalone-container proof includes:
 
@@ -530,6 +550,40 @@ Telegram-only Go runtime proof on 2026-07-23 includes:
   `persistent telegram only smoke passed`; after restart, both proof rows, all
   five Telegram reminders, and SQLite integrity remained intact.
 
+Telegram reply-context proof on 2026-07-24 includes:
+
+- Adding one canonical structured inbound-turn path for Telegram and HTTP,
+  one-level Telegram reply extraction, deterministic reply rendering for the
+  model, and SQLite replay across restart. Telegram message ids remain stored
+  transport metadata and are excluded from model content; outbound messages
+  remain unthreaded.
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with
+  `GOCACHE=/tmp/openclaw-go-cache`.
+- Building
+  `openclaw-go-ubuntu-test:telegram-reply-context-20260723`, image id
+  `sha256:8a558d5f27a39a436fee449bc1aa607df77316d1aa5e671c14a63a9683894ad`.
+- Starting an isolated no-secrets candidate with bind-mounted temporary state,
+  confirming Gateway and in-container llama-server health, and exercising the
+  exact reply-context format against the real local Gemma model. After an
+  earlier assistant message said `3 PM` and a later conflicting message said
+  `6 PM`, the reply-context turn targeting the earlier message returned exactly
+  `3 PM`. The six proof rows survived restart and SQLite passed
+  `PRAGMA integrity_check`; the candidate container was then removed.
+- Recreating `openclaw-go-test-ubuntu` on the new image while preserving both
+  named volumes, all three binds, the three explicit environment overrides,
+  bridge networking, port 18792, and restart policy `unless-stopped`. The
+  recreated container id was `9c5cf836b094`.
+- Recording a pre-recreation baseline of five reminders, 239 transcript rows,
+  one memory, and clean SQLite integrity. A persistent real-model request
+  returned exactly `deployed reply context healthy` and stored the user turn as
+  `inbound_message`; the resulting 241 rows, all reminders, the memory, and
+  SQLite integrity survived container restart.
+- Credential-backed Telegram startup used the mounted secret, but no inbound
+  owner reply was generated during automated proof. Actual Telegram reply
+  ingress remains a recorded proof gap rather than being inferred from unit or
+  `/chat` behavior.
+
 Canonical local commands:
 
 ```text
@@ -544,7 +598,8 @@ Still required before cutover:
 
 - Production-image/Compose first-run, backup/restore, image-layer secret audit,
   and failure/recovery acceptance beyond the disposable smoke.
-- Telegram adapter unit and credential-backed live tests.
+- Credential-backed Telegram inbound/reply tests plus pairing and routing
+  coverage.
 - Credential-backed recurring delivery proof, including persistence and
   rescheduling after an actual successful send.
 - Node-style scheduled agent execution for conditional watchers or explicit
@@ -556,11 +611,11 @@ Still required before cutover:
 
 ## Deployment Baseline
 
-As of 2026-07-23, the persistent live test deployment is:
+As of 2026-07-24, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:telegram-only-20260723
+image: openclaw-go-ubuntu-test:telegram-reply-context-20260723
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -572,13 +627,15 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the `telegram-only-20260723` tag on 2026-07-23
-using the existing `openclaw-agent.sqlite`. Startup resolved
+The container was recreated from the `telegram-reply-context-20260723` tag on
+2026-07-24 using the existing `openclaw-agent.sqlite`. Startup resolved
 `Asia/Kuala_Lumpur`; Gateway and local-model health passed before and after the
-final restart; SQLite integrity passed; all five existing reminders remained
-unchanged; and a unique live-model proof turn persisted as two text rows. The
-final database contained 231 transcript rows and one memory row. The database
-predating the earlier server-timezone deployment remains retained locally as
+final restart; SQLite integrity passed; all five existing reminders and the
+existing memory remained unchanged; and a unique live-model proof turn
+persisted as structured inbound JSON plus assistant text. The final database
+contained 241 transcript rows and one memory row. Credential-backed Telegram
+reply ingress still requires an owner-generated reply. The database predating
+the earlier server-timezone deployment remains retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
 ## Migration Roadmap
@@ -616,8 +673,9 @@ behavior is accurately documented.
   per-user data isolation.
 - Fix Telegram DM/group routing identities and implement the retained
   owner-admission pairing/allowlist contract.
-- Add focused adapter tests and credential-backed live inbound, reply, recurring
-  delivery, persistence, retry, and rescheduling proof for Telegram.
+- Add credential-backed live inbound, reply, recurring delivery, persistence,
+  retry, and rescheduling proof for Telegram; extend focused adapter coverage
+  alongside pairing and routing changes.
 - Keep group/server behavior disabled or tightly allowlisted until explicitly
   retained. Defer media, reactions, threads, streaming, and multi-account
   routing unless a concrete requirement promotes them.

@@ -5,11 +5,31 @@ import (
 	"fmt"
 )
 
+// ReplyAuthor identifies who authored the Telegram message being replied to.
+type ReplyAuthor string
+
+const (
+	ReplyAuthorUser      ReplyAuthor = "user"
+	ReplyAuthorAssistant ReplyAuthor = "assistant"
+	ReplyAuthorOther     ReplyAuthor = "other"
+)
+
+// ReplyContext describes the one-level Telegram message referenced by an
+// inbound reply. Message IDs are retained for audit but are not model context.
+type ReplyContext struct {
+	MessageID          string      `json:"message_id"`
+	Author             ReplyAuthor `json:"author"`
+	Body               string      `json:"body,omitempty"`
+	SelectedText       string      `json:"selected_text,omitempty"`
+	ContentUnavailable bool        `json:"content_unavailable,omitempty"`
+}
+
 // Message represents an inbound message from a channel.
 type Message struct {
 	ChannelID string
 	SenderID  string
 	Content   string
+	Reply     *ReplyContext
 }
 
 // Handler is a callback function for processing incoming messages.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -33,10 +34,9 @@ func (t *TelegramAdapter) ID() string {
 
 func (t *TelegramAdapter) Start(ctx context.Context, handler Handler) error {
 	t.bot.Handle(tele.OnText, func(c tele.Context) error {
-		msg := &Message{
-			ChannelID: t.ID(),
-			SenderID:  strconv.FormatInt(c.Sender().ID, 10),
-			Content:   c.Text(),
+		msg, err := telegramInboundMessage(c.Message(), t.bot.Me.ID)
+		if err != nil {
+			return err
 		}
 		if err := handler(ctx, msg); err != nil {
 			return err
@@ -53,6 +53,52 @@ func (t *TelegramAdapter) Start(ctx context.Context, handler Handler) error {
 	}()
 
 	return nil
+}
+
+func telegramInboundMessage(message *tele.Message, botID int64) (*Message, error) {
+	if message == nil {
+		return nil, fmt.Errorf("telegram text update is missing a message")
+	}
+	if message.Sender == nil {
+		return nil, fmt.Errorf("telegram text message is missing a sender")
+	}
+
+	inbound := &Message{
+		ChannelID: "telegram",
+		SenderID:  strconv.FormatInt(message.Sender.ID, 10),
+		Content:   message.Text,
+	}
+	if message.ReplyTo == nil {
+		return inbound, nil
+	}
+
+	reply := message.ReplyTo
+	author := ReplyAuthorOther
+	if reply.Sender != nil {
+		switch reply.Sender.ID {
+		case botID:
+			author = ReplyAuthorAssistant
+		case message.Sender.ID:
+			author = ReplyAuthorUser
+		}
+	}
+
+	body := strings.TrimSpace(reply.Text)
+	if body == "" {
+		body = strings.TrimSpace(reply.Caption)
+	}
+	selectedText := ""
+	if message.Quote != nil {
+		selectedText = strings.TrimSpace(message.Quote.Text)
+	}
+	inbound.Reply = &ReplyContext{
+		MessageID:          strconv.Itoa(reply.ID),
+		Author:             author,
+		Body:               body,
+		SelectedText:       selectedText,
+		ContentUnavailable: body == "",
+	}
+	return inbound, nil
 }
 
 func (t *TelegramAdapter) Stop(ctx context.Context) error {

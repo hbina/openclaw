@@ -123,6 +123,14 @@ func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, s
 	return agent, store
 }
 
+func chat(agent *Agent, ctx context.Context, channelID, senderID, content string) (string, error) {
+	return agent.Chat(ctx, ChatInput{
+		ChannelID: channelID,
+		SenderID:  senderID,
+		Content:   content,
+	})
+}
+
 func TestAgentHandlesMessage(t *testing.T) {
 	provider := &recordingProvider{}
 	channel := &recordingChannel{}
@@ -194,6 +202,135 @@ func TestAgentHistoryCarriedForward(t *testing.T) {
 	}
 }
 
+func TestAgentRendersAndPersistsTelegramReplyContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reply.sqlite")
+	cfg := &config.Config{}
+	cfg.Agents.Defaults.Soul = "Be helpful."
+	cfg.Agents.Defaults.Identity = "Your name is Test."
+
+	store, err := state.NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	firstProvider := &recordingProvider{}
+	firstAgent := NewAgent(firstProvider, channels.NewRegistry(), store, cfg, time.UTC)
+	input := ChatInput{
+		ChannelID: "telegram",
+		SenderID:  "100",
+		Content:   "Can you move that to 4?",
+		Reply: &channels.ReplyContext{
+			MessageID:    "1842",
+			Author:       channels.ReplyAuthorAssistant,
+			Body:         "The appointment is at 3 PM.",
+			SelectedText: "3 PM",
+		},
+	}
+	if _, err := firstAgent.Chat(context.Background(), input); err != nil {
+		t.Fatalf("first Chat: %v", err)
+	}
+
+	const wantRendered = "Reply context:\n" +
+		"Author: assistant\n" +
+		"Message:\nThe appointment is at 3 PM.\n\n" +
+		"Selected text:\n3 PM\n\n" +
+		"Current user message:\nCan you move that to 4?"
+	if got := firstProvider.request.Messages[1].Content; got != wantRendered {
+		t.Fatalf("rendered reply context:\n%s\nwant:\n%s", got, wantRendered)
+	}
+	if system := firstProvider.request.Messages[0].Content; !strings.Contains(system, "exact earlier message the user selected") ||
+		!strings.Contains(system, "rather than unrelated later messages") {
+		t.Fatalf("system prompt does not explain reply precedence: %q", system)
+	}
+	if strings.Contains(strings.ToLower(firstProvider.request.Messages[1].Content), "untrusted") ||
+		strings.Contains(firstProvider.request.Messages[1].Content, "1842") {
+		t.Fatalf("model-visible reply context contains transport-only metadata: %q", firstProvider.request.Messages[1].Content)
+	}
+
+	history, err := store.GetConversationHistory(context.Background(), "telegram", "100", 0)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("history=%#v err=%v", history, err)
+	}
+	if history[0].ContentType != state.ContentInboundMessage {
+		t.Fatalf("user content type = %q, want %q", history[0].ContentType, state.ContentInboundMessage)
+	}
+	var persisted persistedInboundMessage
+	if err := json.Unmarshal([]byte(history[0].Content), &persisted); err != nil {
+		t.Fatalf("decode persisted inbound message: %v", err)
+	}
+	if persisted.Content != input.Content || persisted.Reply == nil ||
+		persisted.Reply.MessageID != "1842" || persisted.Reply.SelectedText != "3 PM" {
+		t.Fatalf("persisted inbound message = %#v", persisted)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	reopened, err := state.NewStore(path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	secondProvider := &recordingProvider{}
+	secondAgent := NewAgent(secondProvider, channels.NewRegistry(), reopened, cfg, time.UTC)
+	if _, err := chat(secondAgent, context.Background(), "telegram", "100", "What did I move?"); err != nil {
+		t.Fatalf("second Chat: %v", err)
+	}
+	if got := secondProvider.request.Messages[1].Content; got != wantRendered {
+		t.Fatalf("replayed reply context:\n%s\nwant:\n%s", got, wantRendered)
+	}
+	if got := secondProvider.request.Messages[3].Content; got != "What did I move?" {
+		t.Fatalf("ordinary follow-up changed: %q", got)
+	}
+}
+
+func TestAgentRendersUnavailableReplyContent(t *testing.T) {
+	provider := &recordingProvider{}
+	agent, _ := newTestAgent(t, provider, nil, "")
+	_, err := agent.Chat(context.Background(), ChatInput{
+		ChannelID: "telegram",
+		SenderID:  "100",
+		Content:   "What is this?",
+		Reply: &channels.ReplyContext{
+			MessageID:          "90",
+			Author:             channels.ReplyAuthorUser,
+			ContentUnavailable: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	want := "Reply context:\nAuthor: user\nMessage:\n" +
+		"[non-text Telegram message; content unavailable]\n\n" +
+		"Current user message:\nWhat is this?"
+	if got := provider.request.Messages[1].Content; got != want {
+		t.Fatalf("rendered unavailable context = %q, want %q", got, want)
+	}
+}
+
+func TestAgentRejectsInvalidReplyAuthorBeforePersistence(t *testing.T) {
+	provider := &recordingProvider{}
+	agent, store := newTestAgent(t, provider, nil, "")
+	_, err := agent.Chat(context.Background(), ChatInput{
+		ChannelID: "telegram",
+		SenderID:  "100",
+		Content:   "hello",
+		Reply: &channels.ReplyContext{
+			Author: "invalid",
+			Body:   "source",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid reply author") {
+		t.Fatalf("Chat error = %v, want invalid reply author", err)
+	}
+	history, historyErr := store.GetConversationHistory(context.Background(), "telegram", "100", 0)
+	if historyErr != nil || len(history) != 0 {
+		t.Fatalf("history=%#v err=%v", history, historyErr)
+	}
+	if provider.request != nil {
+		t.Fatalf("provider called for invalid reply context: %#v", provider.request)
+	}
+}
+
 func TestAgentLoadsCompleteHistory(t *testing.T) {
 	provider := &recordingProvider{}
 	agent, store := newTestAgent(t, provider, nil, "")
@@ -210,7 +347,7 @@ func TestAgentLoadsCompleteHistory(t *testing.T) {
 		}
 	}
 
-	if _, err := agent.Chat(ctx, "cli", "user-1", "current message"); err != nil {
+	if _, err := chat(agent, ctx, "cli", "user-1", "current message"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
@@ -243,7 +380,7 @@ func TestAgentDoesNotSummarizeOrTrimLargeHistory(t *testing.T) {
 		}
 	}
 
-	if _, err := agent.Chat(ctx, "cli", "user-1", "current question"); err != nil {
+	if _, err := chat(agent, ctx, "cli", "user-1", "current question"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	if len(provider.requests) != 1 {
@@ -268,7 +405,7 @@ func TestAgentUsesStartupPersonaSnapshot(t *testing.T) {
 	cfg.Agents.Defaults.Soul = "Changed after startup."
 	cfg.Agents.Defaults.Identity = "Your name is Other."
 	ctx := context.Background()
-	if _, err := agent.Chat(ctx, "cli", "user-1", "Who are you?"); err != nil {
+	if _, err := chat(agent, ctx, "cli", "user-1", "Who are you?"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	systemPrompt := provider.request.Messages[0].Content
@@ -305,7 +442,7 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 	agent, store := newTestAgent(t, provider, nil, "")
 	ctx := context.Background()
 
-	reply, err := agent.Chat(ctx, "cli", "user-1", "I prefer espresso")
+	reply, err := chat(agent, ctx, "cli", "user-1", "I prefer espresso")
 	if err != nil || reply != "I'll remember that." {
 		t.Fatalf("first Chat: reply=%q err=%v", reply, err)
 	}
@@ -323,7 +460,7 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("tool call correlation was not retained: %#v", followup.Messages)
 	}
 
-	reply, err = agent.Chat(ctx, "cli", "user-1", "What coffee do I prefer?")
+	reply, err = chat(agent, ctx, "cli", "user-1", "What coffee do I prefer?")
 	if err != nil || reply != "You prefer espresso." {
 		t.Fatalf("second Chat: reply=%q err=%v", reply, err)
 	}
@@ -356,7 +493,7 @@ func TestAgentReturnsToolValidationErrorToModel(t *testing.T) {
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I couldn't schedule that."}},
 	}}
 	agent, _ := newTestAgent(t, provider, nil, "")
-	if _, err := agent.Chat(context.Background(), "cli", "user-1", "remind me"); err != nil {
+	if _, err := chat(agent, context.Background(), "cli", "user-1", "remind me"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	toolMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
@@ -375,7 +512,7 @@ func TestReminderRequestUsesAutomaticUnifiedReminderTool(t *testing.T) {
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "No reminders."}},
 	}}
 	agent, _ := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please list my reminders")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "Please list my reminders")
 	if err != nil || reply != "No reminders." {
 		t.Fatalf("Chat: reply=%q err=%v", reply, err)
 	}
@@ -400,7 +537,7 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 	}}}
 	agent, store := newTestAgent(t, provider, nil, "")
 	content := `The message says "I will keep the reminder active." What do you think about this?`
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", content)
+	reply, err := chat(agent, context.Background(), "cli", "user-1", content)
 	if err != nil || reply != "It sounds supportive, but it could be more direct." {
 		t.Fatalf("Chat: reply=%q err=%v", reply, err)
 	}
@@ -416,7 +553,7 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
 	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1", 0)
-	if err != nil || len(history) != 2 || history[0].ContentType != state.ContentText || history[1].ContentType != state.ContentText {
+	if err != nil || len(history) != 2 || history[0].ContentType != state.ContentInboundMessage || history[1].ContentType != state.ContentText {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
 }
@@ -429,7 +566,7 @@ func TestAgentWarnsAboutUncommittedReminderClaim(t *testing.T) {
 		},
 	}}}
 	agent, store := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please remind me Tuesday")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "Please remind me Tuesday")
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -456,7 +593,7 @@ func TestAgentDoesNotWarnAfterCommittedReminderMutation(t *testing.T) {
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I have scheduled a reminder for Tuesday."}},
 	}}
 	agent, store := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please remind me Tuesday")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "Please remind me Tuesday")
 	if err != nil || reply != "I have scheduled a reminder for Tuesday." {
 		t.Fatalf("Chat: reply=%q err=%v", reply, err)
 	}
@@ -480,7 +617,7 @@ func TestRejectedReminderMutationCannotBackSuccessClaim(t *testing.T) {
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I have added the reminder."}},
 	}}
 	agent, store := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "Please add a reminder")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "Please add a reminder")
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -501,7 +638,7 @@ func TestReminderDiscussionDoesNotReceiveCommitmentWarning(t *testing.T) {
 		},
 	}}}
 	agent, _ := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "What do you think of this reminder wording?")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "What do you think of this reminder wording?")
 	if err != nil || strings.Contains(reply, uncommittedReminderNote) {
 		t.Fatalf("Chat: reply=%q err=%v", reply, err)
 	}
@@ -544,14 +681,14 @@ func TestAgentSerializesTurnsWithinConversation(t *testing.T) {
 	errs := make(chan error, 2)
 
 	go func() {
-		_, err := agent.Chat(context.Background(), "telegram", "user-1", "first")
+		_, err := chat(agent, context.Background(), "telegram", "user-1", "first")
 		errs <- err
 	}()
 	if call := <-provider.started; call != 1 {
 		t.Fatalf("first provider call = %d, want 1", call)
 	}
 	go func() {
-		_, err := agent.Chat(context.Background(), "telegram", "user-1", "second")
+		_, err := chat(agent, context.Background(), "telegram", "user-1", "second")
 		errs <- err
 	}()
 
@@ -581,11 +718,12 @@ func TestAgentSerializesTurnsWithinConversation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConversationHistory: %v", err)
 	}
-	if len(history) != 4 ||
-		history[0].Role != "user" || history[0].Content != "first" ||
-		history[1].Role != "assistant" || history[1].Content != "reply-1" ||
-		history[2].Role != "user" || history[2].Content != "second" ||
-		history[3].Role != "assistant" || history[3].Content != "reply-2" {
+	reconstructed, reconstructErr := reconstructHistory(history)
+	if len(history) != 4 || reconstructErr != nil ||
+		reconstructed[0].Role != providers.RoleUser || reconstructed[0].Content != "first" ||
+		reconstructed[1].Role != providers.RoleAssistant || reconstructed[1].Content != "reply-1" ||
+		reconstructed[2].Role != providers.RoleUser || reconstructed[2].Content != "second" ||
+		reconstructed[3].Role != providers.RoleAssistant || reconstructed[3].Content != "reply-2" {
 		t.Fatalf("conversation history was not serialized: %#v", history)
 	}
 }
@@ -606,14 +744,14 @@ func TestAgentAllowsDifferentConversationsToRunConcurrently(t *testing.T) {
 	errs := make(chan error, 2)
 
 	go func() {
-		_, err := agent.Chat(context.Background(), "telegram", "user-1", "first")
+		_, err := chat(agent, context.Background(), "telegram", "user-1", "first")
 		errs <- err
 	}()
 	if call := <-provider.started; call != 1 {
 		t.Fatalf("first provider call = %d, want 1", call)
 	}
 	go func() {
-		_, err := agent.Chat(context.Background(), "telegram", "user-2", "second")
+		_, err := chat(agent, context.Background(), "telegram", "user-2", "second")
 		errs <- err
 	}()
 
@@ -639,13 +777,13 @@ func TestAgentReleasesConversationLockAfterTimeout(t *testing.T) {
 	agent, _ := newTestAgent(t, provider, nil, "")
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
-	if _, err := agent.Chat(ctx, "telegram", "user-1", "first"); err == nil {
+	if _, err := chat(agent, ctx, "telegram", "user-1", "first"); err == nil {
 		t.Fatal("first Chat succeeded, want timeout")
 	}
 
 	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), time.Second)
 	defer recoveryCancel()
-	reply, err := agent.Chat(recoveryCtx, "telegram", "user-1", "second")
+	reply, err := chat(agent, recoveryCtx, "telegram", "user-1", "second")
 	if err != nil || reply != "recovered" {
 		t.Fatalf("second Chat: reply=%q err=%v", reply, err)
 	}
@@ -656,7 +794,7 @@ func TestAgentRejectsCanceledContextBeforeTurn(t *testing.T) {
 	agent, _ := newTestAgent(t, provider, nil, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := agent.Chat(ctx, "telegram", "user-1", "message"); err == nil {
+	if _, err := chat(agent, ctx, "telegram", "user-1", "message"); err == nil {
 		t.Fatal("Chat succeeded with a canceled context")
 	}
 	if calls := provider.calls.Load(); calls != 0 {
@@ -677,7 +815,7 @@ func TestAgentStopsAfterMaximumToolRounds(t *testing.T) {
 	}
 	provider := &scriptedProvider{responses: responses}
 	agent, _ := newTestAgent(t, provider, nil, "")
-	reply, err := agent.Chat(context.Background(), "cli", "user-1", "keep listing")
+	reply, err := chat(agent, context.Background(), "cli", "user-1", "keep listing")
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -689,7 +827,7 @@ func TestAgentStopsAfterMaximumToolRounds(t *testing.T) {
 func TestToolDefinitionsDoNotExposeRoutingIdentity(t *testing.T) {
 	provider := &recordingProvider{}
 	agent, _ := newTestAgent(t, provider, nil, "")
-	if _, err := agent.Chat(context.Background(), "cli", "user-1", "hello"); err != nil {
+	if _, err := chat(agent, context.Background(), "cli", "user-1", "hello"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	payload, err := json.Marshal(provider.request.Tools)

@@ -143,7 +143,11 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		body.SenderID = "cli-user"
 	}
 
-	reply, err := g.agent.Chat(r.Context(), "cli", body.SenderID, body.Message)
+	reply, err := g.agent.Chat(r.Context(), ChatInput{
+		ChannelID: "cli",
+		SenderID:  body.SenderID,
+		Content:   body.Message,
+	})
 	if err != nil {
 		log.Printf("chat endpoint error: %v", err)
 		http.Error(w, "agent error: "+err.Error(), http.StatusInternalServerError)
