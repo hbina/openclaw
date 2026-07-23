@@ -17,7 +17,7 @@ type Handler func(ctx context.Context, msg *Message) error
 
 // Channel defines the interface for all external integrations.
 type Channel interface {
-	// ID returns the canonical identifier (e.g., "telegram", "discord").
+	// ID returns the canonical identifier (for example, "telegram").
 	ID() string
 	// Start connects to the service and begins listening for messages.
 	Start(ctx context.Context, handler Handler) error

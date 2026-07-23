@@ -32,7 +32,7 @@ func TestReminderLifecycle(t *testing.T) {
 		}{
 			{"telegram", "user-1", "due", now.Add(-time.Minute)},
 			{"telegram", "user-1", "future", now.Add(time.Hour)},
-			{"discord", "user-2", "other", now.Add(time.Hour)},
+			{"cli", "user-2", "other", now.Add(time.Hour)},
 		} {
 			if _, err := tx.AddReminder(ctx, item.channel, item.sender, item.message, ReminderSchedule{Kind: ScheduleAt, At: item.at}, item.at); err != nil {
 				return err

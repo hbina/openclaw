@@ -27,7 +27,7 @@ The Go runtime retains:
 - One trusted human owner per deployment; each additional person runs a separate
   bot instance.
 - One local OpenAI-compatible `llama-server` endpoint.
-- Telegram, WhatsApp, and Discord text channels.
+- One Telegram text channel.
 - Batch reminder creation, listing, editing, cancellation, recurring schedules,
   and delivery.
 - Global durable memory storage and search.
@@ -49,7 +49,9 @@ deployment are not first-cut requirements.
 - The Go runtime uses one local OpenAI-compatible `llama-server`. Do not add
   hosted OpenAI, Anthropic, Claude API/CLI, ChatGPT, MCP subprocess, or cloud
   fallback paths. `models.providers.openai` is only the compatibility wire key.
-- Keep one primary agent and only Telegram, WhatsApp, and Discord text channels.
+- Keep one primary agent and only the Telegram text channel. Discord and
+  WhatsApp are not part of the Go runtime; their Node implementations remain
+  reference-only until Node cutover.
 - Keep one trusted owner per deployment. The instance owns one global body of
   memory, persona, history, and operational state across the owner's channels.
   Multi-user accounts, tenant boundaries, and per-user data isolation are
@@ -89,8 +91,8 @@ deployment are not first-cut requirements.
 | Reminders                   | Keep         | Atomic batch CRUD, `at`/`every`/timezone-aware `cron`, durable delivery                                  |
 | Memory and persona          | Keep         | SQLite recall/search and history/compaction; required startup-loaded `agents.defaults.soul`/`identity`   |
 | Telegram                    | Keep         | Pairing/allowlist, inbound/outbound DM text, reminder delivery                                           |
-| WhatsApp                    | Keep         | QR/device setup, pairing/allowlist, inbound/outbound text, reminder delivery                             |
-| Discord                     | Keep         | Required intents, pairing/allowlist, conservative DM text, reminder delivery                             |
+| WhatsApp                    | Remove       | No Go adapter, startup/config surface, session database, or runtime dependency                           |
+| Discord                     | Remove       | No Go adapter, startup/config surface, token, intents, or runtime dependency                             |
 | Docker operations           | Keep         | Mounted config/secrets/state, health, restart, backup/restore, secret-free image                         |
 | Node runtime                | Temporary    | Reference and fixture source until all Go cutover gates pass                                             |
 | Hosted/cloud providers      | Remove       | No hosted OpenAI, Anthropic, Claude, ChatGPT, or other provider runtime                                  |
@@ -109,8 +111,8 @@ protocol compatibility remain explicit decisions rather than assumed scope.
   broader upstream behavior.
 - The standalone Go image builds without Node, npm, Claude, or a cloud-model
   runtime. The root Docker/Compose production path has not cut over.
-- Basic Go channel adapters exist, but pairing, access control, WhatsApp setup,
-  richer channel semantics, and credential-backed live proof are incomplete.
+- A basic Telegram adapter exists, but pairing, access control, richer channel
+  semantics, and credential-backed live proof are incomplete.
 - Local text, structured tools, reminders, memory, configured persona, transcripts,
   SQLite persistence, and restart behavior are implemented and tested as
   detailed below.
@@ -125,7 +127,7 @@ protocol compatibility remain explicit decisions rather than assumed scope.
   HTTP client.
 - `golang/internal/tools`: Trusted in-process reminder and memory tool execution.
 - `golang/internal/state`: SQLite reminders, history, compaction, and memory state.
-- `golang/internal/channels`: Telegram, Discord, and WhatsApp adapters.
+- `golang/internal/channels`: the Telegram adapter and generic channel registry.
 - `golang/internal/gateway`: Agent loop, HTTP server, reminder delivery, and
   compaction.
 
@@ -256,7 +258,7 @@ Implemented:
   It deletes a successfully delivered one-shot and advances a successfully
   delivered recurring reminder to its next anchored/cron occurrence. Failed
   sends remain due for retry.
-- Basic Telegram, Discord, and WhatsApp inbound/outbound text adapters.
+- Basic Telegram inbound/outbound text adapter.
 
 Limitations:
 
@@ -266,7 +268,6 @@ Limitations:
   authentication and hostile-network hardening are explicit non-goals.
 - Pairing, allowlists, group policy, mentions, media, threads, reactions,
   commands, streaming updates, and multi-account routing are absent.
-- WhatsApp requires an existing device session; QR/device setup is absent.
 - No current credential-backed channel proof is recorded.
 
 ### State and compatibility
@@ -469,6 +470,32 @@ Unlimited conversation-history proof on 2026-07-23 includes:
 - Leaving the persistent `openclaw-go-test-ubuntu` deployment on
   `minute-poll-20260722`; its health remained HTTP 200.
 
+Telegram-only Go runtime proof on 2026-07-23 includes:
+
+- Deleting the Discord and WhatsApp Go adapters, startup/config fields, and
+  direct dependencies. `go mod tidy` also removed their unused transitive
+  dependency graph. The built binary reports only SQLite, cron, and Telebot
+  dependencies. Legacy Discord/WhatsApp JSON keys remain harmlessly ignored.
+- Preserving the generic channel/state contracts and all existing SQLite data.
+  The persistent database had five Telegram reminders and no Discord or
+  WhatsApp reminders before deployment; 38 historical Discord transcript rows
+  were not deleted or rewritten.
+- Running `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+  `go build -o /tmp/openclaw-go ./cmd/openclaw` successfully with writable
+  caches under `/tmp`.
+- Building `openclaw-go-ubuntu-test:telegram-only-20260723` from `golang/`,
+  image id `sha256:017cd4c84cfc0fdca79b8c50bd8f00bbe3ee1da9e298e71e97f533396b0da0b0`.
+- Starting an isolated no-secrets candidate with tmpfs state, confirming Gateway
+  and in-container llama-server health, and receiving the exact reply
+  `telegram only runtime smoke passed` through the real local model. The copied
+  SQLite snapshot contained the paired text rows, zero reminders, and passed
+  `PRAGMA integrity_check`.
+- Recreating `openclaw-go-test-ubuntu` on the new image while preserving its two
+  volumes, three binds, environment, bridge network, host port 18792, and
+  `unless-stopped` restart policy. A persistent live-model request returned
+  `persistent telegram only smoke passed`; after restart, both proof rows, all
+  five Telegram reminders, and SQLite integrity remained intact.
+
 Canonical local commands:
 
 ```text
@@ -483,7 +510,7 @@ Still required before cutover:
 
 - Production-image/Compose first-run, backup/restore, image-layer secret audit,
   and failure/recovery acceptance beyond the disposable smoke.
-- Telegram, Discord, and WhatsApp adapter unit and live tests.
+- Telegram adapter unit and credential-backed live tests.
 - Credential-backed recurring delivery proof, including persistence and
   rescheduling after an actual successful send.
 - Node-style scheduled agent execution for conditional watchers or explicit
@@ -495,11 +522,11 @@ Still required before cutover:
 
 ## Deployment Baseline
 
-As of 2026-07-22, the persistent live test deployment is:
+As of 2026-07-23, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:minute-poll-20260722
+image: openclaw-go-ubuntu-test:telegram-only-20260723
 port:  0.0.0.0:18792 -> 18789/tcp
 model: http://172.17.0.1:8080/v1
 ```
@@ -511,12 +538,12 @@ are ephemeral. Before recreating it, inspect and preserve every mount,
 environment value, published port, and restart policy. A restart alone does not
 load a rebuilt image.
 
-The container was recreated from the `minute-poll-20260722` tag on 2026-07-22
+The container was recreated from the `telegram-only-20260723` tag on 2026-07-23
 using the existing `openclaw-agent.sqlite`. Startup resolved
 `Asia/Kuala_Lumpur`; Gateway and local-model health passed before and after the
 final restart; SQLite integrity passed; all five existing reminders remained
 unchanged; and a unique live-model proof turn persisted as two text rows. The
-final database contained 223 transcript rows and one memory row. The database
+final database contained 231 transcript rows and one memory row. The database
 predating the earlier server-timezone deployment remains retained locally as
 `config_test/agent_data_go/openclaw-agent.sqlite.before-server-timezone-20260716-063656`.
 
@@ -553,16 +580,16 @@ behavior is accurately documented.
 - Define canonical sender, DM/group, and account routing keys plus any
   owner-admission pairing/allowlist contract. Do not add internal tenant or
   per-user data isolation.
-- Fix adapter channel identities and implement pairing for Telegram, WhatsApp,
-  and Discord; add WhatsApp QR/device setup and required Discord intents.
+- Fix Telegram DM/group routing identities and implement the retained
+  owner-admission pairing/allowlist contract.
 - Add focused adapter tests and credential-backed live inbound, reply, recurring
-  delivery, persistence, retry, and rescheduling proof for all three channels.
+  delivery, persistence, retry, and rescheduling proof for Telegram.
 - Keep group/server behavior disabled or tightly allowlisted until explicitly
   retained. Defer media, reactions, threads, streaming, and multi-account
   routing unless a concrete requirement promotes them.
 
-Exit: each retained channel pairs safely and completes a model-backed DM reply
-and recurring reminder delivery after container restart.
+Exit: Telegram pairs safely and completes a model-backed DM reply and recurring
+reminder delivery after container restart.
 
 ### 4. Finalize memory and state contracts
 
@@ -612,8 +639,7 @@ the shipped product.
 2. Define channel routing identity and the owner-admission boundary, then
    implement any retained pairing and correct DM/group session keys without
    adding internal tenant isolation.
-3. Implement WhatsApp QR/device setup and record live pairing/reply/reminder
-   delivery proof for all three channels.
+3. Record live Telegram pairing/reply/reminder delivery proof.
 4. Add durable reminder lease/idempotency behavior.
 5. Decide the first-release scheduled-job and local-memory contracts.
 6. Capture Node fixtures and implement migration, rollback, and backup/restore.
@@ -625,8 +651,6 @@ the shipped product.
   delivery?
 - Substring memory only, or local embeddings, automatic recall, and dreaming?
 - CLI/API-only operation, a trimmed dashboard, or the current dashboard?
-- Existing WhatsApp QR/session runtime or another local integration path?
-- Which Discord intents and group/server behavior are enabled by default?
 - Which browser, canvas, file-transfer, streaming, media, and reasoning features
   are genuinely required?
 - Docker-only distribution, and should fork image/package names change?
@@ -640,8 +664,8 @@ Go replaces Node only when:
 - A clean clone builds the Go binary and production Docker image.
 - Local llama-server text and structured reminder/memory workflows pass in the
   standalone container after restart.
-- Telegram, WhatsApp, and Discord pass access-control, pairing, inbound, and
-  outbound live scenarios, including recurring reminder delivery.
+- Telegram passes access-control, pairing, inbound, and outbound live scenarios,
+  including recurring reminder delivery.
 - Existing retained config/state have a documented tested migration or are
   explicitly declared unsupported before the first release.
 - Gateway exposure matches the documented unauthenticated trusted-LAN contract,

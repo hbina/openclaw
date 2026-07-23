@@ -22,7 +22,7 @@ owner's channels and topics, not authorization or data-ownership boundaries.
 The retained assistant has:
 
 - a standalone Go Gateway and agent loop;
-- Telegram, WhatsApp, and Discord text channels;
+- one Telegram text channel;
 - recurring and one-shot reminders;
 - SQLite-backed memory, conversation history, and compaction, plus required operator-owned persona strings in `openclaw.json`;
 - one OpenAI-compatible **local `llama-server`** provider;
@@ -49,8 +49,7 @@ Implemented under `golang/`:
 Important gaps:
 
 - Gateway HTTP authentication, request limits, safe bind policy, and stable errors;
-- channel pairing/allowlists, correct DM/group identity, media/threads/reactions, multi-account support, and live credential-backed delivery proof;
-- WhatsApp QR/device setup;
+- Telegram pairing/allowlists, correct DM/group identity, media/threads/reactions, multi-account support, and live credential-backed delivery proof;
 - durable reminder claim/lease and delivery idempotency;
 - Node-style scheduled agent jobs. Static reminders cannot silently watch a site, suppress unchanged results, or contact another person;
 - semantic memory/automatic recall, Node-to-Go state migration, backup/restore, Compose/root-image cutover, and side-by-side parity fixtures.
@@ -86,15 +85,15 @@ Before provider/tool work, verify both the host server and container path. Use t
 
 ## Running Test Container
 
-As of 2026-07-22, the persistent live test deployment is:
+As of 2026-07-23, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:minute-poll-20260722
+image: openclaw-go-ubuntu-test:telegram-only-20260723
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `29fa7bb19006`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `91077583cb2f`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu

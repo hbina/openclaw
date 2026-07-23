@@ -19,7 +19,7 @@ func writeTestFile(t *testing.T, name, content string) string {
 func TestLoadConfig(t *testing.T) {
 	path := writeTestFile(t, "openclaw.json", `{
 		"agents":{"defaults":{"soul":"  Be direct.  ","identity":"\n Jet the fox. \t","model":{"primary":"openai/gpt-5.5"}}},
-		"channels":{"telegram":{"enabled":true},"whatsapp":{"enabled":false},"discord":{"enabled":true}},
+		"channels":{"telegram":{"enabled":true}},
 		"models":{"providers":{"openai":{"baseUrl":"http://127.0.0.1:8080/v1","models":["default"]}}},
 		"plugins":{"enabled":true,"entries":{"memory-core":{"enabled":true}}}
 	}`)
@@ -37,8 +37,8 @@ func TestLoadConfig(t *testing.T) {
 	if got := cfg.Agents.Defaults.Identity; got != "Jet the fox." {
 		t.Fatalf("identity = %q", got)
 	}
-	if !cfg.Channels.Telegram.Enabled || !cfg.Channels.Discord.Enabled {
-		t.Fatal("expected retained channels to be enabled")
+	if !cfg.Channels.Telegram.Enabled {
+		t.Fatal("expected Telegram to be enabled")
 	}
 	if got := cfg.Models.Providers.OpenAI.BaseURL; got != "http://127.0.0.1:8080/v1" {
 		t.Fatalf("OpenAI base URL = %q", got)
@@ -51,7 +51,7 @@ func TestLoadConfig(t *testing.T) {
 func TestLoadSecrets(t *testing.T) {
 	path := writeTestFile(t, "secrets.json", `{
 		"models":{"providers":{"openai":{"apiKey":"local-key"}}},
-		"channels":{"telegram":{"botToken":"telegram-token"},"discord":{"botToken":"discord-token"}}
+		"channels":{"telegram":{"botToken":"telegram-token"}}
 	}`)
 
 	secrets, err := LoadSecrets(path)
@@ -60,6 +60,35 @@ func TestLoadSecrets(t *testing.T) {
 	}
 	if secrets.Models.Providers.OpenAI.APIKey != "local-key" {
 		t.Fatal("OpenAI key was not loaded")
+	}
+	if secrets.Channels.Telegram.BotToken != "telegram-token" {
+		t.Fatal("Telegram token was not loaded")
+	}
+}
+
+func TestLoadConfigIgnoresRemovedChannelKeys(t *testing.T) {
+	configPath := writeTestFile(t, "openclaw.json", `{
+		"agents":{"defaults":{"soul":"Be direct.","identity":"Jet the fox."}},
+		"channels":{
+			"telegram":{"enabled":true},
+			"discord":{"enabled":true},
+			"whatsapp":{"enabled":true}
+		}
+	}`)
+	if _, err := LoadConfig(configPath); err != nil {
+		t.Fatalf("LoadConfig with removed channel keys: %v", err)
+	}
+
+	secretsPath := writeTestFile(t, "secrets.json", `{
+		"channels":{
+			"telegram":{"botToken":"telegram-token"},
+			"discord":{"botToken":"ignored"},
+			"whatsapp":{"session":"ignored"}
+		}
+	}`)
+	secrets, err := LoadSecrets(secretsPath)
+	if err != nil {
+		t.Fatalf("LoadSecrets with removed channel keys: %v", err)
 	}
 	if secrets.Channels.Telegram.BotToken != "telegram-token" {
 		t.Fatal("Telegram token was not loaded")

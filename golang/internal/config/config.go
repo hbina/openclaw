@@ -29,8 +29,6 @@ type AgentDefaults struct {
 
 type ChannelsConfig struct {
 	Telegram ChannelEntry `json:"telegram"`
-	WhatsApp ChannelEntry `json:"whatsapp"`
-	Discord  ChannelEntry `json:"discord"`
 }
 
 type ChannelEntry struct {
@@ -72,9 +70,6 @@ type Secrets struct {
 		Telegram struct {
 			BotToken string `json:"botToken"`
 		} `json:"telegram"`
-		Discord struct {
-			BotToken string `json:"botToken"`
-		} `json:"discord"`
 	} `json:"channels"`
 }
 

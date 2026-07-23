@@ -173,7 +173,7 @@ func TestGlobalMemoryToolsAreIdempotentAndSearchable(t *testing.T) {
 	executor, _, _ := newTestExecutor(t)
 	ctx := context.Background()
 	firstUser := Context{ChannelID: "telegram", SenderID: "first"}
-	secondUser := Context{ChannelID: "discord", SenderID: "second"}
+	secondUser := Context{ChannelID: "cli", SenderID: "second"}
 
 	first, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-1", "store_memory", `{"content":"The user prefers espresso."}`))
 	if err != nil || first.IsError {

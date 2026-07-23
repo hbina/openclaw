@@ -70,21 +70,6 @@ func main() {
 			chanReg.Register(tg)
 		}
 	}
-	if cfg.Channels.Discord.Enabled && sec.Channels.Discord.BotToken != "" {
-		dc, err := channels.NewDiscordAdapter(sec.Channels.Discord.BotToken)
-		if err == nil {
-			chanReg.Register(dc)
-		}
-	}
-	if cfg.Channels.WhatsApp.Enabled {
-		wa, err := channels.NewWhatsAppAdapter(
-			context.Background(),
-			filepath.Join(dataDir, "whatsapp-store.sqlite"),
-		)
-		if err == nil {
-			chanReg.Register(wa)
-		}
-	}
 
 	// 5. Agent & Gateway
 	serverTimezone := time.Local
