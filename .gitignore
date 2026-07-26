@@ -228,6 +228,7 @@ changelog/fragments/
 .tmp/
 .cache/
 /config_test/
+/golang/openclaw
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

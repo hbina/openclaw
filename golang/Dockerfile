@@ -27,9 +27,6 @@ RUN apk --no-cache add ca-certificates sqlite-libs
 # Copy the compiled binary from the builder
 COPY --from=builder /app/openclaw .
 
-# The sqlite databases and config files should be mounted here
-VOLUME /app/data
-
 EXPOSE 18789
 
 CMD ["./openclaw"]
