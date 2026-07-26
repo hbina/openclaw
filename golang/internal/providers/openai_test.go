@@ -185,3 +185,43 @@ func TestOpenAIClientHonorsContextCancellation(t *testing.T) {
 		t.Fatal("request did not reach the test server")
 	}
 }
+
+func TestOpenAIClientReadsContextAndCountsRenderedPrompt(t *testing.T) {
+	var sawTools bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/props":
+			_, _ = w.Write([]byte(`{"default_generation_settings":{"n_ctx":100096}}`))
+		case "/apply-template":
+			_, _ = w.Write([]byte(`{"prompt":"rendered chat prompt"}`))
+		case "/tokenize":
+			var request struct {
+				Content string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode tokenize request: %v", err)
+			}
+			sawTools = strings.Contains(request.Content, "search_memory")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3,4]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, err := NewOpenAIClient("", server.URL+"/v1")
+	if err != nil {
+		t.Fatalf("NewOpenAIClient: %v", err)
+	}
+	size, err := client.ContextSize(context.Background())
+	if err != nil || size != 100096 {
+		t.Fatalf("ContextSize: size=%d err=%v", size, err)
+	}
+	count, err := client.CountPromptTokens(
+		context.Background(),
+		[]Message{{Role: RoleUser, Content: "hello"}},
+		[]ToolDefinition{{Type: "function", Function: FunctionDefinition{Name: "search_memory"}}},
+	)
+	if err != nil || count != 4 || !sawTools {
+		t.Fatalf("CountPromptTokens: count=%d sawTools=%v err=%v", count, sawTools, err)
+	}
+}
