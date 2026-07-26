@@ -2,9 +2,13 @@ package state
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/openclaw/openclaw/go/internal/vector"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -19,6 +23,17 @@ func newTestStore(t *testing.T) *Store {
 		}
 	})
 	return store
+}
+
+func listRemindersForTest(t *testing.T, store *Store, channelID, senderID string) ([]Reminder, error) {
+	t.Helper()
+	var reminders []Reminder
+	err := store.WithTx(context.Background(), func(tx *Tx) error {
+		var err error
+		reminders, err = tx.ListReminders(context.Background(), channelID, senderID)
+		return err
+	})
+	return reminders, err
 }
 
 func TestReminderLifecycle(t *testing.T) {
@@ -43,7 +58,7 @@ func TestReminderLifecycle(t *testing.T) {
 		t.Fatalf("seed reminders: %v", err)
 	}
 
-	listed, err := store.ListReminders("telegram", "user-1")
+	listed, err := listRemindersForTest(t, store, "telegram", "user-1")
 	if err != nil {
 		t.Fatalf("ListReminders: %v", err)
 	}
@@ -59,7 +74,7 @@ func TestReminderLifecycle(t *testing.T) {
 		t.Fatalf("unexpected due reminders: %#v", due)
 	}
 
-	beforeDelete, err := store.ListReminders("telegram", "user-1")
+	beforeDelete, err := listRemindersForTest(t, store, "telegram", "user-1")
 	if err != nil {
 		t.Fatalf("list reminders before delete: %v", err)
 	}
@@ -70,7 +85,7 @@ func TestReminderLifecycle(t *testing.T) {
 		t.Fatalf("CompleteReminder: %v", err)
 	}
 
-	remaining, err := store.ListReminders("telegram", "user-1")
+	remaining, err := listRemindersForTest(t, store, "telegram", "user-1")
 	if err != nil {
 		t.Fatalf("list remaining reminders: %v", err)
 	}
@@ -95,14 +110,14 @@ func TestRecurringReminderAdvancesAfterDelivery(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add recurring reminder: %v", err)
 	}
-	listed, err := store.ListReminders("telegram", "user-1")
+	listed, err := listRemindersForTest(t, store, "telegram", "user-1")
 	if err != nil || len(listed) != 1 || listed[0].ID != int(id) {
 		t.Fatalf("list recurring reminder: %#v err=%v", listed, err)
 	}
 	if err := store.CompleteReminder(listed[0], next.Add(time.Minute)); err != nil {
 		t.Fatalf("complete recurring reminder: %v", err)
 	}
-	advanced, err := store.ListReminders("telegram", "user-1")
+	advanced, err := listRemindersForTest(t, store, "telegram", "user-1")
 	want := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
 	if err != nil || len(advanced) != 1 || !advanced[0].FireAt.Equal(want) {
 		t.Fatalf("advanced reminder: %#v err=%v", advanced, err)
@@ -159,21 +174,39 @@ func TestNextReminderRunSupportsAnchoredEveryAndSixFieldCron(t *testing.T) {
 func TestMemorySearch(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	for _, content := range []string{"likes espresso", "prefers tea", "espresso after lunch"} {
-		if err := store.SaveMemory(ctx, content); err != nil {
-			t.Fatalf("SaveMemory(%q): %v", content, err)
+	const model = "test-embedding-model"
+	const dims = 2
+
+	seeds := []struct {
+		content string
+		vector  []float32
+	}{
+		{"likes espresso", []float32{1, 0}},
+		{"prefers tea", []float32{0, 1}},
+		{"espresso after lunch", []float32{1, 0}},
+	}
+	for _, seed := range seeds {
+		if err := store.WithTx(ctx, func(tx *Tx) error {
+			_, err := tx.SaveMemoryUnique(ctx, seed.content, model, dims, vector.Pack(seed.vector))
+			return err
+		}); err != nil {
+			t.Fatalf("SaveMemoryUnique(%q): %v", seed.content, err)
 		}
 	}
 
-	entries, err := store.SearchMemory(ctx, "espresso", 10)
-	if err != nil {
-		t.Fatalf("SearchMemory: %v", err)
+	var entries []MemoryEntry
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		var err error
+		entries, err = tx.SearchMemoryByVector(ctx, model, dims, []float32{1, 0}, 0.5, 10)
+		return err
+	}); err != nil {
+		t.Fatalf("SearchMemoryByVector: %v", err)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("memory result count = %d, want 2", len(entries))
 	}
 	for _, entry := range entries {
-		if entry.ID == 0 || entry.Content == "" || entry.CreatedAt.IsZero() {
+		if entry.ID == 0 || entry.Content == "" {
 			t.Fatalf("incomplete memory entry: %#v", entry)
 		}
 	}
@@ -194,7 +227,7 @@ func TestConversationHistory(t *testing.T) {
 		}
 	}
 
-	turns, err := store.GetConversationHistory(ctx, "telegram", "u1", 0)
+	turns, err := store.GetConversationHistory(ctx, "telegram", "u1")
 	if err != nil {
 		t.Fatalf("GetConversationHistory: %v", err)
 	}
@@ -206,90 +239,78 @@ func TestConversationHistory(t *testing.T) {
 	}
 }
 
-func TestFreshDatabaseDoesNotContainConversationCompactions(t *testing.T) {
+func TestConversationChunkIndexPersistsAndIsVersionScoped(t *testing.T) {
 	store := newTestStore(t)
-	if databaseTableExists(t, store, "conversation_compactions") {
-		t.Fatal("fresh database contains conversation_compactions")
-	}
-}
-
-func TestFreshDatabaseDoesNotContainPersonalityDocuments(t *testing.T) {
-	store := newTestStore(t)
-	if databaseTableExists(t, store, "personality_documents") {
-		t.Fatal("fresh database contains personality_documents")
-	}
-}
-
-func TestOpeningOlderDatabaseDropsPersonalityAndPreservesLegacyCompactionData(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.sqlite")
 	ctx := context.Background()
-	store, err := NewStore(path)
+	chunk := ConversationChunkKey{
+		StartHistoryID: 1, EndHistoryID: 2, PartIndex: 0,
+		ContentHash: "hash", EmbeddingModel: "embeddinggemma-v1",
+		Dimensions: 3, IndexVersion: 1,
+	}
+	due, attempts, err := store.PrepareConversationChunk(ctx, chunk, time.Now())
+	if err != nil || !due || attempts != 0 {
+		t.Fatalf("PrepareConversationChunk: due=%v attempts=%d err=%v", due, attempts, err)
+	}
+	blob := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	if err := store.SaveConversationChunkEmbedding(ctx, chunk, blob); err != nil {
+		t.Fatalf("SaveConversationChunkEmbedding: %v", err)
+	}
+	due, _, err = store.PrepareConversationChunk(ctx, chunk, time.Now())
+	if err != nil || due {
+		t.Fatalf("prepared completed chunk: due=%v err=%v", due, err)
+	}
+	active, err := store.LoadConversationEmbeddings(ctx, "embeddinggemma-v1", 1, 3)
+	if err != nil || len(active) != 1 || string(active[0].Embedding) != string(blob) {
+		t.Fatalf("active embeddings=%#v err=%v", active, err)
+	}
+	other, err := store.LoadConversationEmbeddings(ctx, "embeddinggemma-v2", 1, 3)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("other-model embeddings=%#v err=%v", other, err)
+	}
+}
+
+func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
+	store := newTestStore(t)
+	for _, table := range []string{"memory_entries", "reminders", "conversation_history", "conversation_chunks"} {
+		if !databaseTableExists(t, store, table) {
+			t.Errorf("fresh database is missing %s", table)
+		}
+	}
+	for _, table := range []string{"agent_state", "conversation_compactions", "personality_documents"} {
+		if databaseTableExists(t, store, table) {
+			t.Errorf("fresh database contains removed table %s", table)
+		}
+	}
+}
+
+func TestStoreRejectsNonCanonicalSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "noncanonical.sqlite")
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
-		t.Fatalf("NewStore: %v", err)
+		t.Fatalf("open fixture: %v", err)
 	}
-	if _, err := store.db.Exec(`CREATE TABLE personality_documents (
-		name TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	INSERT INTO personality_documents (name, content) VALUES ('SOUL.md', 'legacy soul');
-	CREATE TABLE conversation_compactions (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		channel_id TEXT NOT NULL,
-		sender_id TEXT NOT NULL,
-		summary TEXT NOT NULL,
-		tokens_before INTEGER NOT NULL,
-		first_kept_id INTEGER NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	INSERT INTO conversation_compactions
-		(channel_id, sender_id, summary, tokens_before, first_kept_id)
-		VALUES ('cli', 'owner', 'legacy summary', 1000, 1);`); err != nil {
-		t.Fatalf("seed legacy state tables: %v", err)
+	if _, err := db.Exec(`CREATE TABLE agent_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create removed table: %v", err)
 	}
-	if err := store.SaveMemory(ctx, "likes espresso"); err != nil {
-		t.Fatalf("seed memory: %v", err)
-	}
-	if err := store.SaveConversationTurn(ctx, "cli", "owner", "user", "hello"); err != nil {
-		t.Fatalf("seed history: %v", err)
-	}
-	if err := store.WithTx(ctx, func(tx *Tx) error {
-		_, err := tx.AddReminder(ctx, "cli", "owner", "call home", ReminderSchedule{Kind: ScheduleAt, At: time.Now().Add(time.Hour)}, time.Now().Add(time.Hour))
-		return err
-	}); err != nil {
-		t.Fatalf("seed reminder: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("close first store: %v", err)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
 	}
 
-	reopened, err := NewStore(path)
+	if _, err := NewStore(path); err == nil || !strings.Contains(err.Error(), "do not match canonical tables") {
+		t.Fatalf("NewStore error = %v, want canonical-schema rejection", err)
+	}
+
+	reopened, err := sql.Open("sqlite3", path)
 	if err != nil {
-		t.Fatalf("reopen store: %v", err)
+		t.Fatalf("reopen fixture: %v", err)
 	}
 	defer reopened.Close()
-	if databaseTableExists(t, reopened, "personality_documents") {
-		t.Fatal("legacy personality_documents table was not dropped")
+	var tables int
+	if err := reopened.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables); err != nil {
+		t.Fatalf("count fixture tables: %v", err)
 	}
-	if !databaseTableExists(t, reopened, "conversation_compactions") {
-		t.Fatal("unused legacy conversation_compactions data was deleted")
-	}
-	var legacyCompactions int
-	if err := reopened.db.QueryRow(`SELECT count(*) FROM conversation_compactions`).Scan(&legacyCompactions); err != nil {
-		t.Fatalf("count legacy compactions: %v", err)
-	}
-	if legacyCompactions != 1 {
-		t.Fatalf("legacy compaction count = %d, want 1", legacyCompactions)
-	}
-	reminders, err := reopened.ListReminders("cli", "owner")
-	if err != nil || len(reminders) != 1 || reminders[0].Message != "call home" {
-		t.Fatalf("reminders after migration: %#v err=%v", reminders, err)
-	}
-	memories, err := reopened.SearchMemory(ctx, "espresso", 5)
-	if err != nil || len(memories) != 1 || memories[0].Content != "likes espresso" {
-		t.Fatalf("memory after migration: %#v err=%v", memories, err)
-	}
-	history, err := reopened.GetConversationHistory(ctx, "cli", "owner", 0)
-	if err != nil || len(history) != 1 || history[0].Content != "hello" {
-		t.Fatalf("history after migration: %#v err=%v", history, err)
+	if tables != 1 {
+		t.Fatalf("rejected database was mutated to %d tables, want 1", tables)
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -51,30 +51,44 @@ func NewStore(dbPath string) (*Store, error) {
 	}
 
 	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 
 	store := &Store{db: db}
-	if err := store.migrate(); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	if err := store.initializeSchema(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
 	return store, nil
 }
 
-// migrate sets up the necessary schema for the agent state and memory.
-func (s *Store) migrate() error {
+// initializeSchema creates the one canonical schema supported by this runtime.
+// Existing databases must already match it; legacy schemas are rebuilt by the
+// operator rather than migrated at startup.
+func (s *Store) initializeSchema() error {
+	var existingTables int
+	if err := s.db.QueryRow(`
+		SELECT count(*)
+		FROM sqlite_master
+		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+	`).Scan(&existingTables); err != nil {
+		return fmt.Errorf("count existing schema tables: %w", err)
+	}
+	if existingTables > 0 {
+		if err := s.validateCanonicalSchema(); err != nil {
+			return err
+		}
+	}
+
 	query := `
 	CREATE TABLE IF NOT EXISTS memory_entries (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		content TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	
-	CREATE TABLE IF NOT EXISTS agent_state (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		embedding_model TEXT NOT NULL DEFAULT '',
+		dimensions INTEGER NOT NULL DEFAULT 0,
+		embedding BLOB
 	);
 
 	CREATE TABLE IF NOT EXISTS reminders (
@@ -88,8 +102,7 @@ func (s *Store) migrate() error {
 		anchor_at DATETIME,
 		cron_expr TEXT NOT NULL DEFAULT '',
 		timezone TEXT NOT NULL DEFAULT '',
-		enabled INTEGER NOT NULL DEFAULT 1,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		enabled INTEGER NOT NULL DEFAULT 1
 	);
 
 	CREATE TABLE IF NOT EXISTS conversation_history (
@@ -103,45 +116,122 @@ func (s *Store) migrate() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_conversation_history_lookup
-		ON conversation_history(channel_id, sender_id, created_at);
+		ON conversation_history(channel_id, sender_id, id);
 
-	DROP TABLE IF EXISTS personality_documents;
+	CREATE TABLE IF NOT EXISTS conversation_chunks (
+		id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+		start_history_id    INTEGER NOT NULL,
+		end_history_id      INTEGER NOT NULL,
+		part_index          INTEGER NOT NULL,
+		content_hash        TEXT NOT NULL,
+		embedding_model     TEXT NOT NULL,
+		dimensions          INTEGER NOT NULL,
+		index_version       INTEGER NOT NULL,
+		embedding           BLOB,
+		attempts            INTEGER NOT NULL DEFAULT 0,
+		retry_at            DATETIME,
+		UNIQUE (embedding_model, index_version, start_history_id, end_history_id, part_index)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_conversation_chunks_active
+		ON conversation_chunks(embedding_model, index_version, dimensions);
+
+	CREATE INDEX IF NOT EXISTS idx_reminders_due
+		ON reminders(enabled, fire_at);
+
+	CREATE INDEX IF NOT EXISTS idx_memory_entries_embedding_model
+		ON memory_entries(embedding_model, dimensions);
 	`
 
 	if _, err := s.db.Exec(query); err != nil {
 		return err
 	}
-
-	// Add content_type to existing databases that predate this column.
-	// SQLite returns "duplicate column name" when the column already exists; ignore it.
-	if _, err := s.db.Exec(`ALTER TABLE conversation_history ADD COLUMN content_type TEXT NOT NULL DEFAULT 'text'`); err != nil {
-		if !isDuplicateColumnErr(err) {
-			return fmt.Errorf("failed to add content_type column: %w", err)
-		}
-	}
-	for _, migration := range []struct {
-		column string
-		query  string
-	}{
-		{"schedule_kind", `ALTER TABLE reminders ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'at'`},
-		{"every_ms", `ALTER TABLE reminders ADD COLUMN every_ms INTEGER NOT NULL DEFAULT 0`},
-		{"anchor_at", `ALTER TABLE reminders ADD COLUMN anchor_at DATETIME`},
-		{"cron_expr", `ALTER TABLE reminders ADD COLUMN cron_expr TEXT NOT NULL DEFAULT ''`},
-		{"timezone", `ALTER TABLE reminders ADD COLUMN timezone TEXT NOT NULL DEFAULT ''`},
-		{"enabled", `ALTER TABLE reminders ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`},
-	} {
-		if _, err := s.db.Exec(migration.query); err != nil && !isDuplicateColumnErr(err) {
-			return fmt.Errorf("failed to add reminders.%s: %w", migration.column, err)
-		}
-	}
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(enabled, fire_at)`); err != nil {
-		return fmt.Errorf("failed to create reminder due index: %w", err)
-	}
-	return nil
+	return s.validateCanonicalSchema()
 }
 
-func isDuplicateColumnErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "duplicate column")
+func (s *Store) validateCanonicalSchema() error {
+	expected := map[string][]string{
+		"memory_entries": {
+			"id", "content", "embedding_model", "dimensions", "embedding",
+		},
+		"reminders": {
+			"id", "channel_id", "sender_id", "message", "fire_at", "schedule_kind",
+			"every_ms", "anchor_at", "cron_expr", "timezone", "enabled",
+		},
+		"conversation_history": {
+			"id", "channel_id", "sender_id", "role", "content_type", "content", "created_at",
+		},
+		"conversation_chunks": {
+			"id", "start_history_id", "end_history_id", "part_index", "content_hash",
+			"embedding_model", "dimensions", "index_version", "embedding", "attempts", "retry_at",
+		},
+	}
+
+	rows, err := s.db.Query(`
+		SELECT name
+		FROM sqlite_master
+		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+		ORDER BY name
+	`)
+	if err != nil {
+		return fmt.Errorf("list schema tables: %w", err)
+	}
+	var actualTables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan schema table: %w", err)
+		}
+		actualTables = append(actualTables, name)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close schema table rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate schema tables: %w", err)
+	}
+	expectedTables := make([]string, 0, len(expected))
+	for name := range expected {
+		expectedTables = append(expectedTables, name)
+	}
+	slices.Sort(expectedTables)
+	if !slices.Equal(actualTables, expectedTables) {
+		return fmt.Errorf("database tables %v do not match canonical tables %v; rebuild the database", actualTables, expectedTables)
+	}
+
+	for _, table := range expectedTables {
+		columnRows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%q)`, table))
+		if err != nil {
+			return fmt.Errorf("inspect %s columns: %w", table, err)
+		}
+		var actualColumns []string
+		for columnRows.Next() {
+			var (
+				position  int
+				name      string
+				columnTyp string
+				notNull   int
+				defaultV  sql.NullString
+				primary   int
+			)
+			if err := columnRows.Scan(&position, &name, &columnTyp, &notNull, &defaultV, &primary); err != nil {
+				_ = columnRows.Close()
+				return fmt.Errorf("scan %s column: %w", table, err)
+			}
+			actualColumns = append(actualColumns, name)
+		}
+		if err := columnRows.Close(); err != nil {
+			return fmt.Errorf("close %s column rows: %w", table, err)
+		}
+		if err := columnRows.Err(); err != nil {
+			return fmt.Errorf("iterate %s columns: %w", table, err)
+		}
+		if !slices.Equal(actualColumns, expected[table]) {
+			return fmt.Errorf("%s columns %v do not match canonical columns %v; rebuild the database", table, actualColumns, expected[table])
+		}
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.

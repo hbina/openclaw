@@ -37,7 +37,6 @@ type Reminder struct {
 	Schedule  ReminderSchedule
 	FireAt    time.Time
 	Enabled   bool
-	CreatedAt time.Time
 }
 
 var cronParser = cron.NewParser(
@@ -116,7 +115,7 @@ func (tx *Tx) AddReminder(ctx context.Context, channelID, senderID, message stri
 	return id, nil
 }
 
-const reminderColumns = `id, channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled, created_at`
+const reminderColumns = `id, channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled`
 
 func scanReminder(scanner interface{ Scan(...any) error }) (Reminder, error) {
 	var reminder Reminder
@@ -124,7 +123,7 @@ func scanReminder(scanner interface{ Scan(...any) error }) (Reminder, error) {
 	var anchor sql.NullTime
 	var enabled int
 	err := scanner.Scan(&reminder.ID, &reminder.ChannelID, &reminder.SenderID, &reminder.Message, &reminder.FireAt,
-		&kind, &reminder.Schedule.EveryMS, &anchor, &reminder.Schedule.CronExpr, &reminder.Schedule.Timezone, &enabled, &reminder.CreatedAt)
+		&kind, &reminder.Schedule.EveryMS, &anchor, &reminder.Schedule.CronExpr, &reminder.Schedule.Timezone, &enabled)
 	if err != nil {
 		return Reminder{}, err
 	}
@@ -137,20 +136,8 @@ func scanReminder(scanner interface{ Scan(...any) error }) (Reminder, error) {
 	return reminder, nil
 }
 
-func (s *Store) ListReminders(channelID, senderID string) ([]Reminder, error) {
-	return listReminders(s.db.Query, channelID, senderID)
-}
-
 func (tx *Tx) ListReminders(ctx context.Context, channelID, senderID string) ([]Reminder, error) {
 	rows, err := tx.tx.QueryContext(ctx, "SELECT "+reminderColumns+" FROM reminders WHERE channel_id = ? AND sender_id = ? ORDER BY fire_at ASC", channelID, senderID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list reminders: %w", err)
-	}
-	return collectReminders(rows)
-}
-
-func listReminders(query func(string, ...any) (*sql.Rows, error), channelID, senderID string) ([]Reminder, error) {
-	rows, err := query("SELECT "+reminderColumns+" FROM reminders WHERE channel_id = ? AND sender_id = ? ORDER BY fire_at ASC", channelID, senderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list reminders: %w", err)
 	}

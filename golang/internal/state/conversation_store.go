@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 const (
@@ -14,9 +15,12 @@ const (
 
 type ConversationTurn struct {
 	ID          int
+	ChannelID   string
+	SenderID    string
 	Role        string
 	ContentType string
 	Content     string // plain text, or JSON-encoded payload for tool_call / tool_result
+	CreatedAt   time.Time
 }
 
 // SaveConversationMessage is the canonical write path for conversation history.
@@ -47,15 +51,14 @@ func (s *Store) SaveConversationTurn(ctx context.Context, channelID, senderID, r
 	return s.SaveConversationMessage(ctx, channelID, senderID, role, ContentText, content)
 }
 
-// GetConversationHistory returns all turns for a sender in oldest-first order,
-// including only rows from firstKeptID onward (0 = no lower bound).
-func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID string, firstKeptID int) ([]ConversationTurn, error) {
+// GetConversationHistory returns every turn for a route in oldest-first order.
+func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID string) ([]ConversationTurn, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, role, content_type, content
+		SELECT id, channel_id, sender_id, role, content_type, content, created_at
 		FROM conversation_history
-		WHERE channel_id = ? AND sender_id = ? AND id >= ?
+		WHERE channel_id = ? AND sender_id = ?
 		ORDER BY id ASC
-	`, channelID, senderID, firstKeptID)
+	`, channelID, senderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load conversation history: %w", err)
 	}
@@ -64,10 +67,35 @@ func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID 
 	var turns []ConversationTurn
 	for rows.Next() {
 		var t ConversationTurn
-		if err := rows.Scan(&t.ID, &t.Role, &t.ContentType, &t.Content); err != nil {
+		if err := rows.Scan(&t.ID, &t.ChannelID, &t.SenderID, &t.Role, &t.ContentType, &t.Content, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan conversation turn: %w", err)
 		}
 		turns = append(turns, t)
+	}
+	return turns, rows.Err()
+}
+
+func (s *Store) GetAllConversationHistory(ctx context.Context) ([]ConversationTurn, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, channel_id, sender_id, role, content_type, content, created_at
+		FROM conversation_history
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load all conversation history: %w", err)
+	}
+	defer rows.Close()
+
+	var turns []ConversationTurn
+	for rows.Next() {
+		var turn ConversationTurn
+		if err := rows.Scan(
+			&turn.ID, &turn.ChannelID, &turn.SenderID, &turn.Role,
+			&turn.ContentType, &turn.Content, &turn.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan conversation turn: %w", err)
+		}
+		turns = append(turns, turn)
 	}
 	return turns, rows.Err()
 }
