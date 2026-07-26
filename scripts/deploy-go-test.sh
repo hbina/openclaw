@@ -324,4 +324,4 @@ printf 'Smoke response:  %s\n' "$smoke_response"
 printf 'SQLite backup:   %s\n' "$DB_BACKUP"
 printf 'State counts:    %s transcripts, %s reminders, %s memories, %s chunks\n' \
   "$transcript_count" "$reminder_count" "$memory_count" "$chunk_count"
-printf '\nRecord this deployment evidence in MIGRATION.md.\n'
+printf '\nRecord this deployment evidence in the repo-root AGENTS.md.\n'

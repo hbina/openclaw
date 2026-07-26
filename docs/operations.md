@@ -37,4 +37,4 @@ For a deployment:
 7. retain one known-good database backup.
 
 The repository test deployment helper is `scripts/deploy-go-test.sh`. It is
-specific to the local test container described in `MIGRATION.md`.
+specific to the local test container described in the repo-root `AGENTS.md`.

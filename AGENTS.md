@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-This branch is a slim, Docker-first OpenClaw fork migrating the retained reminder-assistant product from TypeScript/Node to Go. `MIGRATION.md` is the single source of truth for product goals, scope, implementation status, priorities, proof, and cutover gates. Read it before changing runtime behavior and update it whenever any of those facts change.
+This branch is a slim, Docker-first OpenClaw fork. The retained reminder-assistant product has been migrated from TypeScript/Node to Go, and the upstream Node runtime has been deleted from the working tree; it remains available only in Git history. This file is the single source of truth for product goals, scope, implementation status, priorities, and cutover gates. Read it before changing runtime behavior and update it whenever any of those facts change.
 
 ## Start Here
 
@@ -24,8 +24,11 @@ The retained assistant has:
 - a standalone Go Gateway and agent loop;
 - one Telegram text channel;
 - recurring and one-shot reminders;
-- SQLite-backed memory, conversation history, and compaction, plus required operator-owned persona strings in `openclaw.json`;
-- one OpenAI-compatible **local `llama-server`** provider;
+- SQLite-backed semantic memory, structured conversation history, and automatic
+  semantic conversation recall, plus required operator-owned persona strings in
+  `openclaw.json`;
+- one OpenAI-compatible local `llama-server` for chat/tool generation plus one
+  dedicated local `llama-server` for EmbeddingGemma conversation retrieval;
 - mounted non-secret config, separate secrets, and persistent SQLite state.
 
 Do not add hosted OpenAI, Anthropic, ChatGPT, Claude API, Claude CLI, MCP subprocess, or cloud fallback paths to the Go runtime. The config name `models.providers.openai` is retained only as the OpenAI-compatible wire-protocol key for `llama-server`. The current deployment intentionally sends model id `default`.
@@ -43,7 +46,8 @@ Implemented under `golang/`:
 - recurring advancement after successful delivery and one-shot deletion;
 - global memory store/search;
 - required startup-loaded `agents.defaults.soul` and `agents.defaults.identity` persona configuration;
-- history limits, compaction, `/healthz`, `/chat`, and basic channel adapters;
+- recent-context selection plus semantic history recall, `/healthz`, `/chat`,
+  and basic channel adapters;
 - standalone Alpine image without Node, npm, Claude, OpenAI-hosted, or Anthropic runtime dependencies.
 
 Important gaps:
@@ -52,17 +56,18 @@ Important gaps:
 - Telegram pairing/allowlists, correct DM/group identity, media/threads/reactions, multi-account support, and live credential-backed delivery proof;
 - durable reminder claim/lease and delivery idempotency;
 - Node-style scheduled agent jobs. Static reminders cannot silently watch a site, suppress unchanged results, or contact another person;
-- semantic memory/automatic recall, Node-to-Go state migration, backup/restore, Compose/root-image cutover, and side-by-side parity fixtures.
+- automated backup/restore and the Compose/root-image cutover.
 
-Continue from `MIGRATION.md` “Immediate Next Actions” unless the user sets another priority. Prefer closing one gap completely with source, tests, Docker proof, and documentation over starting several partial paths.
+The Node runtime was deleted before any side-by-side parity fixtures or a Node-to-Go state importer were captured. Those are no longer buildable from the working tree. Either capture them from Git history at `53284074db` or record an explicit accepted-discard decision here; do not treat the missing importer as silently resolved.
+
+Work the gaps above in the order listed unless the user sets another priority. Prefer closing one gap completely with source, tests, Docker proof, and documentation over starting several partial paths.
 
 ## Project Structure
 
 - `golang/cmd/openclaw`: Go startup and dependency wiring.
 - `golang/internal/{config,providers,tools,state,channels,gateway}`: retained Go runtime.
-- `src/`, `packages/`, `extensions/`: Node reference runtime, protocol, and plugins.
-- `docs/`: upstream/source documentation.
-- `MIGRATION.md`: fork goals, retained scope, current Go behavior, proof, roadmap, cutover gates, and next actions.
+- `docs/`: operator documentation for the retained Go runtime.
+- `scripts/`: `committer` and the `deploy-go-test.sh` container helper.
 - `config_test/`: ignored local test config, secrets, and persisted Go SQLite state.
 
 OpenClaw-owned runtime state belongs in SQLite, not new JSON/JSONL/TXT sidecars. The live Go database is `config_test/agent_data_go/openclaw-agent.sqlite`. Persona is operator-owned configuration under `agents.defaults`; changes require editing `openclaw.json` and restarting the process. Do not add a chat mutation tool, persona state table, mounted persona files, defaults, or compatibility fallback.
@@ -75,25 +80,38 @@ per-user state partitioning.
 
 ## Local Model Contract
 
-The configured provider must be the local llama.cpp server, currently reachable from Docker at:
+The configured chat provider must be the local llama.cpp server, currently
+reachable from Docker at:
 
 ```text
 http://172.17.0.1:8080/v1
 ```
 
-Before provider/tool work, verify both the host server and container path. Use the live endpoint for user-visible behavior proof; mocked HTTP tests alone are insufficient. Keep tool schemas simple and strict because the deployed local Gemma model must call them reliably. Reminder selection is semantic with `tool_choice: auto`; do not reintroduce keyword-based forcing. Preserve the result-backed guard so an assistant mutation claim without a committed reminder tool result is explicitly corrected.
+Conversation retrieval uses the dedicated EmbeddingGemma server at:
+
+```text
+http://172.17.0.1:8081/v1
+```
+
+Before provider/tool/RAG work, verify both endpoints from the host and container.
+Use the live endpoints for user-visible behavior proof; mocked HTTP tests alone
+are insufficient. Keep tool schemas simple and strict because the deployed local
+Gemma model must call them reliably. Reminder selection is semantic with
+`tool_choice: auto`; do not reintroduce keyword-based forcing. Preserve the
+result-backed guard so an assistant mutation claim without a committed reminder
+tool result is explicitly corrected.
 
 ## Running Test Container
 
-As of 2026-07-23, the persistent live test deployment is:
+As of 2026-07-26, the persistent live test deployment is:
 
 ```text
 name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:no-compaction-20260723
+image: openclaw-go-ubuntu-test:spring-clean-final-20260726
 port:  0.0.0.0:18792 -> 18789/tcp
 ```
 
-The observed container id is `d947777408ad`, but ids and uptime are ephemeral; re-check with:
+The observed container id is `4ce07fcdcaed`, but ids and uptime are ephemeral; re-check with:
 
 ```bash
 docker ps --filter name=openclaw-go-test-ubuntu
@@ -116,7 +134,7 @@ Useful inspection:
 
 ```bash
 sqlite3 -header -column config_test/agent_data_go/openclaw-agent.sqlite \
-  "SELECT count(*) AS personality_tables FROM sqlite_master WHERE type = 'table' AND name = 'personality_documents';"
+  "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
 ```
 
 Never display secret-file contents or bearer/channel tokens in logs or reports.
@@ -132,7 +150,8 @@ GOCACHE=/tmp/openclaw-go-cache go test -race ./...
 GOCACHE=/tmp/openclaw-go-cache go build -o /tmp/openclaw-go ./cmd/openclaw
 ```
 
-Do not build without `-o`; the repository contains a tracked `golang/openclaw` binary that must not be changed as a side effect. Run `gofmt -w` on touched Go files and `git diff --check` before handoff.
+Do not build without `-o`; generated binaries do not belong in the source tree.
+Run `gofmt -w` on touched Go files and `git diff --check` before handoff.
 
 For Node reference changes, use repository commands only: `pnpm test <path>`, `pnpm check:changed --staged`, `pnpm build`, and oxfmt wrappers. Never run bare Vitest watch mode or introduce `tsc --noEmit`.
 
@@ -152,20 +171,33 @@ Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`
 - Config/env additions require strong justification. Keep non-secrets in `openclaw.json`, credentials in `secrets.json`, and state outside the image.
 - Persona is global to the single agent, loaded once at startup, and controlled only by operators through required plain strings in `openclaw.json`.
 
-## Migration Workflow
+## Change Workflow
 
-For each migration slice:
+For each runtime slice:
 
-1. Read `MIGRATION.md`, relevant Node owner/callers/tests/docs, and current Go siblings.
+1. Read the relevant Go siblings, callers, tests, and docs. Consult the deleted Node reference in Git history only when a specific retained behavior is genuinely ambiguous.
 2. State the retained contract and known non-goals before coding.
 3. Implement the canonical Go path; avoid a second fallback path.
 4. Add focused unit/integration coverage and run Go test, vet, race, and build gates.
 5. Build/recreate the Docker candidate and exercise the real local llama-server behavior.
 6. Inspect SQLite/transcripts for proof; verify restart persistence when state changes.
-7. Update `MIGRATION.md` with exact status, commands, container/image details, proof, priorities, and remaining gaps.
+7. Update this file's status, gaps, and container/image details, and the relevant `docs/` page.
 8. Review `git diff --numstat`, trim unnecessary production LOC, run `git diff --check`, and report all proof gaps.
 
-Do not mark broad Node parity complete merely because the reminder use case works. Cutover requires every gate recorded in `MIGRATION.md`.
+Do not mark the product production-ready merely because the reminder use case works.
+
+## Cutover Gates
+
+Production cutover is complete only when:
+
+- every retained behavior has focused tests and live local-model proof;
+- HTTP and Telegram enforce the one-owner admission boundary;
+- reminder delivery is crash-safe and idempotent;
+- retained Node state has a tested one-way import or an explicit accepted discard decision;
+- backup, restore, corruption, restart, and image rollback drills pass;
+- Compose/root deployment uses the standalone Go image.
+
+Already satisfied: the Node runtime and unsupported repository surfaces are deleted, and no production dependency on Node, npm, hosted models, plugins, or cloud fallback remains.
 
 ## Commits and Pull Requests
 
