@@ -11,6 +11,7 @@ import (
 
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
+	"github.com/openclaw/openclaw/go/internal/vector"
 )
 
 const memorySearchLimit = 5
@@ -36,24 +37,112 @@ func (result Result) Message() providers.Message {
 }
 
 type Executor struct {
-	store    *state.Store
-	now      func() time.Time
-	location *time.Location
+	store      *state.Store
+	now        func() time.Time
+	location   *time.Location
+	embedder   providers.Embedder
+	indexID    string
+	dimensions int
+	minScore   float64
 }
 
-func NewExecutor(store *state.Store, now func() time.Time, location *time.Location) *Executor {
+func NewExecutor(
+	store *state.Store,
+	now func() time.Time,
+	location *time.Location,
+	embedder providers.Embedder,
+	indexID string,
+	dimensions int,
+	minScore float64,
+) *Executor {
 	if now == nil {
 		now = time.Now
 	}
 	if location == nil {
 		location = time.Local
 	}
-	return &Executor{store: store, now: now, location: location}
+	return &Executor{
+		store: store, now: now, location: location,
+		embedder: embedder, indexID: indexID, dimensions: dimensions, minScore: minScore,
+	}
+}
+
+// memoryToolInput is the trimmed text and embedding vector resolved before a
+// store_memory/search_memory tool call opens its SQL transaction, since the
+// embedding call is network I/O and shouldn't happen while a transaction is
+// held open.
+type memoryToolInput struct {
+	text      string
+	embedding []float32
+}
+
+func (executor *Executor) prepareStoreMemory(ctx context.Context, raw string) (*memoryToolInput, error) {
+	var args struct {
+		Content string `json:"content"`
+	}
+	if err := decodeArguments(raw, &args); err != nil {
+		return nil, err
+	}
+	content := strings.TrimSpace(args.Content)
+	if content == "" {
+		return nil, fmt.Errorf("content must not be empty")
+	}
+	vectors, err := executor.embedder.Embed(ctx, []string{"title: none | text: " + content})
+	if err != nil {
+		return nil, fmt.Errorf("embed memory content: %w", err)
+	}
+	return &memoryToolInput{text: content, embedding: vectors[0]}, nil
+}
+
+func (executor *Executor) prepareSearchMemory(ctx context.Context, raw string) (*memoryToolInput, error) {
+	var args struct {
+		Query string `json:"query"`
+	}
+	if err := decodeArguments(raw, &args); err != nil {
+		return nil, err
+	}
+	query := strings.TrimSpace(args.Query)
+	if query == "" {
+		return nil, fmt.Errorf("query must not be empty")
+	}
+	vectors, err := executor.embedder.Embed(ctx, []string{"task: search result | query: " + query})
+	if err != nil {
+		return nil, fmt.Errorf("embed memory query: %w", err)
+	}
+	return &memoryToolInput{text: query, embedding: vectors[0]}, nil
+}
+
+// BackfillMemoryEmbeddings embeds any memory entries that predate semantic
+// search or were stranded without an embedding by a prior embedding-provider
+// outage. It is meant to run once at startup; memory writes embed
+// synchronously going forward, so there is no ongoing background indexer.
+func (executor *Executor) BackfillMemoryEmbeddings(ctx context.Context) error {
+	entries, err := executor.store.MemoryEntriesMissingEmbedding(ctx, executor.indexID, executor.dimensions)
+	if err != nil {
+		return fmt.Errorf("list memory entries missing embeddings: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	inputs := make([]string, len(entries))
+	for index, entry := range entries {
+		inputs[index] = "title: none | text: " + entry.Content
+	}
+	vectors, err := executor.embedder.Embed(ctx, inputs)
+	if err != nil {
+		return fmt.Errorf("embed memory backfill batch: %w", err)
+	}
+	for index, entry := range entries {
+		if err := executor.store.SaveMemoryEmbedding(ctx, entry.ID, executor.indexID, executor.dimensions, vector.Pack(vectors[index])); err != nil {
+			return fmt.Errorf("save memory embedding %d: %w", entry.ID, err)
+		}
+	}
+	return nil
 }
 
 func Definitions(location *time.Location) []providers.ToolDefinition {
 	return []providers.ToolDefinition{
-		ReminderDefinition(location),
+		reminderDefinition(location),
 		definition("store_memory", "Store a stable preference or durable fact in the agent's global memory.", `{
 			"type":"object","additionalProperties":false,
 			"properties":{"content":{"type":"string","description":"One concise durable fact."}},"required":["content"]
@@ -65,7 +154,7 @@ func Definitions(location *time.Location) []providers.ToolDefinition {
 	}
 }
 
-func ReminderDefinition(location *time.Location) providers.ToolDefinition {
+func reminderDefinition(location *time.Location) providers.ToolDefinition {
 	if location == nil {
 		location = time.Local
 	}
@@ -124,6 +213,23 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 	} else if call.Type != "function" {
 		validationError = fmt.Sprintf("unsupported tool call type %q", call.Type)
 	}
+
+	// Embedding calls are network I/O and must not happen while a SQL
+	// transaction is held open, so resolve them before store.WithTx below.
+	var memoryInput *memoryToolInput
+	if validationError == "" {
+		var prepareErr error
+		switch call.Function.Name {
+		case "store_memory":
+			memoryInput, prepareErr = executor.prepareStoreMemory(ctx, call.Function.Arguments)
+		case "search_memory":
+			memoryInput, prepareErr = executor.prepareSearchMemory(ctx, call.Function.Arguments)
+		}
+		if prepareErr != nil {
+			validationError = prepareErr.Error()
+		}
+	}
+
 	if validationError != "" {
 		result.Content = errorJSON(validationError)
 		result.IsError = true
@@ -131,7 +237,7 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 	}
 
 	err := executor.store.WithTx(ctx, func(tx *state.Tx) error {
-		content, err := executor.execute(ctx, tx, toolCtx, call)
+		content, err := executor.execute(ctx, tx, toolCtx, call, memoryInput)
 		if err != nil {
 			return err
 		}
@@ -150,39 +256,19 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 	return result, nil
 }
 
-func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Context, call providers.ToolCall) (string, error) {
+func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Context, call providers.ToolCall, memoryInput *memoryToolInput) (string, error) {
 	switch call.Function.Name {
 	case "manage_reminders":
 		return executor.manageReminders(ctx, tx, toolCtx, call.Function.Arguments)
 	case "store_memory":
-		var args struct {
-			Content string `json:"content"`
-		}
-		if err := decodeArguments(call.Function.Arguments, &args); err != nil {
-			return "", err
-		}
-		args.Content = strings.TrimSpace(args.Content)
-		if args.Content == "" {
-			return "", fmt.Errorf("content must not be empty")
-		}
-		stored, err := tx.SaveMemoryUnique(ctx, args.Content)
+		stored, err := tx.SaveMemoryUnique(ctx, memoryInput.text, executor.indexID, executor.dimensions, vector.Pack(memoryInput.embedding))
 		if err != nil {
 			return "", err
 		}
-		return marshalContent(map[string]any{"content": args.Content, "stored": stored})
+		return marshalContent(map[string]any{"content": memoryInput.text, "stored": stored})
 
 	case "search_memory":
-		var args struct {
-			Query string `json:"query"`
-		}
-		if err := decodeArguments(call.Function.Arguments, &args); err != nil {
-			return "", err
-		}
-		args.Query = strings.TrimSpace(args.Query)
-		if args.Query == "" {
-			return "", fmt.Errorf("query must not be empty")
-		}
-		entries, err := tx.SearchMemory(ctx, args.Query, memorySearchLimit)
+		entries, err := tx.SearchMemoryByVector(ctx, executor.indexID, executor.dimensions, memoryInput.embedding, executor.minScore, memorySearchLimit)
 		if err != nil {
 			return "", err
 		}

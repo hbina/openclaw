@@ -4,12 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
 )
+
+const (
+	testEmbeddingModel      = "test-embedding-model"
+	testEmbeddingDimensions = 2
+	testMinScore            = 0.5
+)
+
+// fakeEmbedder maps "espresso"/"coffee"-flavored text to one unit vector and
+// everything else to an orthogonal vector, so tests can prove search_memory
+// matches by vector similarity rather than literal substring overlap.
+type fakeEmbedder struct{}
+
+func (fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, error) {
+	vectors := make([][]float32, len(inputs))
+	for index, input := range inputs {
+		lower := strings.ToLower(input)
+		if strings.Contains(lower, "espresso") || strings.Contains(lower, "coffee") {
+			vectors[index] = []float32{1, 0}
+		} else {
+			vectors[index] = []float32{0, 1}
+		}
+	}
+	return vectors, nil
+}
+
+func (fakeEmbedder) Tokenize(_ context.Context, content string) ([]int, error) {
+	return make([]int, len(strings.Fields(content))), nil
+}
+
+func (fakeEmbedder) Detokenize(_ context.Context, _ []int) (string, error) {
+	return "detokenized", nil
+}
 
 func newTestExecutor(t *testing.T) (*Executor, *state.Store, time.Time) {
 	t.Helper()
@@ -19,7 +52,18 @@ func newTestExecutor(t *testing.T) (*Executor, *state.Store, time.Time) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
-	return NewExecutor(store, func() time.Time { return now }, time.UTC), store, now
+	return NewExecutor(store, func() time.Time { return now }, time.UTC, fakeEmbedder{}, testEmbeddingModel, testEmbeddingDimensions, testMinScore), store, now
+}
+
+func listRemindersForTest(t *testing.T, store *state.Store, channelID, senderID string) ([]state.Reminder, error) {
+	t.Helper()
+	var reminders []state.Reminder
+	err := store.WithTx(context.Background(), func(tx *state.Tx) error {
+		var err error
+		reminders, err = tx.ListReminders(context.Background(), channelID, senderID)
+		return err
+	})
+	return reminders, err
 }
 
 func call(id, name, arguments string) providers.ToolCall {
@@ -53,7 +97,7 @@ func TestReminderToolsUseTrustedIdentityAndScopedDelete(t *testing.T) {
 	if err != nil || !denied.IsError {
 		t.Fatalf("cross-user delete: result=%#v err=%v", denied, err)
 	}
-	reminders, err := store.ListReminders(owner.ChannelID, owner.SenderID)
+	reminders, err := listRemindersForTest(t, store, owner.ChannelID, owner.SenderID)
 	if err != nil || len(reminders) != 1 {
 		t.Fatalf("owner reminders after denied delete: %#v err=%v", reminders, err)
 	}
@@ -62,7 +106,7 @@ func TestReminderToolsUseTrustedIdentityAndScopedDelete(t *testing.T) {
 	if err != nil || deleted.IsError {
 		t.Fatalf("delete reminder: result=%#v err=%v", deleted, err)
 	}
-	reminders, err = store.ListReminders(owner.ChannelID, owner.SenderID)
+	reminders, err = listRemindersForTest(t, store, owner.ChannelID, owner.SenderID)
 	if err != nil || len(reminders) != 0 {
 		t.Fatalf("owner reminders after delete: %#v err=%v", reminders, err)
 	}
@@ -116,7 +160,7 @@ func TestReminderBatchAddUpdateListAndRemove(t *testing.T) {
 	if err != nil || removed.IsError || !stringsContain(removed.Content, `"count":2`) {
 		t.Fatalf("remove: %#v err=%v", removed, err)
 	}
-	remaining, err := store.ListReminders(toolCtx.ChannelID, toolCtx.SenderID)
+	remaining, err := listRemindersForTest(t, store, toolCtx.ChannelID, toolCtx.SenderID)
 	if err != nil || len(remaining) != 0 {
 		t.Fatalf("remaining reminders: %#v err=%v", remaining, err)
 	}
@@ -133,7 +177,7 @@ func TestReminderCronDefaultsToServerTimezone(t *testing.T) {
 		t.Fatalf("LoadLocation: %v", err)
 	}
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
-	executor := NewExecutor(store, func() time.Time { return now }, location)
+	executor := NewExecutor(store, func() time.Time { return now }, location, fakeEmbedder{}, testEmbeddingModel, testEmbeddingDimensions, testMinScore)
 	toolCtx := Context{ChannelID: "telegram", SenderID: "owner"}
 
 	result, err := executor.ExecuteAndRecord(context.Background(), toolCtx, call("local-cron", "manage_reminders", `{"action":"add","items":[{"message":"morning","schedule":{"kind":"cron","expr":"0 8 * * *"}}]}`))
@@ -146,7 +190,7 @@ func TestReminderCronDefaultsToServerTimezone(t *testing.T) {
 		t.Fatalf("result does not use server timezone: %s", result.Content)
 	}
 
-	reminders, err := store.ListReminders(toolCtx.ChannelID, toolCtx.SenderID)
+	reminders, err := listRemindersForTest(t, store, toolCtx.ChannelID, toolCtx.SenderID)
 	if err != nil || len(reminders) != 1 || reminders[0].Schedule.Timezone != "Asia/Singapore" {
 		t.Fatalf("persisted reminder: %#v err=%v", reminders, err)
 	}
@@ -163,7 +207,7 @@ func TestReminderBatchRollsBackOnInvalidItem(t *testing.T) {
 	if err != nil || !result.IsError {
 		t.Fatalf("invalid batch: %#v err=%v", result, err)
 	}
-	reminders, err := store.ListReminders(toolCtx.ChannelID, toolCtx.SenderID)
+	reminders, err := listRemindersForTest(t, store, toolCtx.ChannelID, toolCtx.SenderID)
 	if err != nil || len(reminders) != 0 {
 		t.Fatalf("batch was not atomic: %#v err=%v", reminders, err)
 	}
@@ -183,9 +227,19 @@ func TestGlobalMemoryToolsAreIdempotentAndSearchable(t *testing.T) {
 	if err != nil || duplicate.IsError || !stringsContain(duplicate.Content, `"stored":false`) {
 		t.Fatalf("duplicate store: %#v err=%v", duplicate, err)
 	}
-	search, err := executor.ExecuteAndRecord(ctx, secondUser, call("search-1", "search_memory", `{"query":"espresso"}`))
+	distractor, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-3", "store_memory", `{"content":"The user's favorite color is blue."}`))
+	if err != nil || distractor.IsError {
+		t.Fatalf("distractor store: %#v err=%v", distractor, err)
+	}
+
+	// "coffee preference" shares no substring with the stored fact, so a
+	// match here only comes from vector similarity, not keyword overlap.
+	search, err := executor.ExecuteAndRecord(ctx, secondUser, call("search-1", "search_memory", `{"query":"coffee preference"}`))
 	if err != nil || search.IsError || !stringsContain(search.Content, "The user prefers espresso.") {
-		t.Fatalf("global search: %#v err=%v", search, err)
+		t.Fatalf("semantic search: %#v err=%v", search, err)
+	}
+	if stringsContain(search.Content, "favorite color") {
+		t.Fatalf("semantic search matched an unrelated memory: %#v", search)
 	}
 }
 
@@ -232,7 +286,7 @@ func TestToolResultsPersistAsStructuredHistory(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("list reminders: %#v err=%v", result, err)
 	}
-	history, err := store.GetConversationHistory(ctx, toolCtx.ChannelID, toolCtx.SenderID, 0)
+	history, err := store.GetConversationHistory(ctx, toolCtx.ChannelID, toolCtx.SenderID)
 	if err != nil || len(history) != 1 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
