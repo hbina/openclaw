@@ -119,7 +119,7 @@ func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, s
 	cfg := &config.Config{}
 	cfg.Agents.Defaults.Soul = soul
 	cfg.Agents.Defaults.Identity = "Your name is Test."
-	agent := NewAgent(prov, registry, store, cfg, time.UTC)
+	agent := NewAgent(prov, registry, store, cfg, time.UTC, &fakeEmbedder{})
 	return agent, store
 }
 
@@ -213,7 +213,7 @@ func TestAgentRendersAndPersistsTelegramReplyContext(t *testing.T) {
 		t.Fatalf("NewStore: %v", err)
 	}
 	firstProvider := &recordingProvider{}
-	firstAgent := NewAgent(firstProvider, channels.NewRegistry(), store, cfg, time.UTC)
+	firstAgent := NewAgent(firstProvider, channels.NewRegistry(), store, cfg, time.UTC, &fakeEmbedder{})
 	input := ChatInput{
 		ChannelID: "telegram",
 		SenderID:  "100",
@@ -246,7 +246,7 @@ func TestAgentRendersAndPersistsTelegramReplyContext(t *testing.T) {
 		t.Fatalf("model-visible reply context contains transport-only metadata: %q", firstProvider.request.Messages[1].Content)
 	}
 
-	history, err := store.GetConversationHistory(context.Background(), "telegram", "100", 0)
+	history, err := store.GetConversationHistory(context.Background(), "telegram", "100")
 	if err != nil || len(history) != 2 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
@@ -271,7 +271,7 @@ func TestAgentRendersAndPersistsTelegramReplyContext(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	secondProvider := &recordingProvider{}
-	secondAgent := NewAgent(secondProvider, channels.NewRegistry(), reopened, cfg, time.UTC)
+	secondAgent := NewAgent(secondProvider, channels.NewRegistry(), reopened, cfg, time.UTC, &fakeEmbedder{})
 	if _, err := chat(secondAgent, context.Background(), "telegram", "100", "What did I move?"); err != nil {
 		t.Fatalf("second Chat: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestAgentRejectsInvalidReplyAuthorBeforePersistence(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid reply author") {
 		t.Fatalf("Chat error = %v, want invalid reply author", err)
 	}
-	history, historyErr := store.GetConversationHistory(context.Background(), "telegram", "100", 0)
+	history, historyErr := store.GetConversationHistory(context.Background(), "telegram", "100")
 	if historyErr != nil || len(history) != 0 {
 		t.Fatalf("history=%#v err=%v", history, historyErr)
 	}
@@ -331,7 +331,7 @@ func TestAgentRejectsInvalidReplyAuthorBeforePersistence(t *testing.T) {
 	}
 }
 
-func TestAgentLoadsCompleteHistory(t *testing.T) {
+func TestAgentLoadsTwoRecentCompleteExchanges(t *testing.T) {
 	provider := &recordingProvider{}
 	agent, store := newTestAgent(t, provider, nil, "")
 	ctx := context.Background()
@@ -351,13 +351,13 @@ func TestAgentLoadsCompleteHistory(t *testing.T) {
 		t.Fatalf("Chat: %v", err)
 	}
 
-	// The provider receives the system prompt, every stored row, and the current
-	// message. This remains the temporary behavior until retrieval is implemented.
-	if got, want := len(provider.request.Messages), historyRows+2; got != want {
+	// The provider receives the system prompt, the latest two complete exchanges,
+	// and the current message. Older exchanges are supplied only by semantic recall.
+	if got, want := len(provider.request.Messages), 6; got != want {
 		t.Fatalf("provider message count = %d, want %d", got, want)
 	}
-	if got := provider.request.Messages[1].Content; got != "history-00" {
-		t.Fatalf("first history message = %q, want %q", got, "history-00")
+	if got := provider.request.Messages[1].Content; got != "history-20" {
+		t.Fatalf("first recent message = %q, want %q", got, "history-20")
 	}
 }
 
@@ -386,7 +386,7 @@ func TestAgentDoesNotSummarizeOrTrimLargeHistory(t *testing.T) {
 	if len(provider.requests) != 1 {
 		t.Fatalf("provider request count = %d, want one normal generation", len(provider.requests))
 	}
-	history, err := store.GetConversationHistory(ctx, "cli", "user-1", 0)
+	history, err := store.GetConversationHistory(ctx, "cli", "user-1")
 	if err != nil {
 		t.Fatalf("GetConversationHistory: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestAgentUsesStartupPersonaSnapshot(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Agents.Defaults.Soul = "Be warm and direct."
 	cfg.Agents.Defaults.Identity = "Your name is Jet."
-	agent := NewAgent(provider, channels.NewRegistry(), store, cfg, time.UTC)
+	agent := NewAgent(provider, channels.NewRegistry(), store, cfg, time.UTC, &fakeEmbedder{})
 	cfg.Agents.Defaults.Soul = "Changed after startup."
 	cfg.Agents.Defaults.Identity = "Your name is Other."
 	ctx := context.Background()
@@ -423,6 +423,17 @@ func newTestStoreForAgent(t *testing.T) *state.Store {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func listRemindersForTest(t *testing.T, store *state.Store, channelID, senderID string) ([]state.Reminder, error) {
+	t.Helper()
+	var reminders []state.Reminder
+	err := store.WithTx(context.Background(), func(tx *state.Tx) error {
+		var err error
+		reminders, err = tx.ListReminders(context.Background(), channelID, senderID)
+		return err
+	})
+	return reminders, err
 }
 
 func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
@@ -474,7 +485,7 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("structured history was not replayed: %#v", replay)
 	}
 
-	history, err := store.GetConversationHistory(ctx, "cli", "user-1", 0)
+	history, err := store.GetConversationHistory(ctx, "cli", "user-1")
 	if err != nil || len(history) != 6 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
@@ -548,11 +559,11 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 	if request.ToolChoice != "auto" || len(request.Tools) != 3 {
 		t.Fatalf("quoted reminder text forced tool controls: %#v", request)
 	}
-	reminders, err := store.ListReminders("cli", "user-1")
+	reminders, err := listRemindersForTest(t, store, "cli", "user-1")
 	if err != nil || len(reminders) != 0 {
 		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
-	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1", 0)
+	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1")
 	if err != nil || len(history) != 2 || history[0].ContentType != state.ContentInboundMessage || history[1].ContentType != state.ContentText {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
@@ -573,7 +584,7 @@ func TestAgentWarnsAboutUncommittedReminderClaim(t *testing.T) {
 	if !strings.HasSuffix(reply, uncommittedReminderNote) {
 		t.Fatalf("reply missing uncommitted reminder note: %q", reply)
 	}
-	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1", 0)
+	history, err := store.GetConversationHistory(context.Background(), "cli", "user-1")
 	if err != nil || len(history) != 2 || history[1].Content != reply {
 		t.Fatalf("stored warning reply history=%#v err=%v", history, err)
 	}
@@ -597,7 +608,7 @@ func TestAgentDoesNotWarnAfterCommittedReminderMutation(t *testing.T) {
 	if err != nil || reply != "I have scheduled a reminder for Tuesday." {
 		t.Fatalf("Chat: reply=%q err=%v", reply, err)
 	}
-	reminders, err := store.ListReminders("cli", "user-1")
+	reminders, err := listRemindersForTest(t, store, "cli", "user-1")
 	if err != nil || len(reminders) != 1 {
 		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
@@ -624,7 +635,7 @@ func TestRejectedReminderMutationCannotBackSuccessClaim(t *testing.T) {
 	if !strings.HasSuffix(reply, uncommittedReminderNote) {
 		t.Fatalf("reply missing uncommitted reminder note: %q", reply)
 	}
-	reminders, err := store.ListReminders("cli", "user-1")
+	reminders, err := listRemindersForTest(t, store, "cli", "user-1")
 	if err != nil || len(reminders) != 0 {
 		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
@@ -714,7 +725,7 @@ func TestAgentSerializesTurnsWithinConversation(t *testing.T) {
 		}
 	}
 
-	history, err := store.GetConversationHistory(context.Background(), "telegram", "user-1", 0)
+	history, err := store.GetConversationHistory(context.Background(), "telegram", "user-1")
 	if err != nil {
 		t.Fatalf("GetConversationHistory: %v", err)
 	}

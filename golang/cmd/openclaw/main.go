@@ -30,7 +30,6 @@ func main() {
 	log.Println("Starting OpenClaw (Go Core)...")
 
 	// 1. Configuration
-	// For skeleton, we use dummy paths. In production these are injected via ENV.
 	cfg, err := config.LoadConfig(filepath.Join(configDir, "openclaw.json"))
 	if err != nil {
 		log.Fatalf("Failed to load openclaw.json: %v", err)
@@ -49,36 +48,50 @@ func main() {
 	defer store.Close()
 
 	// 3. Local OpenAI-compatible provider
-	primaryProviderID := "openai"
-	if cfg.Agents.Defaults.Model.Primary != "" {
-		parts := strings.SplitN(cfg.Agents.Defaults.Model.Primary, "/", 2)
-		primaryProviderID = parts[0]
-	}
-	if primaryProviderID != "openai" {
-		log.Fatalf("Unsupported provider %q: the Go runtime requires an OpenAI-compatible local llama-server endpoint", primaryProviderID)
-	}
 	primaryProv, err := providers.NewOpenAIClient(sec.Models.Providers.OpenAI.APIKey, cfg.Models.Providers.OpenAI.BaseURL)
 	if err != nil {
 		log.Fatalf("Failed to configure local model provider: %v", err)
+	}
+	embeddingProv, err := providers.NewEmbeddingClient(
+		sec.Models.Embeddings.APIKey,
+		cfg.Models.Embeddings.BaseURL,
+		cfg.Models.Embeddings.Model,
+		cfg.Models.Embeddings.Dimensions,
+	)
+	if err != nil {
+		log.Fatalf("Failed to configure local embedding provider: %v", err)
 	}
 
 	// 4. Channels
 	chanReg := channels.NewRegistry()
 	if cfg.Channels.Telegram.Enabled && sec.Channels.Telegram.BotToken != "" {
 		tg, err := channels.NewTelegramAdapter(sec.Channels.Telegram.BotToken)
-		if err == nil {
-			chanReg.Register(tg)
+		if err != nil {
+			log.Fatalf("Failed to configure Telegram: %v", err)
 		}
+		chanReg.Register(tg)
 	}
 
 	// 5. Agent & Gateway
 	serverTimezone := time.Local
 	log.Printf("Using server timezone %s", serverTimezone.String())
-	agent := gateway.NewAgent(primaryProv, chanReg, store, cfg, serverTimezone)
+	rag := gateway.NewRAGService(
+		store,
+		embeddingProv,
+		primaryProv,
+		cfg.Models.Embeddings.IndexID,
+		cfg.Models.Embeddings.Dimensions,
+		cfg.Agents.Defaults.HistorySearch.MinScore,
+	)
+	agent := gateway.NewAgent(primaryProv, chanReg, store, cfg, serverTimezone, embeddingProv, rag)
 	gw := gateway.NewGateway(agent, chanReg, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if err := agent.BackfillMemoryEmbeddings(ctx); err != nil {
+		log.Printf("Warning: memory embedding backfill incomplete: %v", err)
+	}
+	rag.Start(ctx)
 
 	if err := gw.Start(ctx); err != nil {
 		log.Fatalf("Gateway failed to start: %v", err)
@@ -90,7 +103,8 @@ func main() {
 	<-sigChan
 
 	log.Println("Shutting down gracefully...")
-	gw.Stop(context.Background())
+	if err := gw.Stop(context.Background()); err != nil {
+		log.Printf("Gateway shutdown incomplete: %v", err)
+	}
 	log.Println("OpenClaw stopped.")
-	os.Exit(0)
 }

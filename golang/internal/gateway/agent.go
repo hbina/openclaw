@@ -36,11 +36,11 @@ type Agent struct {
 	tools             *tools.Executor
 	chanReg           *channels.Registry
 	store             *state.Store
-	cfg               *config.Config
 	soul              string
 	identity          string
 	location          *time.Location
 	conversationLocks *conversationLockManager
+	rag               *RAGService
 }
 
 // ChatInput is the canonical inbound turn passed to the agent.
@@ -62,26 +62,43 @@ func NewAgent(
 	store *state.Store,
 	cfg *config.Config,
 	location *time.Location,
+	embedder providers.Embedder,
+	ragServices ...*RAGService,
 ) *Agent {
 	if location == nil {
 		location = time.Local
 	}
 	var soul, identity string
+	var indexID string
+	var dimensions int
+	var minScore float64
 	if cfg != nil {
 		soul = cfg.Agents.Defaults.Soul
 		identity = cfg.Agents.Defaults.Identity
+		indexID = cfg.Models.Embeddings.IndexID
+		dimensions = cfg.Models.Embeddings.Dimensions
+		minScore = cfg.Agents.Defaults.HistorySearch.MinScore
 	}
-	return &Agent{
+	agent := &Agent{
 		provider:          provider,
-		tools:             tools.NewExecutor(store, time.Now, location),
+		tools:             tools.NewExecutor(store, time.Now, location, embedder, indexID, dimensions, minScore),
 		chanReg:           chanReg,
 		store:             store,
-		cfg:               cfg,
 		soul:              soul,
 		identity:          identity,
 		location:          location,
 		conversationLocks: newConversationLockManager(),
 	}
+	if len(ragServices) > 0 {
+		agent.rag = ragServices[0]
+	}
+	return agent
+}
+
+// BackfillMemoryEmbeddings fills memory rows without a current-model embedding,
+// including rows stranded by a prior embedding-provider outage.
+func (a *Agent) BackfillMemoryEmbeddings(ctx context.Context) error {
+	return a.tools.BackfillMemoryEmbeddings(ctx)
 }
 
 func (a *Agent) generate(ctx context.Context, request *providers.GenerateRequest) (*providers.GenerateResponse, error) {
@@ -99,7 +116,7 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 	}
 	defer releaseConversation()
 
-	history, err := a.store.GetConversationHistory(ctx, input.ChannelID, input.SenderID, 0)
+	history, err := a.store.GetConversationHistory(ctx, input.ChannelID, input.SenderID)
 	if err != nil {
 		log.Printf("Failed to load conversation history: %v", err)
 	}
@@ -126,22 +143,35 @@ Identity:
 %s
 `, input.SenderID, input.ChannelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), a.soul, a.identity)
 
-	messages := []providers.Message{
+	baseMessages := []providers.Message{
 		{Role: providers.RoleSystem, Content: systemPrompt},
 	}
 
-	historyMessages, err := reconstructHistory(history)
+	recentExchanges, historyMessages, err := recentConversation(history)
 	if err != nil {
 		return "", err
 	}
-	messages = append(messages, historyMessages...)
+	baseMessages = append(baseMessages, historyMessages...)
 
 	inbound := persistedInboundMessage{Content: input.Content, Reply: input.Reply}
 	renderedInbound, err := renderInboundMessage(inbound)
 	if err != nil {
 		return "", fmt.Errorf("render inbound message: %w", err)
 	}
-	messages = append(messages, providers.Message{Role: providers.RoleUser, Content: renderedInbound})
+	baseMessages = append(baseMessages, providers.Message{Role: providers.RoleUser, Content: renderedInbound})
+
+	definitions := tools.Definitions(a.location)
+	messages := baseMessages
+	if a.rag != nil {
+		archive, retrieveErr := a.rag.Retrieve(
+			ctx, renderedInbound, recentExchanges, baseMessages, definitions, defaultMaxTokens,
+		)
+		if retrieveErr != nil {
+			log.Printf("Conversation RAG unavailable; using recent context: %v", retrieveErr)
+		} else if archive != "" {
+			messages = insertArchiveMessage(baseMessages, archive)
+		}
+	}
 
 	payload, err := json.Marshal(inbound)
 	if err != nil {
@@ -152,7 +182,6 @@ Identity:
 	}
 
 	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID}
-	definitions := tools.Definitions(a.location)
 	reminderMutationSucceeded := false
 	for round := 0; round < maxToolRounds; round++ {
 		resp, err := a.generate(ctx, &providers.GenerateRequest{
@@ -201,6 +230,9 @@ Identity:
 		if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
 			return "", fmt.Errorf("save assistant turn: %w", err)
 		}
+		if a.rag != nil {
+			a.rag.Notify()
+		}
 
 		return reply, nil
 	}
@@ -208,6 +240,9 @@ Identity:
 	reply := "I couldn't complete that request because the tool workflow exceeded its safety limit."
 	if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
 		return "", fmt.Errorf("save tool limit response: %w", err)
+	}
+	if a.rag != nil {
+		a.rag.Notify()
 	}
 	return reply, nil
 }
