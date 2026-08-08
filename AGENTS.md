@@ -1,208 +1,173 @@
-# Repository Guidelines
+# Repository Intent
 
-This branch is a slim, Docker-first OpenClaw fork. The retained reminder-assistant product has been migrated from TypeScript/Node to Go, and the upstream Node runtime has been deleted from the working tree; it remains available only in Git history. This file is the single source of truth for product goals, scope, implementation status, priorities, and cutover gates. Read it before changing runtime behavior and update it whenever any of those facts change.
+## Why This File Exists
 
-## Start Here
+`AGENTS.md` preserves the intent, constraints, and trade-offs that cannot be
+reliably reconstructed from source code. The codebase explains how the product
+works; this file explains why it has its present shape and which user outcomes
+must survive future changes.
 
-- Run `git status -sb` first. The migration is intentionally staged and may be dirty; never reset, restore, stash, delete, or overwrite unrelated work.
-- Read the complete nearest scoped `AGENTS.md` before subtree work.
-- Use repo-root references in reports, for example `golang/internal/gateway/agent.go:220`; do not report absolute paths.
-- For docs/user-visible work, run `pnpm docs:list` and read only the relevant docs.
-- Diagnose from source, callers, tests, current behavior, and dependency contracts. Do not guess API behavior or declare parity from a diff alone.
-- Never print, commit, copy into images, or expose credentials. `config_test/secrets.json` is local-only.
+Keep this file focused on durable product direction, architectural boundaries,
+known risks, and the meaning of “done.” Do not turn it into a file inventory,
+command reference, implementation walkthrough, or record of ephemeral
+deployment details. When an operational rule is important enough to retain
+here, explain the failure or user harm that the rule prevents.
 
-## Product Direction
+Scoped `AGENTS.md` files may add rationale for their subtree, but they must not
+override the product intent recorded here. Update this file when goals, scope,
+accepted trade-offs, priorities, or cutover criteria change—not merely because
+an implementation detail moved.
 
-The production target is one local personal assistant for exactly one trusted
-owner per deployment. Each person runs a separate bot instance. Do not add
-multi-user accounts, tenant boundaries, or per-user data isolation inside the Go
-runtime. Channel and sender identifiers are conversation-routing keys for the
-owner's channels and topics, not authorization or data-ownership boundaries.
+## Product Purpose
 
-The retained assistant has:
+OpenClaw is one locally operated personal assistant for exactly one trusted
+owner per deployment. Its purpose is to provide useful reminders, durable
+memory, conversation recall, and a consistent operator-defined persona while
+keeping the owner’s conversations and state under local control.
 
-- a standalone Go Gateway and agent loop;
-- one Telegram text channel;
-- recurring and one-shot reminders;
-- SQLite-backed semantic memory, structured conversation history, and automatic
-  semantic conversation recall, plus required operator-owned persona strings in
-  `openclaw.json`;
-- one OpenAI-compatible local `llama-server` for chat/tool generation plus one
-  dedicated local `llama-server` for EmbeddingGemma conversation retrieval;
-- mounted non-secret config, separate secrets, and persistent SQLite state.
+Each owner runs a separate instance. This keeps the trust model understandable
+and avoids importing account, tenancy, and cross-user data-isolation complexity
+into a personal tool. Channel and sender identifiers route the owner’s
+conversations and topics; they are not internal ownership boundaries.
 
-Do not add hosted OpenAI, Anthropic, ChatGPT, Claude API, Claude CLI, MCP subprocess, or cloud fallback paths to the Go runtime. The config name `models.providers.openai` is retained only as the OpenAI-compatible wire-protocol key for `llama-server`. The current deployment intentionally sends model id `default`.
+The retained product is intentionally narrow: a standalone Go gateway and
+agent loop, Telegram text delivery, one-shot and recurring reminders, semantic
+memory and conversation recall, operator-owned persona configuration, local
+chat and embedding models, and persistent SQLite state. Upstream OpenClaw’s
+broader platform surface is not the goal of this fork.
 
-Node remains the behavioral reference while migration is incomplete. Inspect its retained implementation and tests before parity changes, but do not expand the Go target to upstream OpenClaw’s full feature set.
+## Deliberate Product Boundaries
 
-## Current Go Status
+- **Local inference is a privacy and availability boundary.** Chat and
+  embeddings run through local `llama-server` instances so private assistant
+  data does not depend on a hosted model provider. The retained `openai`
+  provider name denotes an OpenAI-compatible wire protocol only. Hosted
+  OpenAI, Anthropic, ChatGPT, Claude, CLI-agent, MCP-subprocess, and cloud
+  fallback paths do not belong in the production Go runtime.
+- **Go is the only production runtime.** The slim fork removed the Node runtime
+  to reduce the deployable surface and eliminate a second behavioral path.
+  Deleted Node code in Git history may clarify an ambiguous retained behavior,
+  but it is not a reason to restore unsupported upstream features.
+- **SQLite is the single state authority.** Reminders, memory, transcripts, and
+  derived recall metadata belong together so mutation, backup, recovery, and
+  inspection have one coherent boundary. JSON, JSONL, or text sidecars would
+  create split-brain and partial-recovery risks.
+- **Persona is operator-owned configuration.** `soul` and `identity` define the
+  one assistant across every conversation. Requiring explicit startup
+  configuration keeps persona changes deliberate and reviewable; chat-driven
+  persona mutation, implicit defaults, compatibility fallbacks, and separate
+  persona state would undermine that ownership.
+- **Ingress admission and internal routing are different concerns.** Pairing or
+  allowlists protect the one-owner boundary at channel entry. Once admitted,
+  all non-secret state belongs to that owner and may be useful across the
+  owner’s channels; do not turn routing keys into tenant partitions.
+- **Reminder tools express reminder state, not arbitrary scheduled agents.** A
+  reminder may use persona and conversation context to phrase a notification,
+  but it cannot silently browse, watch for changes, suppress unchanged results,
+  or contact another person. Pretending otherwise would promise work the
+  current scheduler cannot perform. If Node-style scheduled agent behavior is
+  retained, it needs an explicit design rather than being smuggled into reminder
+  wording.
 
-Implemented under `golang/`:
+## Behavioral Invariants and Their Rationale
 
-- local Chat Completions text and context-aware structured tool calls;
-- atomic tool execution plus structured SQLite transcripts;
-- `manage_reminders`: batch add, list, update, remove; `at`, anchored `every`, and timezone-aware five/six-field `cron` schedules;
-- server-derived local-time prompt context, omitted-cron timezone defaults, and local next-fire display without an application-specific hardcoded timezone;
-- recurring advancement after successful delivery and one-shot deletion;
-- global memory store/search;
-- required startup-loaded `agents.defaults.soul` and `agents.defaults.identity` persona configuration;
-- recent-context selection plus semantic history recall, `/healthz`, `/chat`,
-  and basic channel adapters;
-- standalone Alpine image without Node, npm, Claude, OpenAI-hosted, or Anthropic runtime dependencies.
+- Trusted channel and sender identity must come from ingress routing, never
+  model-controlled tool arguments, because prompt content is not an
+  authorization source.
+- A state mutation and its matching tool-result transcript must commit
+  atomically. The assistant must never claim durable work that the database did
+  not accept.
+- Exact tool-call identifiers and deterministic prompt/tool ordering must be
+  preserved so stored conversations can be replayed without changing meaning.
+- Semantic reminder selection uses normal model tool choice rather than
+  keyword forcing. User intent is contextual, and lexical triggers create
+  false reminder mutations.
+- Recalled conversation is historical evidence, not current instruction. It
+  must be framed as non-authoritative so old tool requests or adversarial text
+  are not replayed as new commands.
+- Reminder completion follows successful channel delivery. Failed sends must
+  remain retryable; recurring advancement or one-shot deletion before delivery
+  would silently lose reminders.
+- Contextual reminder wording is an enhancement, not a delivery dependency.
+  If recall or generation is unavailable, the stored reminder text remains the
+  truthful fallback.
+- Secrets are operational inputs, not application state or documentation.
+  Credentials must never be printed, committed, copied into images, or exposed
+  in reports.
 
-Important gaps:
+## Migration Truth and Current Risk
 
-- Gateway HTTP authentication, request limits, safe bind policy, and stable errors;
-- Telegram pairing/allowlists, correct DM/group identity, media/threads/reactions, multi-account support, and live credential-backed delivery proof;
-- durable reminder claim/lease and delivery idempotency;
-- Node-style scheduled agent jobs. Static reminders cannot silently watch a site, suppress unchanged results, or contact another person;
-- automated backup/restore and the Compose/root-image cutover.
+The retained Go runtime already supports local chat and structured tool calls,
+atomic reminder operations, one-shot and recurring schedules, semantic memory
+and conversation recall, required persona configuration, contextual reminder
+delivery with structured transcripts, basic Telegram text delivery, health and
+chat HTTP endpoints, and a standalone image without Node or hosted-model
+dependencies.
 
-The Node runtime was deleted before any side-by-side parity fixtures or a Node-to-Go state importer were captured. Those are no longer buildable from the working tree. Either capture them from Git history at `53284074db` or record an explicit accepted-discard decision here; do not treat the missing importer as silently resolved.
+That working feature set is not equivalent to production readiness. Remaining
+work is prioritized by the user harm it prevents:
 
-Work the gaps above in the order listed unless the user sets another priority. Prefer closing one gap completely with source, tests, Docker proof, and documentation over starting several partial paths.
+1. **HTTP admission, limits, bind safety, and stable errors** prevent unintended
+   access and unbounded resource use at the exposed gateway.
+2. **Telegram owner admission and correct conversation behavior** prevent
+   strangers or ambiguous routing from entering the trusted-owner context.
+   Pairing and allowlists, DM/group identity, media, threads, reactions,
+   multi-account expectations, and live credential-backed proof remain
+   unresolved parts of that boundary.
+3. **Durable reminder claims and delivery idempotency** prevent duplicate or
+   lost notifications across crashes and concurrent delivery attempts.
+4. **A deliberate scheduled-agent decision** prevents contextual reminder
+   wording from being mistaken for site watching, conditional suppression, or
+   third-party contact. Those Node-style jobs remain a separate unresolved
+   capability.
+5. **A deliberate Node-state decision** prevents historical owner data from
+   being silently abandoned. The Node runtime was deleted before parity
+   fixtures or an importer were captured. Recover evidence from Git history at
+   `53284074db`, or record an explicit accepted-discard decision.
+6. **Backup, restore, corruption, restart, and rollback drills** establish that
+   local ownership is meaningful during failure, not only during normal use.
+7. **Compose and root-image cutover** remove the final ambiguity about which
+   runtime operators are expected to deploy.
 
-## Project Structure
+Close these risks in order unless the user chooses a different priority. A
+complete, proven slice is more valuable than several partially implemented
+ones because operational confidence depends on end-to-end behavior.
 
-- `golang/cmd/openclaw`: Go startup and dependency wiring.
-- `golang/internal/{config,providers,tools,state,channels,gateway}`: retained Go runtime.
-- `docs/`: operator documentation for the retained Go runtime.
-- `scripts/`: `committer` and the `deploy-go-test.sh` container helper.
-- `config_test/`: ignored local test config, secrets, and persisted Go SQLite state.
+## Evidence and Change Discipline
 
-OpenClaw-owned runtime state belongs in SQLite, not new JSON/JSONL/TXT sidecars. The live Go database is `config_test/agent_data_go/openclaw-agent.sqlite`. Persona is operator-owned configuration under `agents.defaults`; changes require editing `openclaw.json` and restarting the process. Do not add a chat mutation tool, persona state table, mounted persona files, defaults, or compatibility fallback.
+Behavioral claims must come from source, callers, tests, dependency contracts,
+and observed behavior—not from a diff alone. This matters especially for local
+model behavior, where a mock cannot establish that the deployed Gemma model
+understands a prompt or strict tool schema.
 
-All non-secret bot state belongs to the one owner and may be inspected across
-that owner's conversation channels. Never expose credentials or secret config.
-If channel pairing or allowlists are retained, they enforce the single-owner
-admission boundary at ingress; they must not introduce internal tenant or
-per-user state partitioning.
+Verification should be proportional to the user-facing risk. State changes
+need persistence and failure-path proof; provider, retrieval, reminder,
+persona, and channel changes need live local-model or delivery evidence in
+addition to focused tests. Missing proof must be reported as a gap rather than
+converted into a claim of parity.
 
-## Local Model Contract
+The working tree may contain intentional migration work owned by the user.
+Inspect it before editing and preserve unrelated staged, unstaged, and untracked
+changes. Do not reset, restore, stash, delete, or absorb work merely to obtain a
+clean diff. Commit only when asked and include only the intended files. These
+rules protect work whose context may not be visible from the current task.
 
-The configured chat provider must be the local llama.cpp server, currently
-reachable from Docker at:
+Public documentation must describe verified behavior and explicit limitations,
+not aspirations as shipped features. Reports should use repository-relative
+source references so they remain useful outside one machine.
 
-```text
-http://172.17.0.1:8080/v1
-```
+`AGENTS.md` is the source of this guidance. `CLAUDE.md` remains a symlink so
+agents receive one consistent set of intentions rather than divergent copies.
 
-Conversation retrieval uses the dedicated EmbeddingGemma server at:
+## Production Cutover Meaning
 
-```text
-http://172.17.0.1:8081/v1
-```
+Production cutover is complete only when the retained behaviors have focused
+tests and live local-model proof, HTTP and Telegram enforce the one-owner
+admission boundary, reminder delivery is crash-safe and idempotent, historical
+Node state has a tested import or explicit discard decision, recovery and image
+rollback drills pass, and the documented deployment uses the standalone Go
+image.
 
-Before provider/tool/RAG work, verify both endpoints from the host and container.
-Use the live endpoints for user-visible behavior proof; mocked HTTP tests alone
-are insufficient. Keep tool schemas simple and strict because the deployed local
-Gemma model must call them reliably. Reminder selection is semantic with
-`tool_choice: auto`; do not reintroduce keyword-based forcing. Preserve the
-result-backed guard so an assistant mutation claim without a committed reminder
-tool result is explicitly corrected.
-
-## Running Test Container
-
-As of 2026-07-26, the persistent live test deployment is:
-
-```text
-name:  openclaw-go-test-ubuntu
-image: openclaw-go-ubuntu-test:spring-clean-final-20260726
-port:  0.0.0.0:18792 -> 18789/tcp
-```
-
-The observed container id is `4ce07fcdcaed`, but ids and uptime are ephemeral; re-check with:
-
-```bash
-docker ps --filter name=openclaw-go-test-ubuntu
-docker inspect openclaw-go-test-ubuntu
-docker logs --tail 80 openclaw-go-test-ubuntu
-curl -fsS http://127.0.0.1:18792/healthz
-```
-
-It mounts local config at `/config`, persistent state at `/data`, and uses `OPENCLAW_CONFIG_DIR=/config`, `OPENCLAW_DATA_DIR=/data`, `TZ=Asia/Kuala_Lumpur`, plus restart policy `unless-stopped`. Before recreating it, inspect and preserve every bind/volume, environment value, published port, and restart policy. `docker restart` does not load a rebuilt image.
-
-Build a candidate with:
-
-```bash
-docker build -t openclaw-go-ubuntu-test:<tag> golang
-```
-
-After rebuilding, recreate the named container with its existing mounts, then prove health, a real `/chat` request through the local model, the expected structured transcript, and SQLite state. Use a unique test sender and clean up test reminders so the one-minute delivery loop does not retain undeliverable `cli` jobs.
-
-Useful inspection:
-
-```bash
-sqlite3 -header -column config_test/agent_data_go/openclaw-agent.sqlite \
-  "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
-```
-
-Never display secret-file contents or bearer/channel tokens in logs or reports.
-
-## Build and Test Commands
-
-Run Go commands from `golang/`. Use a writable cache when the default cache is read-only:
-
-```bash
-GOCACHE=/tmp/openclaw-go-cache go test ./...
-GOCACHE=/tmp/openclaw-go-cache go vet ./...
-GOCACHE=/tmp/openclaw-go-cache go test -race ./...
-GOCACHE=/tmp/openclaw-go-cache go build -o /tmp/openclaw-go ./cmd/openclaw
-```
-
-Do not build without `-o`; generated binaries do not belong in the source tree.
-Run `gofmt -w` on touched Go files and `git diff --check` before handoff.
-
-For Node reference changes, use repository commands only: `pnpm test <path>`, `pnpm check:changed --staged`, `pnpm build`, and oxfmt wrappers. Never run bare Vitest watch mode or introduce `tsc --noEmit`.
-
-Tests use Go’s `testing` package and Node Vitest. Name Go tests `TestBehavior`; keep `*_test.go` colocated. Cover success, validation, ownership boundaries, persistence/reopen, and failure behavior. User-visible provider, reminder, persona, state, Docker, or channel changes require proportional live proof.
-
-## Coding and Architecture Rules
-
-- Go: `gofmt`, small packages, explicit errors with context, `context.Context` at I/O boundaries, strict JSON decoding, and no hidden global fallbacks.
-- TypeScript: strict ESM, no `any`/`@ts-nocheck`, schemas at external boundaries, and oxfmt formatting.
-- Prefer one canonical path. Delete stale cloud/provider branches rather than adding compatibility shims.
-- Keep trusted channel/sender identity outside model-controlled tool arguments.
-- Treat channel/sender identity as routing metadata for the single owner, not as
-  an internal authorization or tenant-isolation boundary.
-- Commit state mutation and its matching tool-result transcript atomically.
-- Preserve deterministic prompt/tool ordering and exact tool-call ids.
-- Inspect direct dependency source/docs/types before changing dependency-backed behavior. Pin new Go dependencies and run `go mod tidy`.
-- Config/env additions require strong justification. Keep non-secrets in `openclaw.json`, credentials in `secrets.json`, and state outside the image.
-- Persona is global to the single agent, loaded once at startup, and controlled only by operators through required plain strings in `openclaw.json`.
-
-## Change Workflow
-
-For each runtime slice:
-
-1. Read the relevant Go siblings, callers, tests, and docs. Consult the deleted Node reference in Git history only when a specific retained behavior is genuinely ambiguous.
-2. State the retained contract and known non-goals before coding.
-3. Implement the canonical Go path; avoid a second fallback path.
-4. Add focused unit/integration coverage and run Go test, vet, race, and build gates.
-5. Build/recreate the Docker candidate and exercise the real local llama-server behavior.
-6. Inspect SQLite/transcripts for proof; verify restart persistence when state changes.
-7. Update this file's status, gaps, and container/image details, and the relevant `docs/` page.
-8. Review `git diff --numstat`, trim unnecessary production LOC, run `git diff --check`, and report all proof gaps.
-
-Do not mark the product production-ready merely because the reminder use case works.
-
-## Cutover Gates
-
-Production cutover is complete only when:
-
-- every retained behavior has focused tests and live local-model proof;
-- HTTP and Telegram enforce the one-owner admission boundary;
-- reminder delivery is crash-safe and idempotent;
-- retained Node state has a tested one-way import or an explicit accepted discard decision;
-- backup, restore, corruption, restart, and image rollback drills pass;
-- Compose/root deployment uses the standalone Go image.
-
-Already satisfied: the Node runtime and unsupported repository surfaces are deleted, and no production dependency on Node, npm, hosted models, plugins, or cloud fallback remains.
-
-## Commits and Pull Requests
-
-Use concise conventional-style subjects such as `feat(go): add reminder recurrence` or `fix(go): reload SQLite identity`. Commit only when asked, stage intended files only, and use `scripts/committer "<message>" <files...>`. Never reset or absorb unrelated staged work.
-
-PRs should explain retained behavior, Node-reference differences, config/state impact, migration risk, and verification. Link issues when applicable. Include exact tests and Docker/live proof; attach screenshots only for UI changes. Do not edit `CHANGELOG.md` for ordinary work.
-
-`CLAUDE.md` must remain a symlink to this file. Edit `AGENTS.md`, never the symlink.
+The removal of Node and unsupported cloud/platform surfaces is already
+complete. It narrows the system; it does not waive the remaining safety and
+recovery obligations.

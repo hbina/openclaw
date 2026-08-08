@@ -1,28 +1,47 @@
-# Scripts Guide
+# Script Intent
 
-This directory owns local tooling, script wrappers, and generated-artifact helper rules.
+Scripts exist to make recurring repository operations reproducible, safe, and
+easy to audit. They should encode a deliberate project seam, not hide product
+behavior or replace an understandable command with another layer of ceremony.
 
-## Wrapper Rules
+## Why Wrappers Exist
 
-- Prefer existing wrappers over raw tool entrypoints when the repo already has a curated seam.
-- For tests, prefer `scripts/run-vitest.mjs` or the root `pnpm test ...` entrypoints over raw `vitest run` calls.
-- Never use bare `vitest ...` in automation; it starts local watch mode unless `run` or `--run` is explicit.
-- For lint/typecheck flows, prefer `scripts/run-oxlint.mjs` and `scripts/run-tsgo.mjs` when adding or editing package scripts or CI steps that should honor repo-local runtime behavior.
-- For changed-file verification, prefer `scripts/check-changed.mjs` and keep lane classification in `scripts/changed-lanes.mjs`. Do not copy path-scope rules into new hooks or ad hoc CI snippets.
+A curated wrapper is valuable when it centralizes environment setup, preserves
+repository-specific policy, or prevents different callers from implementing
+the same fragile workflow differently. Once such a seam exists, extending it
+is preferable to copying its rules into hooks, CI jobs, or ad hoc commands;
+duplication allows those paths to drift while appearing equivalent.
 
-## Local Heavy-Check Lock
+Wrapper mechanics and available entrypoints are discoverable from the scripts
+themselves. This file should retain the reason for a seam, not a catalog of
+current filenames or invocation syntax.
 
-- Respect the local heavy-check lock behavior in `scripts/lib/local-heavy-check-runtime.mjs`.
-- Do not bypass that lock for real heavy commands just to make a local loop look faster.
-- Metadata-only or explicitly narrow commands may skip the lock when the existing helper logic says that is safe.
-- If you change the lock heuristics, add or update the narrow tests under `test/scripts/`.
+## Resource and Concurrency Safety
 
-## Generated Outputs
+Heavy-check coordination exists to protect developer machines and concurrent
+work from redundant resource-intensive jobs. Bypassing that coordination to
+make one local invocation finish sooner transfers cost and instability to
+other work. Exceptions should remain narrow, explicit, and supported by tests
+that demonstrate why they are safe.
 
-- If a script writes generated artifacts, keep the source-of-truth generator, the package script, and the matching verification/check command aligned.
-- Prefer additive generator/check pairs like `*:gen` and `*:check` over one-off undocumented scripts.
+Scripts must respect the repository’s broader safety model: preserve unrelated
+work, fail visibly on partial setup, avoid destructive expansion of paths, and
+never reveal credentials. Automation magnifies small mistakes, so target
+selection and failure handling should be easier to audit than the manual
+operation it replaces.
+
+## Generated Artifacts
+
+Generation and verification are two halves of one contract. A generator
+without a matching consistency check allows committed output to drift from its
+source; a check without an authoritative generator leaves maintainers guessing
+how to repair it. Keep those responsibilities aligned and make the generated
+boundary explicit.
 
 ## Scope
 
-- Keep script-runner behavior, wrapper expectations, and generated-artifact guidance here.
-- Leave repo-global verification policy in the root `AGENTS.md`.
+Add or expand a script when it solves a recurring repository problem with a
+stable interface. One-off migration detail, production application behavior,
+and policy that belongs at repository scope should not be hidden here. The
+root `AGENTS.md` owns product-wide intent and verification expectations; this
+file adds only the rationale specific to automation.
