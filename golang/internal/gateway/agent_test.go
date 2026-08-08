@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,10 @@ import (
 
 type recordingProvider struct {
 	request *providers.GenerateRequest
+}
+
+type failingProvider struct {
+	err error
 }
 
 type scriptedProvider struct {
@@ -78,9 +83,14 @@ func (p *recordingProvider) Generate(_ context.Context, req *providers.GenerateR
 	return &providers.GenerateResponse{Message: providers.Message{Role: providers.RoleAssistant, Content: "assistant reply"}}, nil
 }
 
+func (p *failingProvider) Generate(context.Context, *providers.GenerateRequest) (*providers.GenerateResponse, error) {
+	return nil, p.err
+}
+
 type recordingChannel struct {
 	recipient string
 	content   string
+	err       error
 }
 
 func (c *recordingChannel) ID() string {
@@ -96,6 +106,9 @@ func (c *recordingChannel) Stop(context.Context) error {
 }
 
 func (c *recordingChannel) SendMessage(_ context.Context, recipientID, content string) error {
+	if c.err != nil {
+		return c.err
+	}
 	c.recipient = recipientID
 	c.content = content
 	return nil
@@ -434,6 +447,202 @@ func listRemindersForTest(t *testing.T, store *state.Store, channelID, senderID 
 		return err
 	})
 	return reminders, err
+}
+
+func addDueReminderForTest(t *testing.T, store *state.Store, channelID, senderID, message string) state.Reminder {
+	t.Helper()
+	ctx := context.Background()
+	fireAt := time.Now().Add(-time.Minute)
+	var id int64
+	err := store.WithTx(ctx, func(tx *state.Tx) error {
+		var err error
+		id, err = tx.AddReminder(ctx, channelID, senderID, message, state.ReminderSchedule{
+			Kind: state.ScheduleAt,
+			At:   fireAt,
+		}, fireAt)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("add due reminder: %v", err)
+	}
+	return state.Reminder{
+		ID: int(id), ChannelID: channelID, SenderID: senderID, Message: message,
+		Schedule: state.ReminderSchedule{Kind: state.ScheduleAt, At: fireAt}, FireAt: fireAt, Enabled: true,
+	}
+}
+
+func TestAgentDeliversContextualReminderAndRecordsExchange(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "Warmly remember to bring the charger for today's workday. 🦞"},
+	}}}
+	channel := &recordingChannel{}
+	agent, store := newTestAgent(t, provider, channel, "Be warm and familiar.")
+	for _, exchange := range []struct{ user, assistant string }{
+		{"first question", "first answer"},
+		{"I am heading to work tomorrow.", "Your desk setup is nearly ready."},
+		{"I packed my laptop.", "The charger is the remaining item."},
+	} {
+		seedExchange(t, store, channel.ID(), "owner", exchange.user, exchange.assistant)
+	}
+	reminder := addDueReminderForTest(t, store, channel.ID(), "owner", "Bring phone charger to work")
+
+	if err := agent.DeliverReminder(context.Background(), reminder); err != nil {
+		t.Fatalf("DeliverReminder: %v", err)
+	}
+	wantNotification := reminderHeader + "Warmly remember to bring the charger for today's workday. 🦞"
+	if channel.recipient != "owner" || channel.content != wantNotification {
+		t.Fatalf("delivery recipient=%q content=%q", channel.recipient, channel.content)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(provider.requests))
+	}
+	request := provider.requests[0]
+	if request.Model != "default" || request.MaxTokens != reminderMaxTokens || len(request.Tools) != 0 || request.ToolChoice != "" {
+		t.Fatalf("reminder provider controls: %#v", request)
+	}
+	if len(request.Messages) != 6 {
+		t.Fatalf("reminder message count = %d, want system + two recent exchanges + event", len(request.Messages))
+	}
+	system := request.Messages[0].Content
+	for _, want := range []string{"Be warm and familiar.", "Your name is Test.", "A stored reminder is now due", "Return only the notification body"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("reminder system prompt missing %q: %s", want, system)
+		}
+	}
+	current := request.Messages[len(request.Messages)-1]
+	if current.Role != providers.RoleUser || !strings.Contains(current.Content, "Bring phone charger to work") ||
+		!strings.Contains(current.Content, reminder.FireAt.In(time.UTC).Format(time.RFC3339)) {
+		t.Fatalf("scheduled event message: %#v", current)
+	}
+	remaining, err := listRemindersForTest(t, store, channel.ID(), "owner")
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("remaining reminders=%#v err=%v", remaining, err)
+	}
+	history, err := store.GetConversationHistory(context.Background(), channel.ID(), "owner")
+	if err != nil || len(history) != 8 {
+		t.Fatalf("history rows=%d err=%v", len(history), err)
+	}
+	scheduled, delivered := history[len(history)-2], history[len(history)-1]
+	if scheduled.ContentType != state.ContentScheduledReminder || scheduled.Role != "user" ||
+		delivered.ContentType != state.ContentText || delivered.Role != "assistant" || delivered.Content != wantNotification {
+		t.Fatalf("delivery transcript scheduled=%#v delivered=%#v", scheduled, delivered)
+	}
+	var payload persistedScheduledReminder
+	if err := json.Unmarshal([]byte(scheduled.Content), &payload); err != nil || payload.ReminderID != reminder.ID || payload.Message != reminder.Message {
+		t.Fatalf("scheduled payload=%#v err=%v", payload, err)
+	}
+}
+
+func TestAgentReminderUsesSemanticRecall(t *testing.T) {
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "Time to check the Kyoto train plan."},
+	}}}
+	channel := &recordingChannel{}
+	agent, store := newTestAgent(t, provider, channel, "")
+	seedExchange(t, store, "telegram", "another-route", "I am planning Kyoto travel.", "Use trains from Kyoto Station.")
+	seedExchange(t, store, channel.ID(), "owner", "I planted tomatoes.", "Water them tomorrow.")
+	seedExchange(t, store, channel.ID(), "owner", "The garden is tidy.", "Everything is ready.")
+	embedder := &fakeEmbedder{}
+	agent.rag = NewRAGService(store, embedder, &fakePromptSizer{contextSize: 10_000}, "embeddinggemma-test", 3, 0.35)
+	if err := agent.rag.IndexOnce(context.Background()); err != nil {
+		t.Fatalf("IndexOnce: %v", err)
+	}
+	reminder := addDueReminderForTest(t, store, channel.ID(), "owner", "Review transportation in Japan")
+
+	if err := agent.DeliverReminder(context.Background(), reminder); err != nil {
+		t.Fatalf("DeliverReminder: %v", err)
+	}
+	request := provider.requests[0]
+	if len(request.Tools) != 0 || request.ToolChoice != "" {
+		t.Fatalf("semantic reminder exposed tools: %#v", request)
+	}
+	joined := ""
+	for _, message := range request.Messages {
+		joined += "\n" + message.Content
+	}
+	if !strings.Contains(joined, "Kyoto Station") || !strings.Contains(joined, "The garden is tidy") {
+		t.Fatalf("reminder context missing recalled or recent exchange: %s", joined)
+	}
+}
+
+func TestAgentReminderFallsBackWhenContextOrModelFails(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		agent func(*testing.T, *recordingChannel) (*Agent, *state.Store)
+	}{
+		{
+			name: "model",
+			agent: func(t *testing.T, channel *recordingChannel) (*Agent, *state.Store) {
+				return newTestAgent(t, &failingProvider{err: errors.New("model unavailable")}, channel, "")
+			},
+		},
+		{
+			name: "semantic recall",
+			agent: func(t *testing.T, channel *recordingChannel) (*Agent, *state.Store) {
+				provider := &recordingProvider{}
+				agent, store := newTestAgent(t, provider, channel, "")
+				agent.rag = NewRAGService(store, &fakeEmbedder{fail: true}, &fakePromptSizer{contextSize: 10_000}, "embeddinggemma-test", 3, 0.35)
+				return agent, store
+			},
+		},
+		{
+			name: "empty output",
+			agent: func(t *testing.T, channel *recordingChannel) (*Agent, *state.Store) {
+				return newTestAgent(t, &scriptedProvider{responses: []providers.GenerateResponse{{
+					Message: providers.Message{Role: providers.RoleAssistant, Content: "   "},
+				}}}, channel, "")
+			},
+		},
+		{
+			name: "unexpected tool call",
+			agent: func(t *testing.T, channel *recordingChannel) (*Agent, *state.Store) {
+				response := providers.GenerateResponse{Message: providers.Message{
+					Role: providers.RoleAssistant,
+					ToolCalls: []providers.ToolCall{{
+						ID:       "unexpected",
+						Type:     "function",
+						Function: providers.FunctionCall{Name: "manage_reminders", Arguments: `{"action":"list"}`},
+					}},
+				}}
+				return newTestAgent(t, &scriptedProvider{responses: []providers.GenerateResponse{response}}, channel, "")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			channel := &recordingChannel{}
+			agent, store := test.agent(t, channel)
+			reminder := addDueReminderForTest(t, store, channel.ID(), "owner", "Bring phone charger to work")
+			if err := agent.DeliverReminder(context.Background(), reminder); err != nil {
+				t.Fatalf("DeliverReminder: %v", err)
+			}
+			if channel.content != reminderHeader+reminder.Message {
+				t.Fatalf("fallback notification = %q", channel.content)
+			}
+			history, err := store.GetConversationHistory(context.Background(), channel.ID(), "owner")
+			if err != nil || len(history) != 2 || history[1].Content != channel.content {
+				t.Fatalf("fallback history=%#v err=%v", history, err)
+			}
+		})
+	}
+}
+
+func TestAgentReminderSendFailurePreservesDueStateAndTranscript(t *testing.T) {
+	channel := &recordingChannel{err: errors.New("telegram unavailable")}
+	agent, store := newTestAgent(t, &recordingProvider{}, channel, "")
+	reminder := addDueReminderForTest(t, store, channel.ID(), "owner", "Bring phone charger to work")
+
+	err := agent.DeliverReminder(context.Background(), reminder)
+	if err == nil || !strings.Contains(err.Error(), "telegram unavailable") {
+		t.Fatalf("DeliverReminder error = %v", err)
+	}
+	remaining, listErr := listRemindersForTest(t, store, channel.ID(), "owner")
+	if listErr != nil || len(remaining) != 1 || remaining[0].ID != reminder.ID {
+		t.Fatalf("remaining reminders=%#v err=%v", remaining, listErr)
+	}
+	history, historyErr := store.GetConversationHistory(context.Background(), channel.ID(), "owner")
+	if historyErr != nil || len(history) != 0 {
+		t.Fatalf("history=%#v err=%v", history, historyErr)
+	}
 }
 
 func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {

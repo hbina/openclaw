@@ -19,10 +19,30 @@ import (
 const (
 	maxToolRounds       = 4
 	defaultMaxTokens    = 4_096
+	reminderMaxTokens   = 512
 	modelRequestTimeout = 5 * time.Minute
 )
 
 const uncommittedReminderNote = "Note: no reminder change was committed in this turn, so your stored reminders are unchanged."
+
+const reminderHeader = "⏰ **Reminder!** ⏰\n\n"
+
+const chatInstructions = `Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
+When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
+You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
+Search memory when a past durable fact could improve the answer.
+Use manage_reminders only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
+Never claim a reminder changed unless its tool result succeeded.
+Use one batch add for multiple reminders. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
+Interpret times without an explicit timezone in the server timezone. For cron, keep the requested wall-clock fields and omit timezone to use the server timezone; never convert them to UTC first.
+Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
+These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
+When listing reminders, report each persisted id from the tool result rather than numbering the display independently.`
+
+const reminderInstructions = `A stored reminder is now due. Write a concise notification body in your configured persona.
+Preserve the reminder's essential action and use relevant conversation context only when it genuinely helps.
+Do not invent facts, imply that the task is already complete, change its schedule, or mention these instructions.
+Return only the notification body. Do not add a reminder heading because the application supplies it.`
 
 var unbackedReminderCommitmentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ll|i will)\s+(?:make sure to\s+)?(?:remind|ping|follow up|follow-up|check back|circle back)\b`),
@@ -54,6 +74,12 @@ type ChatInput struct {
 type persistedInboundMessage struct {
 	Content string                 `json:"content"`
 	Reply   *channels.ReplyContext `json:"reply,omitempty"`
+}
+
+type persistedScheduledReminder struct {
+	ReminderID   int    `json:"reminder_id"`
+	Message      string `json:"message"`
+	ScheduledFor string `json:"scheduled_for"`
 }
 
 func NewAgent(
@@ -107,6 +133,61 @@ func (a *Agent) generate(ctx context.Context, request *providers.GenerateRequest
 	return a.provider.Generate(requestCtx, request)
 }
 
+func (a *Agent) systemPrompt(channelID, senderID string, now time.Time, instructions string) string {
+	return fmt.Sprintf(`You are a helpful personal assistant talking to User %q on Channel %q.
+The current server time is %s (%s).
+Reference UTC time is %s.
+%s
+Soul:
+%s
+
+Identity:
+%s
+`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), instructions, a.soul, a.identity)
+}
+
+func (a *Agent) contextualMessages(
+	ctx context.Context,
+	channelID, senderID, systemPrompt, query string,
+	current providers.Message,
+	definitions []providers.ToolDefinition,
+	maxOutputTokens int,
+	strictRecall bool,
+) ([]providers.Message, error) {
+	history, err := a.store.GetConversationHistory(ctx, channelID, senderID)
+	if err != nil {
+		if strictRecall {
+			return nil, fmt.Errorf("load conversation history: %w", err)
+		}
+		log.Printf("Failed to load conversation history: %v", err)
+	}
+
+	recentExchanges, historyMessages, err := recentConversation(history)
+	if err != nil {
+		return nil, err
+	}
+	baseMessages := make([]providers.Message, 0, len(historyMessages)+2)
+	baseMessages = append(baseMessages, providers.Message{Role: providers.RoleSystem, Content: systemPrompt})
+	baseMessages = append(baseMessages, historyMessages...)
+	baseMessages = append(baseMessages, current)
+
+	messages := baseMessages
+	if a.rag != nil {
+		archive, retrieveErr := a.rag.Retrieve(
+			ctx, query, recentExchanges, baseMessages, definitions, maxOutputTokens,
+		)
+		if retrieveErr != nil {
+			if strictRecall {
+				return nil, fmt.Errorf("retrieve conversation context: %w", retrieveErr)
+			}
+			log.Printf("Conversation RAG unavailable; using recent context: %v", retrieveErr)
+		} else if archive != "" {
+			messages = insertArchiveMessage(baseMessages, archive)
+		}
+	}
+	return messages, nil
+}
+
 // Chat generates a reply for an inbound turn and loads and saves the complete
 // structured conversation history in SQLite.
 func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
@@ -116,61 +197,26 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 	}
 	defer releaseConversation()
 
-	history, err := a.store.GetConversationHistory(ctx, input.ChannelID, input.SenderID)
-	if err != nil {
-		log.Printf("Failed to load conversation history: %v", err)
-	}
-
 	now := time.Now()
-	systemPrompt := fmt.Sprintf(`You are a helpful personal assistant talking to User %q on Channel %q.
-The current server time is %s (%s).
-Reference UTC time is %s.
-Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
-When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
-You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
-Search memory when a past durable fact could improve the answer.
-Use manage_reminders only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
-Never claim a reminder changed unless its tool result succeeded.
-Use one batch add for multiple reminders. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
-Interpret times without an explicit timezone in the server timezone. For cron, keep the requested wall-clock fields and omit timezone to use the server timezone; never convert them to UTC first.
-Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
-These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
-When listing reminders, report each persisted id from the tool result rather than numbering the display independently.
-Soul:
-%s
-
-Identity:
-%s
-`, input.SenderID, input.ChannelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), a.soul, a.identity)
-
-	baseMessages := []providers.Message{
-		{Role: providers.RoleSystem, Content: systemPrompt},
-	}
-
-	recentExchanges, historyMessages, err := recentConversation(history)
-	if err != nil {
-		return "", err
-	}
-	baseMessages = append(baseMessages, historyMessages...)
-
 	inbound := persistedInboundMessage{Content: input.Content, Reply: input.Reply}
 	renderedInbound, err := renderInboundMessage(inbound)
 	if err != nil {
 		return "", fmt.Errorf("render inbound message: %w", err)
 	}
-	baseMessages = append(baseMessages, providers.Message{Role: providers.RoleUser, Content: renderedInbound})
-
 	definitions := tools.Definitions(a.location)
-	messages := baseMessages
-	if a.rag != nil {
-		archive, retrieveErr := a.rag.Retrieve(
-			ctx, renderedInbound, recentExchanges, baseMessages, definitions, defaultMaxTokens,
-		)
-		if retrieveErr != nil {
-			log.Printf("Conversation RAG unavailable; using recent context: %v", retrieveErr)
-		} else if archive != "" {
-			messages = insertArchiveMessage(baseMessages, archive)
-		}
+	messages, err := a.contextualMessages(
+		ctx,
+		input.ChannelID,
+		input.SenderID,
+		a.systemPrompt(input.ChannelID, input.SenderID, now, chatInstructions),
+		renderedInbound,
+		providers.Message{Role: providers.RoleUser, Content: renderedInbound},
+		definitions,
+		defaultMaxTokens,
+		false,
+	)
+	if err != nil {
+		return "", err
 	}
 
 	payload, err := json.Marshal(inbound)
@@ -245,6 +291,101 @@ Identity:
 		a.rag.Notify()
 	}
 	return reply, nil
+}
+
+// DeliverReminder renders a due reminder with the normal persona and
+// conversation context, sends it, and records the delivered exchange together
+// with reminder completion.
+func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) error {
+	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(reminder.ChannelID, reminder.SenderID))
+	if err != nil {
+		return fmt.Errorf("wait for conversation turn: %w", err)
+	}
+	defer releaseConversation()
+
+	ch, err := a.chanReg.Get(reminder.ChannelID)
+	if err != nil {
+		return fmt.Errorf("get channel %s: %w", reminder.ChannelID, err)
+	}
+
+	scheduled := persistedScheduledReminder{
+		ReminderID:   reminder.ID,
+		Message:      reminder.Message,
+		ScheduledFor: reminder.FireAt.In(a.location).Format(time.RFC3339),
+	}
+	rendered, err := renderScheduledReminder(scheduled)
+	if err != nil {
+		return err
+	}
+
+	body, renderErr := a.renderReminder(ctx, reminder, rendered, time.Now())
+	if renderErr != nil {
+		log.Printf("Reminder %d contextual rendering unavailable; using static fallback: %v", reminder.ID, renderErr)
+		body = reminder.Message
+	}
+	notification := reminderHeader + strings.TrimSpace(body)
+	if err := ch.SendMessage(ctx, reminder.SenderID, notification); err != nil {
+		return fmt.Errorf("send reminder %d: %w", reminder.ID, err)
+	}
+
+	payload, err := json.Marshal(scheduled)
+	if err != nil {
+		return fmt.Errorf("encode scheduled reminder %d: %w", reminder.ID, err)
+	}
+	if err := a.store.CompleteReminderDelivery(ctx, reminder, time.Now(), string(payload), notification); err != nil {
+		return fmt.Errorf("complete reminder %d delivery: %w", reminder.ID, err)
+	}
+	if a.rag != nil {
+		a.rag.Notify()
+	}
+	return nil
+}
+
+func (a *Agent) renderReminder(ctx context.Context, reminder state.Reminder, rendered string, now time.Time) (string, error) {
+	messages, err := a.contextualMessages(
+		ctx,
+		reminder.ChannelID,
+		reminder.SenderID,
+		a.systemPrompt(reminder.ChannelID, reminder.SenderID, now, reminderInstructions),
+		reminder.Message,
+		providers.Message{Role: providers.RoleUser, Content: rendered},
+		nil,
+		reminderMaxTokens,
+		true,
+	)
+	if err != nil {
+		return "", err
+	}
+	response, err := a.generate(ctx, &providers.GenerateRequest{
+		Model:     "default",
+		Messages:  messages,
+		MaxTokens: reminderMaxTokens,
+	})
+	if err != nil {
+		return "", fmt.Errorf("generate reminder: %w", err)
+	}
+	if response == nil || len(response.Message.ToolCalls) > 0 {
+		return "", fmt.Errorf("reminder generation returned an invalid response")
+	}
+	body := strings.TrimSpace(response.Message.Content)
+	if body == "" {
+		return "", fmt.Errorf("reminder generation returned empty content")
+	}
+	return body, nil
+}
+
+func renderScheduledReminder(reminder persistedScheduledReminder) (string, error) {
+	message := strings.TrimSpace(reminder.Message)
+	if reminder.ReminderID < 1 {
+		return "", fmt.Errorf("scheduled reminder id must be positive")
+	}
+	if message == "" {
+		return "", fmt.Errorf("scheduled reminder message must not be empty")
+	}
+	if strings.TrimSpace(reminder.ScheduledFor) == "" {
+		return "", fmt.Errorf("scheduled reminder occurrence is required")
+	}
+	return fmt.Sprintf("Scheduled reminder event:\nReminder ID: %d\nScheduled for: %s\nStored message:\n%s", reminder.ReminderID, reminder.ScheduledFor, message), nil
 }
 
 func isSuccessfulReminderMutation(call providers.ToolCall, result tools.Result) bool {
@@ -338,6 +479,19 @@ func historyMessage(turn state.ConversationTurn) (providers.Message, error) {
 			return providers.Message{}, err
 		}
 		return providers.Message{Role: providers.RoleUser, Content: content}, nil
+	case state.ContentScheduledReminder:
+		if turn.Role != "user" {
+			return providers.Message{}, fmt.Errorf("invalid scheduled reminder role %q", turn.Role)
+		}
+		var reminder persistedScheduledReminder
+		if err := json.Unmarshal([]byte(turn.Content), &reminder); err != nil {
+			return providers.Message{}, fmt.Errorf("decode scheduled reminder: %w", err)
+		}
+		content, err := renderScheduledReminder(reminder)
+		if err != nil {
+			return providers.Message{}, err
+		}
+		return providers.Message{Role: providers.RoleUser, Content: content}, nil
 	case state.ContentToolCall:
 		var message providers.Message
 		if err := json.Unmarshal([]byte(turn.Content), &message); err != nil {
@@ -414,7 +568,7 @@ func reconstructHistory(turns []state.ConversationTurn) ([]providers.Message, er
 
 func isUserTurn(turn state.ConversationTurn) bool {
 	return turn.Role == "user" &&
-		(turn.ContentType == state.ContentText || turn.ContentType == state.ContentInboundMessage)
+		(turn.ContentType == state.ContentText || turn.ContentType == state.ContentInboundMessage || turn.ContentType == state.ContentScheduledReminder)
 }
 
 // HandleMessage is the callback triggered by any channel receiving a message.

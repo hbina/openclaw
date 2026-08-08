@@ -124,6 +124,69 @@ func TestRecurringReminderAdvancesAfterDelivery(t *testing.T) {
 	}
 }
 
+func TestCompleteReminderDeliveryRollsBackTranscriptWhenCompletionFails(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	schedule := ReminderSchedule{Kind: ScheduleCron, CronExpr: "0 8 * * *", Timezone: "UTC"}
+	var id int64
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		var err error
+		id, err = tx.AddReminder(ctx, "telegram", "owner", "briefing", schedule, now.Add(-time.Hour))
+		return err
+	}); err != nil {
+		t.Fatalf("add reminder: %v", err)
+	}
+	reminders, err := listRemindersForTest(t, store, "telegram", "owner")
+	if err != nil || len(reminders) != 1 {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
+	}
+	stale := reminders[0]
+	stale.FireAt = stale.FireAt.Add(-time.Minute)
+	err = store.CompleteReminderDelivery(ctx, stale, now, `{"reminder_id":1}`, "delivered")
+	if err == nil || !strings.Contains(err.Error(), "changed while delivering") {
+		t.Fatalf("CompleteReminderDelivery error = %v", err)
+	}
+	history, err := store.GetConversationHistory(ctx, "telegram", "owner")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("rolled-back history=%#v err=%v", history, err)
+	}
+	remaining, err := listRemindersForTest(t, store, "telegram", "owner")
+	if err != nil || len(remaining) != 1 || remaining[0].ID != int(id) {
+		t.Fatalf("remaining reminders=%#v err=%v", remaining, err)
+	}
+}
+
+func TestCompleteReminderDeliveryAdvancesRecurringAndRecordsTranscript(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	schedule := ReminderSchedule{Kind: ScheduleCron, CronExpr: "0 8 * * *", Timezone: "UTC"}
+	fireAt := now.Add(-4 * time.Hour)
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		_, err := tx.AddReminder(ctx, "telegram", "owner", "briefing", schedule, fireAt)
+		return err
+	}); err != nil {
+		t.Fatalf("add reminder: %v", err)
+	}
+	reminders, err := listRemindersForTest(t, store, "telegram", "owner")
+	if err != nil || len(reminders) != 1 {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
+	}
+	if err := store.CompleteReminderDelivery(ctx, reminders[0], now, `{"reminder_id":1}`, "delivered briefing"); err != nil {
+		t.Fatalf("CompleteReminderDelivery: %v", err)
+	}
+	advanced, err := listRemindersForTest(t, store, "telegram", "owner")
+	wantNext := time.Date(2026, 7, 16, 8, 0, 0, 0, time.UTC)
+	if err != nil || len(advanced) != 1 || !advanced[0].FireAt.Equal(wantNext) {
+		t.Fatalf("advanced reminder=%#v err=%v", advanced, err)
+	}
+	history, err := store.GetConversationHistory(ctx, "telegram", "owner")
+	if err != nil || len(history) != 2 || history[0].ContentType != ContentScheduledReminder || history[1].Content != "delivered briefing" {
+		t.Fatalf("delivery history=%#v err=%v", history, err)
+	}
+}
+
 func TestNextReminderRunRejectsOverflowingInterval(t *testing.T) {
 	_, err := NextReminderRun(ReminderSchedule{Kind: ScheduleEvery, EveryMS: int64(^uint64(0) >> 1)}, time.Now())
 	if err == nil {

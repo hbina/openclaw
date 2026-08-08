@@ -30,5 +30,15 @@ exchanges are indexed asynchronously and can be recalled across the owner's
 Telegram and HTTP routing keys. The index is derived and can be rebuilt from
 `conversation_history`.
 
-Static reminders cannot browse a site, suppress unchanged results, run an
-agent job, or contact another person.
+When a reminder fires, its stored text is used as a semantic recall query. The
+agent combines relevant archived context with the recent conversation, current
+local time, and configured persona, then asks the local chat model for a
+concise notification body. Reminder rendering exposes no tools. The runtime
+adds the fixed reminder heading and falls back to the stored text when context
+retrieval or generation is unavailable.
+
+Successful reminder notifications are stored as a structured scheduled event
+and the exact assistant text sent to the channel. That exchange participates
+in subsequent recent context and semantic recall. Contextual reminders still
+cannot browse a site, suppress unchanged results, run an agent job, or contact
+another person.

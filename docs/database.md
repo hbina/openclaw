@@ -50,13 +50,15 @@ Append-only structured transcript and source of truth for conversation recall.
 | `channel_id` | Source routing channel. |
 | `sender_id` | Source conversation routing key. |
 | `role` | Provider role such as `user`, `assistant`, or `tool`. |
-| `content_type` | `text`, `inbound_message`, `tool_call`, or `tool_result`. |
+| `content_type` | `text`, `inbound_message`, `scheduled_reminder`, `tool_call`, or `tool_result`. |
 | `content` | Plain text or the structured JSON payload for the content type. |
 | `created_at` | Timestamp used when rendering historical conversation documents. |
 
 `channel_id, sender_id, id` is indexed for ordered route replay. Tool calls
 and tool results are related through exact tool-call ids stored inside their
-JSON payloads.
+JSON payloads. A `scheduled_reminder` row stores the reminder id, original
+message, and scheduled occurrence; its following assistant text row contains
+the exact delivered notification.
 
 ## `conversation_chunks`
 

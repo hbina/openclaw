@@ -199,14 +199,34 @@ func (s *Store) FetchDueReminders() ([]Reminder, error) {
 // CompleteReminder deletes one-shots and advances recurring reminders only
 // after successful delivery, so failed sends remain due for retry.
 func (s *Store) CompleteReminder(reminder Reminder, now time.Time) error {
+	return s.WithTx(context.Background(), func(tx *Tx) error {
+		return tx.completeReminder(context.Background(), reminder, now)
+	})
+}
+
+// CompleteReminderDelivery records the scheduled turn and delivered assistant
+// text together with the matching reminder advancement or deletion.
+func (s *Store) CompleteReminderDelivery(ctx context.Context, reminder Reminder, now time.Time, scheduledContent, notification string) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		if err := tx.SaveConversationMessage(ctx, reminder.ChannelID, reminder.SenderID, "user", ContentScheduledReminder, scheduledContent); err != nil {
+			return err
+		}
+		if err := tx.SaveConversationMessage(ctx, reminder.ChannelID, reminder.SenderID, "assistant", ContentText, notification); err != nil {
+			return err
+		}
+		return tx.completeReminder(ctx, reminder, now)
+	})
+}
+
+func (tx *Tx) completeReminder(ctx context.Context, reminder Reminder, now time.Time) error {
 	if reminder.Schedule.Kind == ScheduleAt {
-		return s.deleteReminder(reminder.ID)
+		return tx.deleteReminder(ctx, reminder.ID)
 	}
 	next, err := NextReminderRun(reminder.Schedule, now)
 	if err != nil {
 		return fmt.Errorf("advance reminder %d: %w", reminder.ID, err)
 	}
-	result, err := s.db.Exec("UPDATE reminders SET fire_at = ? WHERE id = ? AND fire_at = ?", next, reminder.ID, reminder.FireAt)
+	result, err := tx.tx.ExecContext(ctx, "UPDATE reminders SET fire_at = ? WHERE id = ? AND fire_at = ?", next, reminder.ID, reminder.FireAt)
 	if err != nil {
 		return fmt.Errorf("advance reminder %d: %w", reminder.ID, err)
 	}
@@ -220,8 +240,8 @@ func (s *Store) CompleteReminder(reminder Reminder, now time.Time) error {
 	return nil
 }
 
-func (s *Store) deleteReminder(id int) error {
-	result, err := s.db.Exec("DELETE FROM reminders WHERE id = ?", id)
+func (tx *Tx) deleteReminder(ctx context.Context, id int) error {
+	result, err := tx.tx.ExecContext(ctx, "DELETE FROM reminders WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete reminder: %w", err)
 	}

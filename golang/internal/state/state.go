@@ -16,8 +16,8 @@ type Store struct {
 	db *sql.DB
 }
 
-// Tx exposes the narrow set of state operations that tool execution must commit
-// atomically with its conversation result.
+// Tx exposes state operations that must commit atomically with their matching
+// conversation rows.
 type Tx struct {
 	tx *sql.Tx
 }

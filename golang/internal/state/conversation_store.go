@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	ContentText           = "text"
-	ContentInboundMessage = "inbound_message"
-	ContentToolCall       = "tool_call"
-	ContentToolResult     = "tool_result"
+	ContentText              = "text"
+	ContentInboundMessage    = "inbound_message"
+	ContentScheduledReminder = "scheduled_reminder"
+	ContentToolCall          = "tool_call"
+	ContentToolResult        = "tool_result"
 )
 
 type ConversationTurn struct {
@@ -19,7 +20,7 @@ type ConversationTurn struct {
 	SenderID    string
 	Role        string
 	ContentType string
-	Content     string // plain text, or JSON-encoded payload for tool_call / tool_result
+	Content     string // plain text or a JSON-encoded structured payload
 	CreatedAt   time.Time
 }
 

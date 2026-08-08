@@ -458,13 +458,15 @@ func renderExchangeDocument(exchange conversationExchange) (string, string, erro
 	var body strings.Builder
 	for _, turn := range exchange.Turns {
 		switch turn.ContentType {
-		case state.ContentText, state.ContentInboundMessage:
+		case state.ContentText, state.ContentInboundMessage, state.ContentScheduledReminder:
 			message, err := historyMessage(turn)
 			if err != nil {
 				return "", "", err
 			}
 			label := "Assistant"
-			if message.Role == providers.RoleUser {
+			if turn.ContentType == state.ContentScheduledReminder {
+				label = "Scheduled reminder"
+			} else if message.Role == providers.RoleUser {
 				label = "User"
 			}
 			fmt.Fprintf(&body, "%s: %s\n", label, message.Content)

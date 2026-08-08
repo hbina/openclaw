@@ -83,18 +83,8 @@ func (g *Gateway) startReminderLoop(ctx context.Context) {
 			}
 
 			for _, r := range due {
-				ch, err := g.chanReg.Get(r.ChannelID)
-				if err != nil {
-					log.Printf("Failed to get channel %s for reminder: %v", r.ChannelID, err)
-					continue
-				}
-				notification := "⏰ **Reminder!** ⏰\n\n" + r.Message
-				if err := ch.SendMessage(ctx, r.SenderID, notification); err != nil {
-					log.Printf("Failed to deliver reminder to %s: %v", r.SenderID, err)
-					continue
-				}
-				if err := g.store.CompleteReminder(r, time.Now()); err != nil {
-					log.Printf("Failed to mark reminder %d delivered: %v", r.ID, err)
+				if err := g.agent.DeliverReminder(ctx, r); err != nil {
+					log.Printf("Failed to deliver reminder %d: %v", r.ID, err)
 				}
 			}
 		}

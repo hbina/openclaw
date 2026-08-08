@@ -243,3 +243,35 @@ func TestRenderExchangeDocumentIncludesStructuredToolOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduledReminderExchangeParticipatesInRecall(t *testing.T) {
+	turns := []state.ConversationTurn{
+		{
+			ID: 1, ChannelID: "telegram", SenderID: "owner", Role: "user",
+			ContentType: state.ContentScheduledReminder,
+			Content:     `{"reminder_id":7,"message":"Bring phone charger to work","scheduled_for":"2026-08-08T08:00:00+08:00"}`,
+		},
+		{
+			ID: 2, ChannelID: "telegram", SenderID: "owner", Role: "assistant",
+			ContentType: state.ContentText,
+			Content:     reminderHeader + "Your charger is the last item for work today.",
+		},
+	}
+	exchanges := completeExchanges(turns)
+	if len(exchanges) != 1 || exchanges[0].StartID != 1 || exchanges[0].EndID != 2 {
+		t.Fatalf("scheduled exchanges = %#v", exchanges)
+	}
+	_, body, err := renderExchangeDocument(exchanges[0])
+	if err != nil {
+		t.Fatalf("renderExchangeDocument: %v", err)
+	}
+	for _, want := range []string{"Scheduled reminder: Scheduled reminder event", "Bring phone charger to work", "Assistant: " + reminderHeader} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("scheduled document missing %q: %s", want, body)
+		}
+	}
+	messages, err := reconstructHistory(turns)
+	if err != nil || len(messages) != 2 || messages[0].Role != providers.RoleUser || messages[1].Role != providers.RoleAssistant {
+		t.Fatalf("scheduled replay=%#v err=%v", messages, err)
+	}
+}
