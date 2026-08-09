@@ -33,7 +33,7 @@ and enable testing, not to reopen the product to hosted services.
   are untrusted proposals. Validation, trusted routing identity, state mutation,
   and transcript recording converge at the executor so no alternate caller can
   bypass the same guarantees.
-- **SQLite transactions define durable truth.** Reminder or memory mutation and
+- **SQLite transactions define durable truth.** Task, reminder, or memory mutation and
   the tool result that justifies the assistant’s claim belong in one commit.
   Reminder delivery transcripts and schedule completion share the same
   requirement. Partial success would make the conversation disagree with the
@@ -92,6 +92,7 @@ need proportional proof against the configured local servers or real delivery
 boundary. Mocked HTTP is useful for deterministic failure coverage; it cannot
 establish parity with the deployed local model.
 
-State-affecting changes must show that transcript and database truth remain
-aligned and survive restart where relevant. Report unavailable live proof
-plainly rather than weakening the claimed contract.
+State-affecting changes, including the owner-global task ledger, must show that
+transcript and database truth remain aligned and survive restart where
+relevant. Report unavailable live proof plainly rather than weakening the
+claimed contract.

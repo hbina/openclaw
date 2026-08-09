@@ -21,9 +21,9 @@ an implementation detail moved.
 ## Product Purpose
 
 OpenClaw is one locally operated personal assistant for exactly one trusted
-owner per deployment. Its purpose is to provide useful reminders, durable
-memory, conversation recall, and a consistent operator-defined persona while
-keeping the owner’s conversations and state under local control.
+owner per deployment. Its purpose is to provide useful tasks and reminders,
+durable memory, conversation recall, and a consistent operator-defined persona
+while keeping the owner’s conversations and state under local control.
 
 Each owner runs a separate instance. This keeps the trust model understandable
 and avoids importing account, tenancy, and cross-user data-isolation complexity
@@ -31,9 +31,9 @@ into a personal tool. Channel and sender identifiers route the owner’s
 conversations and topics; they are not internal ownership boundaries.
 
 The retained product is intentionally narrow: a standalone Go gateway and
-agent loop, Telegram text delivery, one-shot and recurring reminders, semantic
-memory and conversation recall, operator-owned persona configuration, local
-chat and embedding models, and persistent SQLite state. Upstream OpenClaw’s
+agent loop, Telegram text delivery, owner-global tasks, one-shot and recurring
+reminders, semantic memory and conversation recall, operator-owned persona
+configuration, local chat and embedding models, and persistent SQLite state. Upstream OpenClaw’s
 broader platform surface is not the goal of this fork.
 
 ## Deliberate Product Boundaries
@@ -48,7 +48,7 @@ broader platform surface is not the goal of this fork.
   to reduce the deployable surface and eliminate a second behavioral path.
   Deleted Node code in Git history may clarify an ambiguous retained behavior,
   but it is not a reason to restore unsupported upstream features.
-- **SQLite is the single state authority.** Reminders, memory, transcripts, and
+- **SQLite is the single state authority.** Tasks, reminders, memory, transcripts, and
   derived recall metadata belong together so mutation, backup, recovery, and
   inspection have one coherent boundary. JSON, JSONL, or text sidecars would
   create split-brain and partial-recovery risks.
@@ -68,13 +68,18 @@ broader platform surface is not the goal of this fork.
   current scheduler cannot perform. If Node-style scheduled agent behavior is
   retained, it needs an explicit design rather than being smuggled into reminder
   wording.
+- **Tasks and reminders are separate owner outcomes.** Tasks represent work
+  that starts when recorded and remains open until explicitly completed or
+  removed. They have no due date, schedule, recurrence, timezone, delivery
+  route, or reminder linkage. Keeping the ledgers independent prevents an
+  unfinished-work request from silently becoming a notification commitment.
 
 ## Behavioral Invariants and Their Rationale
 
 - Trusted channel and sender identity must come from ingress routing, never
   model-controlled tool arguments, because prompt content is not an
   authorization source.
-- A state mutation and its matching tool-result transcript must commit
+- A task, reminder, or memory mutation and its matching tool-result transcript must commit
   atomically. The assistant must never claim durable work that the database did
   not accept.
 - Exact tool-call identifiers and deterministic prompt/tool ordering must be
@@ -98,7 +103,7 @@ broader platform surface is not the goal of this fork.
 ## Migration Truth and Current Risk
 
 The retained Go runtime already supports local chat and structured tool calls,
-atomic reminder operations, one-shot and recurring schedules, semantic memory
+atomic owner-global task and reminder operations, one-shot and recurring schedules, semantic memory
 and conversation recall, required persona configuration, contextual reminder
 delivery with structured transcripts, basic Telegram text delivery, health and
 chat HTTP endpoints, and a standalone image without Node or hosted-model

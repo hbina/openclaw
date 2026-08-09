@@ -22,8 +22,13 @@ model clients, registers Telegram when enabled, starts conversation indexing,
 and starts the Gateway.
 
 The agent stores every inbound message, assistant message, tool call, and tool
-result as structured transcript rows. Tool mutations and their corresponding
-tool-result rows commit in the same SQLite transaction.
+result as structured transcript rows. Task, reminder, and memory mutations and
+their corresponding tool-result rows commit in the same SQLite transaction.
+
+Tasks are one owner-global ledger with no routing or scheduling columns. Their
+start and completion timestamps record actual lifecycle events. Reminders are
+a separate routed delivery ledger; neither state type references or updates the
+other.
 
 Recent context is the latest two complete exchanges for the current routing
 key. Older complete exchanges from any of the owner's channels are embedded

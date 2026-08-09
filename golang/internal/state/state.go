@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -105,6 +106,13 @@ func (s *Store) initializeSchema() error {
 		enabled INTEGER NOT NULL DEFAULT 1
 	);
 
+	CREATE TABLE IF NOT EXISTS tasks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		description TEXT NOT NULL,
+		started_at DATETIME NOT NULL,
+		completed_at DATETIME
+	);
+
 	CREATE TABLE IF NOT EXISTS conversation_history (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
 		channel_id  TEXT    NOT NULL,
@@ -139,6 +147,10 @@ func (s *Store) initializeSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_reminders_due
 		ON reminders(enabled, fire_at);
 
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_open_description
+		ON tasks(lower(trim(description)))
+		WHERE completed_at IS NULL;
+
 	CREATE INDEX IF NOT EXISTS idx_memory_entries_embedding_model
 		ON memory_entries(embedding_model, dimensions);
 	`
@@ -157,6 +169,9 @@ func (s *Store) validateCanonicalSchema() error {
 		"reminders": {
 			"id", "channel_id", "sender_id", "message", "fire_at", "schedule_kind",
 			"every_ms", "anchor_at", "cron_expr", "timezone", "enabled",
+		},
+		"tasks": {
+			"id", "description", "started_at", "completed_at",
 		},
 		"conversation_history": {
 			"id", "channel_id", "sender_id", "role", "content_type", "content", "created_at",
@@ -230,6 +245,22 @@ func (s *Store) validateCanonicalSchema() error {
 		if !slices.Equal(actualColumns, expected[table]) {
 			return fmt.Errorf("%s columns %v do not match canonical columns %v; rebuild the database", table, actualColumns, expected[table])
 		}
+	}
+	var taskIndexSQL string
+	if err := s.db.QueryRow(`
+		SELECT sql FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_tasks_open_description'
+	`).Scan(&taskIndexSQL); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("canonical task duplicate-prevention index is missing; rebuild the database")
+		}
+		return fmt.Errorf("inspect canonical task index: %w", err)
+	}
+	normalizedIndexSQL := strings.ToLower(strings.Join(strings.Fields(taskIndexSQL), " "))
+	normalizedIndexSQL = strings.Replace(normalizedIndexSQL, " if not exists", "", 1)
+	const expectedTaskIndexSQL = "create unique index idx_tasks_open_description on tasks(lower(trim(description))) where completed_at is null"
+	if normalizedIndexSQL != expectedTaskIndexSQL {
+		return fmt.Errorf("task duplicate-prevention index does not match the canonical definition; rebuild the database")
 	}
 	return nil
 }

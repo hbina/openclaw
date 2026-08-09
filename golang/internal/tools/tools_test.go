@@ -66,6 +66,17 @@ func listRemindersForTest(t *testing.T, store *state.Store, channelID, senderID 
 	return reminders, err
 }
 
+func listTasksForTest(t *testing.T, store *state.Store, status state.TaskStatus) ([]state.Task, error) {
+	t.Helper()
+	var tasks []state.Task
+	err := store.WithTx(context.Background(), func(tx *state.Tx) error {
+		var err error
+		tasks, err = tx.ListTasks(context.Background(), status)
+		return err
+	})
+	return tasks, err
+}
+
 func call(id, name, arguments string) providers.ToolCall {
 	return providers.ToolCall{ID: id, Type: "function", Function: providers.FunctionCall{Name: name, Arguments: arguments}}
 }
@@ -243,16 +254,151 @@ func TestGlobalMemoryToolsAreIdempotentAndSearchable(t *testing.T) {
 	}
 }
 
+func TestTaskToolsAreGlobalAndPreserveLifecycleTimestamps(t *testing.T) {
+	executor, store, now := newTestExecutor(t)
+	ctx := context.Background()
+	firstRoute := Context{ChannelID: "telegram", SenderID: "owner"}
+	secondRoute := Context{ChannelID: "cli", SenderID: "different-route"}
+
+	added, err := executor.ExecuteAndRecord(ctx, firstRoute, call("task-add", "manage_tasks", `{"action":"add","descriptions":["  Prepare report  ","Book dentist"]}`))
+	if err != nil || added.IsError || !stringsContain(added.Content, `"count":2`) ||
+		!stringsContain(added.Content, `"started_at":"2026-07-14T12:00:00Z"`) ||
+		!stringsContain(added.Content, `"completed_at":null`) {
+		t.Fatalf("add tasks: result=%#v err=%v", added, err)
+	}
+
+	listed, err := executor.ExecuteAndRecord(ctx, secondRoute, call("task-list", "manage_tasks", `{"action":"list"}`))
+	if err != nil || listed.IsError || !stringsContain(listed.Content, "Prepare report") || !stringsContain(listed.Content, `"status":"open"`) {
+		t.Fatalf("global task list: result=%#v err=%v", listed, err)
+	}
+
+	updated, err := executor.ExecuteAndRecord(ctx, secondRoute, call("task-update", "manage_tasks", `{"action":"update","id":1,"description":"Prepare final report"}`))
+	if err != nil || updated.IsError || !stringsContain(updated.Content, "Prepare final report") {
+		t.Fatalf("update task: result=%#v err=%v", updated, err)
+	}
+
+	completed, err := executor.ExecuteAndRecord(ctx, firstRoute, call("task-complete", "manage_tasks", `{"action":"complete","ids":[1]}`))
+	if err != nil || completed.IsError || !stringsContain(completed.Content, `"completed_at":"2026-07-14T12:00:00Z"`) ||
+		!stringsContain(completed.Content, `"status":"completed"`) {
+		t.Fatalf("complete task: result=%#v err=%v", completed, err)
+	}
+
+	open, err := executor.ExecuteAndRecord(ctx, firstRoute, call("task-open", "manage_tasks", `{"action":"list"}`))
+	if err != nil || open.IsError || stringsContain(open.Content, "Prepare final report") || !stringsContain(open.Content, "Book dentist") {
+		t.Fatalf("default open list: result=%#v err=%v", open, err)
+	}
+	history, err := executor.ExecuteAndRecord(ctx, firstRoute, call("task-history", "manage_tasks", `{"action":"list","status":"completed"}`))
+	if err != nil || history.IsError || !stringsContain(history.Content, "Prepare final report") || stringsContain(history.Content, "Book dentist") {
+		t.Fatalf("completed list: result=%#v err=%v", history, err)
+	}
+	all, err := executor.ExecuteAndRecord(ctx, firstRoute, call("task-all", "manage_tasks", `{"action":"list","status":"all"}`))
+	if err != nil || all.IsError || !stringsContain(all.Content, "Prepare final report") || !stringsContain(all.Content, "Book dentist") {
+		t.Fatalf("all list: result=%#v err=%v", all, err)
+	}
+
+	removed, err := executor.ExecuteAndRecord(ctx, secondRoute, call("task-remove", "manage_tasks", `{"action":"remove","ids":[1,2]}`))
+	if err != nil || removed.IsError || !stringsContain(removed.Content, `"count":2`) {
+		t.Fatalf("remove tasks: result=%#v err=%v", removed, err)
+	}
+	tasks, err := listTasksForTest(t, store, state.TaskAll)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("remaining tasks = %#v, err=%v", tasks, err)
+	}
+
+	toolHistory, err := store.GetConversationHistory(ctx, firstRoute.ChannelID, firstRoute.SenderID)
+	if err != nil || len(toolHistory) != 5 {
+		t.Fatalf("first-route tool history = %#v, err=%v", toolHistory, err)
+	}
+	for _, turn := range toolHistory {
+		if turn.ContentType != state.ContentToolResult {
+			t.Fatalf("non-tool-result transcript = %#v", turn)
+		}
+	}
+	_ = now
+}
+
+func TestTaskToolRejectsReminderAndScheduleFields(t *testing.T) {
+	executor, _, _ := newTestExecutor(t)
+	ctx := context.Background()
+	toolCtx := Context{ChannelID: "cli", SenderID: "owner"}
+	for name, args := range map[string]string{
+		"due date":      `{"action":"add","descriptions":["report"],"due_at":"2026-07-15T12:00:00Z"}`,
+		"schedule":      `{"action":"add","descriptions":["report"],"schedule":{"kind":"at"}}`,
+		"timezone":      `{"action":"add","descriptions":["report"],"timezone":"UTC"}`,
+		"reminder link": `{"action":"add","descriptions":["report"],"reminder_id":1}`,
+		"routing":       `{"action":"list","sender_id":"other"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := executor.ExecuteAndRecord(ctx, toolCtx, call(name, "manage_tasks", args))
+			if err != nil || !result.IsError || !stringsContain(result.Content, "unknown field") {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestTaskMutationsRollBackAtomically(t *testing.T) {
+	executor, store, _ := newTestExecutor(t)
+	ctx := context.Background()
+	toolCtx := Context{ChannelID: "cli", SenderID: "owner"}
+
+	duplicate, err := executor.ExecuteAndRecord(ctx, toolCtx, call("duplicate-batch", "manage_tasks", `{"action":"add","descriptions":["First"," first "]}`))
+	if err != nil || !duplicate.IsError {
+		t.Fatalf("duplicate batch: result=%#v err=%v", duplicate, err)
+	}
+	tasks, err := listTasksForTest(t, store, state.TaskAll)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("duplicate batch persisted tasks = %#v, err=%v", tasks, err)
+	}
+
+	added, err := executor.ExecuteAndRecord(ctx, toolCtx, call("add-complete-batch", "manage_tasks", `{"action":"add","descriptions":["one","two"]}`))
+	if err != nil || added.IsError {
+		t.Fatalf("seed tasks: result=%#v err=%v", added, err)
+	}
+	failedComplete, err := executor.ExecuteAndRecord(ctx, toolCtx, call("bad-complete", "manage_tasks", `{"action":"complete","ids":[1,999]}`))
+	if err != nil || !failedComplete.IsError {
+		t.Fatalf("failed complete: result=%#v err=%v", failedComplete, err)
+	}
+	open, err := listTasksForTest(t, store, state.TaskOpen)
+	if err != nil || len(open) != 2 {
+		t.Fatalf("complete batch was not rolled back: %#v, err=%v", open, err)
+	}
+}
+
+func TestCompletedTaskCannotChangeOrCompleteAgain(t *testing.T) {
+	executor, _, _ := newTestExecutor(t)
+	ctx := context.Background()
+	toolCtx := Context{ChannelID: "cli", SenderID: "owner"}
+	for _, step := range []struct{ id, args string }{
+		{"add", `{"action":"add","descriptions":["final task"]}`},
+		{"complete", `{"action":"complete","ids":[1]}`},
+	} {
+		result, err := executor.ExecuteAndRecord(ctx, toolCtx, call(step.id, "manage_tasks", step.args))
+		if err != nil || result.IsError {
+			t.Fatalf("%s: result=%#v err=%v", step.id, result, err)
+		}
+	}
+	for name, args := range map[string]string{
+		"update":   `{"action":"update","id":1,"description":"changed"}`,
+		"complete": `{"action":"complete","ids":[1]}`,
+	} {
+		result, err := executor.ExecuteAndRecord(ctx, toolCtx, call("final-"+name, "manage_tasks", args))
+		if err != nil || !result.IsError || !stringsContain(result.Content, "completed") {
+			t.Fatalf("%s final task: result=%#v err=%v", name, result, err)
+		}
+	}
+}
+
 func TestPersonalityToolIsNotAvailable(t *testing.T) {
 	definitions := Definitions(time.UTC)
-	wantNames := []string{"manage_reminders", "store_memory", "search_memory"}
+	wantNames := []string{"manage_reminders", "manage_tasks", "store_memory", "search_memory"}
 	for _, definition := range definitions {
 		if definition.Function.Name == "manage_personality" {
 			t.Fatal("manage_personality remains in the model tool catalog")
 		}
 	}
-	if len(definitions) != 3 {
-		t.Fatalf("tool definition count = %d, want 3", len(definitions))
+	if len(definitions) != 4 {
+		t.Fatalf("tool definition count = %d, want 4", len(definitions))
 	}
 	for index, want := range wantNames {
 		if got := definitions[index].Function.Name; got != want {

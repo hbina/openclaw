@@ -143,6 +143,7 @@ func (executor *Executor) BackfillMemoryEmbeddings(ctx context.Context) error {
 func Definitions(location *time.Location) []providers.ToolDefinition {
 	return []providers.ToolDefinition{
 		reminderDefinition(location),
+		taskDefinition(),
 		definition("store_memory", "Store a stable preference or durable fact in the agent's global memory.", `{
 			"type":"object","additionalProperties":false,
 			"properties":{"content":{"type":"string","description":"One concise durable fact."}},"required":["content"]
@@ -152,6 +153,20 @@ func Definitions(location *time.Location) []providers.ToolDefinition {
 			"properties":{"query":{"type":"string"}},"required":["query"]
 		}`),
 	}
+}
+
+func taskDefinition() providers.ToolDefinition {
+	return definition("manage_tasks", "Add, list, update, complete, or remove the owner's global tasks. Tasks start when added and have no schedule. Add accepts 1 to 50 descriptions atomically. Completed tasks are final.", `{
+		"type":"object","additionalProperties":false,
+		"properties":{
+			"action":{"type":"string","enum":["add","list","update","complete","remove"]},
+			"descriptions":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"string"}},
+			"status":{"type":"string","enum":["open","completed","all"],"description":"List filter; defaults to open."},
+			"id":{"type":"integer","minimum":1,"description":"Task ID for update."},
+			"description":{"type":"string","description":"New task description for update."},
+			"ids":{"type":"array","minItems":1,"items":{"type":"integer","minimum":1},"description":"Task IDs for complete or remove."}
+		},"required":["action"]
+	}`)
 }
 
 func reminderDefinition(location *time.Location) providers.ToolDefinition {
@@ -260,6 +275,8 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 	switch call.Function.Name {
 	case "manage_reminders":
 		return executor.manageReminders(ctx, tx, toolCtx, call.Function.Arguments)
+	case "manage_tasks":
+		return executor.manageTasks(ctx, tx, call.Function.Arguments)
 	case "store_memory":
 		stored, err := tx.SaveMemoryUnique(ctx, memoryInput.text, executor.indexID, executor.dimensions, vector.Pack(memoryInput.embedding))
 		if err != nil {
@@ -280,6 +297,160 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 
 	default:
 		return "", fmt.Errorf("unknown tool %q", call.Function.Name)
+	}
+}
+
+type manageTaskArguments struct {
+	Action       string            `json:"action"`
+	Descriptions *[]string         `json:"descriptions"`
+	Status       *state.TaskStatus `json:"status"`
+	ID           *int              `json:"id"`
+	Description  *string           `json:"description"`
+	IDs          *[]int            `json:"ids"`
+}
+
+func (executor *Executor) manageTasks(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args manageTaskArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+
+	switch args.Action {
+	case "add":
+		if args.Status != nil || args.ID != nil || args.Description != nil || args.IDs != nil {
+			return "", fmt.Errorf("add only accepts descriptions")
+		}
+		if args.Descriptions == nil || len(*args.Descriptions) < 1 || len(*args.Descriptions) > 50 {
+			return "", fmt.Errorf("descriptions must contain between 1 and 50 tasks")
+		}
+		startedAt := executor.now()
+		added := make([]map[string]any, 0, len(*args.Descriptions))
+		for index, rawDescription := range *args.Descriptions {
+			description := strings.TrimSpace(rawDescription)
+			if description == "" {
+				return "", fmt.Errorf("descriptions[%d] must not be empty", index)
+			}
+			task, err := tx.AddTask(ctx, description, startedAt)
+			if err != nil {
+				return "", err
+			}
+			added = append(added, executor.taskContent(task))
+		}
+		return marshalContent(map[string]any{
+			"added": added, "count": len(added), "display_timezone": executor.location.String(),
+		})
+
+	case "list":
+		if args.Descriptions != nil || args.ID != nil || args.Description != nil || args.IDs != nil {
+			return "", fmt.Errorf("list only accepts an optional status")
+		}
+		status := state.TaskOpen
+		if args.Status != nil {
+			status = *args.Status
+		}
+		tasks, err := tx.ListTasks(ctx, status)
+		if err != nil {
+			return "", err
+		}
+		items := make([]map[string]any, 0, len(tasks))
+		for _, task := range tasks {
+			items = append(items, executor.taskContent(task))
+		}
+		return marshalContent(map[string]any{
+			"tasks": items, "status": status, "display_timezone": executor.location.String(),
+		})
+
+	case "update":
+		if args.Descriptions != nil || args.Status != nil || args.IDs != nil {
+			return "", fmt.Errorf("update only accepts id and description")
+		}
+		if args.ID == nil || args.Description == nil || *args.ID < 1 || strings.TrimSpace(*args.Description) == "" {
+			return "", fmt.Errorf("update requires a positive id and non-empty description")
+		}
+		task, err := tx.UpdateTask(ctx, *args.ID, *args.Description)
+		if err != nil {
+			return "", err
+		}
+		return marshalContent(map[string]any{
+			"updated": executor.taskContent(task), "display_timezone": executor.location.String(),
+		})
+
+	case "complete":
+		if args.Descriptions != nil || args.Status != nil || args.ID != nil || args.Description != nil {
+			return "", fmt.Errorf("complete only accepts ids")
+		}
+		if args.IDs == nil {
+			return "", fmt.Errorf("complete requires at least one id")
+		}
+		if err := validateTaskIDs(*args.IDs, "complete"); err != nil {
+			return "", err
+		}
+		completedAt := executor.now()
+		completed := make([]map[string]any, 0, len(*args.IDs))
+		for _, id := range *args.IDs {
+			task, err := tx.CompleteTask(ctx, id, completedAt)
+			if err != nil {
+				return "", err
+			}
+			completed = append(completed, executor.taskContent(task))
+		}
+		return marshalContent(map[string]any{
+			"completed": completed, "count": len(completed), "display_timezone": executor.location.String(),
+		})
+
+	case "remove":
+		if args.Descriptions != nil || args.Status != nil || args.ID != nil || args.Description != nil {
+			return "", fmt.Errorf("remove only accepts ids")
+		}
+		if args.IDs == nil {
+			return "", fmt.Errorf("remove requires at least one id")
+		}
+		if err := validateTaskIDs(*args.IDs, "remove"); err != nil {
+			return "", err
+		}
+		removed := make([]map[string]any, 0, len(*args.IDs))
+		for _, id := range *args.IDs {
+			task, err := tx.DeleteTask(ctx, id)
+			if err != nil {
+				return "", err
+			}
+			removed = append(removed, executor.taskContent(task))
+		}
+		return marshalContent(map[string]any{
+			"removed": removed, "count": len(removed), "display_timezone": executor.location.String(),
+		})
+
+	default:
+		return "", fmt.Errorf("action must be add, list, update, complete, or remove")
+	}
+}
+
+func validateTaskIDs(ids []int, action string) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("%s requires at least one id", action)
+	}
+	seen := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		if id < 1 {
+			return fmt.Errorf("ids must contain positive integers")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("ids must not contain duplicates")
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func (executor *Executor) taskContent(task state.Task) map[string]any {
+	var completedAt any
+	if task.CompletedAt != nil {
+		completedAt = task.CompletedAt.In(executor.location).Format(time.RFC3339)
+	}
+	return map[string]any{
+		"id": task.ID, "description": task.Description, "status": task.Status(),
+		"started_at":   task.StartedAt.In(executor.location).Format(time.RFC3339),
+		"completed_at": completedAt,
 	}
 }
 

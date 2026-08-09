@@ -18,6 +18,18 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--check-state" {
+		store, err := state.NewStore(os.Args[2])
+		if err != nil {
+			log.Fatalf("State check failed: %v", err)
+		}
+		if err := store.Close(); err != nil {
+			log.Fatalf("State check close failed: %v", err)
+		}
+		log.Println("State schema check passed")
+		return
+	}
+
 	dataDir := strings.TrimSpace(os.Getenv("OPENCLAW_DATA_DIR"))
 	if dataDir == "" {
 		log.Fatal("OPENCLAW_DATA_DIR must be set")

@@ -40,6 +40,24 @@ Scheduled outbound reminder state.
 
 The due index covers `enabled, fire_at`.
 
+## `tasks`
+
+Owner-global unfinished work and completed history. Tasks are independent from
+reminders and contain no delivery, schedule, due-date, recurrence, timezone, or
+linkage fields.
+
+| Column | Purpose |
+| --- | --- |
+| `id` | Autoincremented task identifier exposed by the task tool. |
+| `description` | Trimmed description of the work. |
+| `started_at` | Actual server-recorded creation time. |
+| `completed_at` | Actual server-recorded completion time, or null while open. |
+
+Status is derived: a null `completed_at` means `open`; otherwise the task is
+`completed`. A partial unique index on `lower(trim(description))` prevents two
+open tasks with the same case-insensitive description. A completed description
+may be used by a new task.
+
 ## `conversation_history`
 
 Append-only structured transcript and source of truth for conversation recall.

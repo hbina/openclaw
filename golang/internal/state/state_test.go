@@ -36,6 +36,165 @@ func listRemindersForTest(t *testing.T, store *Store, channelID, senderID string
 	return reminders, err
 }
 
+func listTasksForTest(t *testing.T, store *Store, status TaskStatus) ([]Task, error) {
+	t.Helper()
+	var tasks []Task
+	err := store.WithTx(context.Background(), func(tx *Tx) error {
+		var err error
+		tasks, err = tx.ListTasks(context.Background(), status)
+		return err
+	})
+	return tasks, err
+}
+
+func TestTaskLifecycleFiltersDuplicatesAndFinalCompletion(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	started := time.Date(2026, 8, 9, 10, 30, 0, 0, time.FixedZone("MYT", 8*60*60))
+	completed := started.Add(2 * time.Hour)
+
+	var first, second Task
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		var err error
+		first, err = tx.AddTask(ctx, "  Prepare quarterly notes  ", started)
+		if err != nil {
+			return err
+		}
+		second, err = tx.AddTask(ctx, "Book dentist", started.Add(time.Minute))
+		return err
+	}); err != nil {
+		t.Fatalf("add tasks: %v", err)
+	}
+	if first.Description != "Prepare quarterly notes" || !first.StartedAt.Equal(started) || first.Status() != TaskOpen {
+		t.Fatalf("first task = %#v", first)
+	}
+
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		_, err := tx.AddTask(ctx, " prepare QUARTERLY NOTES ", started.Add(time.Minute))
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "already has description") {
+		t.Fatalf("duplicate open task error = %v", err)
+	}
+
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		updated, err := tx.UpdateTask(ctx, second.ID, "Book annual dentist visit")
+		if err == nil && updated.Description != "Book annual dentist visit" {
+			t.Fatalf("updated task = %#v", updated)
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("update task: %v", err)
+	}
+
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		done, err := tx.CompleteTask(ctx, first.ID, completed)
+		if err == nil && (done.CompletedAt == nil || !done.CompletedAt.Equal(completed) || done.Status() != TaskCompleted) {
+			t.Fatalf("completed task = %#v", done)
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("complete task: %v", err)
+	}
+
+	open, err := listTasksForTest(t, store, "")
+	if err != nil || len(open) != 1 || open[0].ID != second.ID {
+		t.Fatalf("open tasks = %#v, err=%v", open, err)
+	}
+	done, err := listTasksForTest(t, store, TaskCompleted)
+	if err != nil || len(done) != 1 || done[0].ID != first.ID {
+		t.Fatalf("completed tasks = %#v, err=%v", done, err)
+	}
+	all, err := listTasksForTest(t, store, TaskAll)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all tasks = %#v, err=%v", all, err)
+	}
+
+	for name, operation := range map[string]func(*Tx) error{
+		"update": func(tx *Tx) error {
+			_, err := tx.UpdateTask(ctx, first.ID, "Changed")
+			return err
+		},
+		"complete again": func(tx *Tx) error {
+			_, err := tx.CompleteTask(ctx, first.ID, completed.Add(time.Hour))
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := store.WithTx(ctx, operation); err == nil {
+				t.Fatalf("%s completed task succeeded", name)
+			}
+		})
+	}
+
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		repeated, err := tx.AddTask(ctx, "PREPARE QUARTERLY NOTES", completed.Add(time.Minute))
+		if err == nil && repeated.ID == first.ID {
+			t.Fatalf("repeated task reused ID %d", repeated.ID)
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("reuse completed description: %v", err)
+	}
+
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		if _, err := tx.DeleteTask(ctx, first.ID); err != nil {
+			return err
+		}
+		_, err := tx.DeleteTask(ctx, second.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("remove open and completed tasks: %v", err)
+	}
+}
+
+func TestTaskBatchTransactionRollsBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 9, 1, 0, 0, 0, time.UTC)
+	err := store.WithTx(ctx, func(tx *Tx) error {
+		if _, err := tx.AddTask(ctx, "first", now); err != nil {
+			return err
+		}
+		_, err := tx.AddTask(ctx, " FIRST ", now)
+		return err
+	})
+	if err == nil {
+		t.Fatal("duplicate batch succeeded")
+	}
+	tasks, listErr := listTasksForTest(t, store, TaskAll)
+	if listErr != nil || len(tasks) != 0 {
+		t.Fatalf("rolled-back tasks = %#v, err=%v", tasks, listErr)
+	}
+}
+
+func TestTasksPersistAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.sqlite")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	started := time.Date(2026, 8, 9, 1, 2, 3, 0, time.UTC)
+	if err := store.WithTx(context.Background(), func(tx *Tx) error {
+		_, err := tx.AddTask(context.Background(), "survive restart", started)
+		return err
+	}); err != nil {
+		t.Fatalf("add task: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	reopened, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer reopened.Close()
+	tasks, err := listTasksForTest(t, reopened, TaskOpen)
+	if err != nil || len(tasks) != 1 || tasks[0].Description != "survive restart" || !tasks[0].StartedAt.Equal(started) {
+		t.Fatalf("reopened tasks = %#v, err=%v", tasks, err)
+	}
+}
+
 func TestReminderLifecycle(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Now()
@@ -334,7 +493,7 @@ func TestConversationChunkIndexPersistsAndIsVersionScoped(t *testing.T) {
 
 func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
 	store := newTestStore(t)
-	for _, table := range []string{"memory_entries", "reminders", "conversation_history", "conversation_chunks"} {
+	for _, table := range []string{"memory_entries", "reminders", "tasks", "conversation_history", "conversation_chunks"} {
 		if !databaseTableExists(t, store, table) {
 			t.Errorf("fresh database is missing %s", table)
 		}
@@ -343,6 +502,23 @@ func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
 		if databaseTableExists(t, store, table) {
 			t.Errorf("fresh database contains removed table %s", table)
 		}
+	}
+}
+
+func TestStoreRejectsMissingCanonicalTaskIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-task-index.sqlite")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.db.Exec(`DROP INDEX idx_tasks_open_description`); err != nil {
+		t.Fatalf("drop task index: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if _, err := NewStore(path); err == nil || !strings.Contains(err.Error(), "task duplicate-prevention index is missing") {
+		t.Fatalf("NewStore error = %v", err)
 	}
 }
 

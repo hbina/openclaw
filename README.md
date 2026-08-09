@@ -1,9 +1,9 @@
 # OpenClaw Go
 
-This branch is a slim, Docker-first personal reminder assistant. The retained
+This branch is a slim, Docker-first personal assistant. The retained
 runtime is Go, serves one trusted owner per deployment, uses Telegram for text
-messages, and keeps reminders, durable memory, structured transcripts, and a
-derived retrieval index in one SQLite database.
+messages, and keeps tasks, reminders, durable memory, structured transcripts,
+and a derived retrieval index in one SQLite database.
 
 The model stack is local:
 
@@ -21,7 +21,7 @@ has been removed from this branch; it remains available only in Git history.
 - [Docker setup and configuration](docs/install.md)
 - [HTTP API](docs/http-api.md)
 - [Telegram behavior](docs/telegram.md)
-- [Reminders and memory](docs/reminders-memory.md)
+- [Tasks, reminders, and memory](docs/reminders-memory.md)
 - [SQLite schema](docs/database.md)
 - [Operations and backups](docs/operations.md)
 - [Security and current limitations](docs/security.md)

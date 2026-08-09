@@ -5,8 +5,8 @@ summary: Current trust boundary and known gaps
 
 This is a single-owner assistant. Each owner runs a separate deployment.
 Channel and sender ids route conversations and reminder delivery; they are not
-tenant ids and do not isolate data inside the runtime. Durable memory and
-semantic conversation recall are intentionally owner-global.
+tenant ids and do not isolate data inside the runtime. Tasks, durable memory,
+and semantic conversation recall are intentionally owner-global.
 
 Keep these boundaries:
 
