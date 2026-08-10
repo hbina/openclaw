@@ -141,9 +141,59 @@ func (executor *Executor) BackfillMemoryEmbeddings(ctx context.Context) error {
 }
 
 func Definitions(location *time.Location) []providers.ToolDefinition {
+	if location == nil {
+		location = time.Local
+	}
+	timezone := location.String()
+	schedule := fmt.Sprintf(`{
+		"type":"object","additionalProperties":false,
+		"properties":{
+			"kind":{"type":"string","enum":["at","every","cron"]},
+			"at":{"type":"string","description":"Future RFC3339 timestamp with explicit UTC offset for kind=at."},
+			"every_ms":{"type":"integer","minimum":1,"description":"Fixed interval milliseconds for kind=every."},
+			"anchor_at":{"type":"string","description":"Optional RFC3339 interval anchor for kind=every."},
+			"expr":{"type":"string","description":"Five- or six-field cron expression in timezone wall-clock time for kind=cron."},
+			"timezone":{"type":"string","description":"IANA timezone for kind=cron; omit to use server timezone %s."}
+		},"required":["kind"]
+	}`, timezone)
 	return []providers.ToolDefinition{
-		reminderDefinition(location),
-		taskDefinition(),
+		definition("add_reminder", "Add one reminder for the current user. The server timezone is "+timezone+"; omit cron timezone to use it.", fmt.Sprintf(`{
+			"type":"object","additionalProperties":false,
+			"properties":{"message":{"type":"string"},"schedule":%s},
+			"required":["message","schedule"]
+		}`, schedule)),
+		definition("list_reminders", "List reminders for the current user.", `{
+			"type":"object","additionalProperties":false,"properties":{}
+		}`),
+		definition("update_reminder", "Update one reminder for the current user. Supply at least one of message, enabled, or schedule.", fmt.Sprintf(`{
+			"type":"object","additionalProperties":false,"minProperties":2,
+			"properties":{"id":{"type":"integer","minimum":1},"message":{"type":"string"},"enabled":{"type":"boolean"},"schedule":%s},
+			"required":["id"]
+		}`, schedule)),
+		definition("remove_reminder", "Remove one reminder for the current user.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
+		}`),
+		definition("add_task", "Add one owner-global task. Tasks start immediately and have no schedule.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"description":{"type":"string"}},"required":["description"]
+		}`),
+		definition("list_tasks", "List owner-global tasks. The status defaults to open.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"status":{"type":"string","enum":["open","completed","all"]}}
+		}`),
+		definition("update_task", "Replace the description of one open owner-global task.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"id":{"type":"integer","minimum":1},"description":{"type":"string"}},"required":["id","description"]
+		}`),
+		definition("complete_task", "Complete one open owner-global task. Completion is final.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
+		}`),
+		definition("remove_task", "Remove one owner-global task.", `{
+			"type":"object","additionalProperties":false,
+			"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
+		}`),
 		definition("store_memory", "Store a stable preference or durable fact in the agent's global memory.", `{
 			"type":"object","additionalProperties":false,
 			"properties":{"content":{"type":"string","description":"One concise durable fact."}},"required":["content"]
@@ -153,56 +203,6 @@ func Definitions(location *time.Location) []providers.ToolDefinition {
 			"properties":{"query":{"type":"string"}},"required":["query"]
 		}`),
 	}
-}
-
-func taskDefinition() providers.ToolDefinition {
-	return definition("manage_tasks", "Add, list, update, complete, or remove the owner's global tasks. Tasks start when added and have no schedule. Add accepts 1 to 50 descriptions atomically. Completed tasks are final.", `{
-		"type":"object","additionalProperties":false,
-		"properties":{
-			"action":{"type":"string","enum":["add","list","update","complete","remove"]},
-			"descriptions":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"string"}},
-			"status":{"type":"string","enum":["open","completed","all"],"description":"List filter; defaults to open."},
-			"id":{"type":"integer","minimum":1,"description":"Task ID for update."},
-			"description":{"type":"string","description":"New task description for update."},
-			"ids":{"type":"array","minItems":1,"items":{"type":"integer","minimum":1},"description":"Task IDs for complete or remove."}
-		},"required":["action"]
-	}`)
-}
-
-func reminderDefinition(location *time.Location) providers.ToolDefinition {
-	if location == nil {
-		location = time.Local
-	}
-	timezone := location.String()
-	description := fmt.Sprintf("Add, list, update, or remove reminders for the current user. Add accepts multiple items and commits them together. Use cron schedules for wall-clock recurrence. The server timezone is %s; omit timezone to use it.", timezone)
-	schema := fmt.Sprintf(`{
-		"type":"object","additionalProperties":false,
-		"properties":{
-			"action":{"type":"string","enum":["add","list","update","remove"]},
-			"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","additionalProperties":false,"properties":{
-				"message":{"type":"string"},
-				"schedule":{"type":"object","additionalProperties":false,"properties":{
-					"kind":{"type":"string","enum":["at","every","cron"]},
-					"at":{"type":"string","description":"Future RFC3339 timestamp with explicit UTC offset for kind=at."},
-					"every_ms":{"type":"integer","minimum":1,"description":"Fixed interval milliseconds for kind=every."},
-					"anchor_at":{"type":"string","description":"Optional RFC3339 interval anchor for kind=every."},
-					"expr":{"type":"string","description":"Five- or six-field cron expression in timezone wall-clock time for kind=cron."},
-					"timezone":{"type":"string","description":"IANA timezone for kind=cron; omit to use server timezone %s."}
-				},"required":["kind"]}
-			},"required":["message","schedule"]}},
-			"id":{"type":"integer","minimum":1,"description":"Reminder id for update."},
-			"ids":{"type":"array","minItems":1,"items":{"type":"integer","minimum":1},"description":"Reminder ids for remove."},
-			"patch":{"type":"object","additionalProperties":false,"properties":{
-				"message":{"type":"string"},"enabled":{"type":"boolean"},
-				"schedule":{"type":"object","additionalProperties":false,"properties":{
-					"kind":{"type":"string","enum":["at","every","cron"]},"at":{"type":"string"},
-					"every_ms":{"type":"integer","minimum":1},"anchor_at":{"type":"string"},
-					"expr":{"type":"string"},"timezone":{"type":"string"}
-				},"required":["kind"]}
-			}}
-		},"required":["action"]
-	}`, timezone)
-	return definition("manage_reminders", description, schema)
 }
 
 func definition(name, description, schema string) providers.ToolDefinition {
@@ -273,10 +273,24 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 
 func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Context, call providers.ToolCall, memoryInput *memoryToolInput) (string, error) {
 	switch call.Function.Name {
-	case "manage_reminders":
-		return executor.manageReminders(ctx, tx, toolCtx, call.Function.Arguments)
-	case "manage_tasks":
-		return executor.manageTasks(ctx, tx, call.Function.Arguments)
+	case "add_reminder":
+		return executor.addReminder(ctx, tx, toolCtx, call.Function.Arguments)
+	case "list_reminders":
+		return executor.listReminders(ctx, tx, toolCtx, call.Function.Arguments)
+	case "update_reminder":
+		return executor.updateReminder(ctx, tx, toolCtx, call.Function.Arguments)
+	case "remove_reminder":
+		return executor.removeReminder(ctx, tx, toolCtx, call.Function.Arguments)
+	case "add_task":
+		return executor.addTask(ctx, tx, call.Function.Arguments)
+	case "list_tasks":
+		return executor.listTasks(ctx, tx, call.Function.Arguments)
+	case "update_task":
+		return executor.updateTask(ctx, tx, call.Function.Arguments)
+	case "complete_task":
+		return executor.completeTask(ctx, tx, call.Function.Arguments)
+	case "remove_task":
+		return executor.removeTask(ctx, tx, call.Function.Arguments)
 	case "store_memory":
 		stored, err := tx.SaveMemoryUnique(ctx, memoryInput.text, executor.indexID, executor.dimensions, vector.Pack(memoryInput.embedding))
 		if err != nil {
@@ -300,146 +314,102 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 	}
 }
 
-type manageTaskArguments struct {
-	Action       string            `json:"action"`
-	Descriptions *[]string         `json:"descriptions"`
-	Status       *state.TaskStatus `json:"status"`
-	ID           *int              `json:"id"`
-	Description  *string           `json:"description"`
-	IDs          *[]int            `json:"ids"`
+type taskDescriptionArguments struct {
+	Description string `json:"description"`
 }
 
-func (executor *Executor) manageTasks(ctx context.Context, tx *state.Tx, raw string) (string, error) {
-	var args manageTaskArguments
+type taskListArguments struct {
+	Status *state.TaskStatus `json:"status"`
+}
+
+type taskUpdateArguments struct {
+	ID          int    `json:"id"`
+	Description string `json:"description"`
+}
+
+type idArguments struct {
+	ID int `json:"id"`
+}
+
+func (executor *Executor) addTask(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args taskDescriptionArguments
 	if err := decodeArguments(raw, &args); err != nil {
 		return "", err
 	}
-
-	switch args.Action {
-	case "add":
-		if args.Status != nil || args.ID != nil || args.Description != nil || args.IDs != nil {
-			return "", fmt.Errorf("add only accepts descriptions")
-		}
-		if args.Descriptions == nil || len(*args.Descriptions) < 1 || len(*args.Descriptions) > 50 {
-			return "", fmt.Errorf("descriptions must contain between 1 and 50 tasks")
-		}
-		startedAt := executor.now()
-		added := make([]map[string]any, 0, len(*args.Descriptions))
-		for index, rawDescription := range *args.Descriptions {
-			description := strings.TrimSpace(rawDescription)
-			if description == "" {
-				return "", fmt.Errorf("descriptions[%d] must not be empty", index)
-			}
-			task, err := tx.AddTask(ctx, description, startedAt)
-			if err != nil {
-				return "", err
-			}
-			added = append(added, executor.taskContent(task))
-		}
-		return marshalContent(map[string]any{
-			"added": added, "count": len(added), "display_timezone": executor.location.String(),
-		})
-
-	case "list":
-		if args.Descriptions != nil || args.ID != nil || args.Description != nil || args.IDs != nil {
-			return "", fmt.Errorf("list only accepts an optional status")
-		}
-		status := state.TaskOpen
-		if args.Status != nil {
-			status = *args.Status
-		}
-		tasks, err := tx.ListTasks(ctx, status)
-		if err != nil {
-			return "", err
-		}
-		items := make([]map[string]any, 0, len(tasks))
-		for _, task := range tasks {
-			items = append(items, executor.taskContent(task))
-		}
-		return marshalContent(map[string]any{
-			"tasks": items, "status": status, "display_timezone": executor.location.String(),
-		})
-
-	case "update":
-		if args.Descriptions != nil || args.Status != nil || args.IDs != nil {
-			return "", fmt.Errorf("update only accepts id and description")
-		}
-		if args.ID == nil || args.Description == nil || *args.ID < 1 || strings.TrimSpace(*args.Description) == "" {
-			return "", fmt.Errorf("update requires a positive id and non-empty description")
-		}
-		task, err := tx.UpdateTask(ctx, *args.ID, *args.Description)
-		if err != nil {
-			return "", err
-		}
-		return marshalContent(map[string]any{
-			"updated": executor.taskContent(task), "display_timezone": executor.location.String(),
-		})
-
-	case "complete":
-		if args.Descriptions != nil || args.Status != nil || args.ID != nil || args.Description != nil {
-			return "", fmt.Errorf("complete only accepts ids")
-		}
-		if args.IDs == nil {
-			return "", fmt.Errorf("complete requires at least one id")
-		}
-		if err := validateTaskIDs(*args.IDs, "complete"); err != nil {
-			return "", err
-		}
-		completedAt := executor.now()
-		completed := make([]map[string]any, 0, len(*args.IDs))
-		for _, id := range *args.IDs {
-			task, err := tx.CompleteTask(ctx, id, completedAt)
-			if err != nil {
-				return "", err
-			}
-			completed = append(completed, executor.taskContent(task))
-		}
-		return marshalContent(map[string]any{
-			"completed": completed, "count": len(completed), "display_timezone": executor.location.String(),
-		})
-
-	case "remove":
-		if args.Descriptions != nil || args.Status != nil || args.ID != nil || args.Description != nil {
-			return "", fmt.Errorf("remove only accepts ids")
-		}
-		if args.IDs == nil {
-			return "", fmt.Errorf("remove requires at least one id")
-		}
-		if err := validateTaskIDs(*args.IDs, "remove"); err != nil {
-			return "", err
-		}
-		removed := make([]map[string]any, 0, len(*args.IDs))
-		for _, id := range *args.IDs {
-			task, err := tx.DeleteTask(ctx, id)
-			if err != nil {
-				return "", err
-			}
-			removed = append(removed, executor.taskContent(task))
-		}
-		return marshalContent(map[string]any{
-			"removed": removed, "count": len(removed), "display_timezone": executor.location.String(),
-		})
-
-	default:
-		return "", fmt.Errorf("action must be add, list, update, complete, or remove")
+	description := strings.TrimSpace(args.Description)
+	if description == "" {
+		return "", fmt.Errorf("description must not be empty")
 	}
+	task, err := tx.AddTask(ctx, description, executor.now())
+	if err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"added": executor.taskContent(task), "display_timezone": executor.location.String()})
 }
 
-func validateTaskIDs(ids []int, action string) error {
-	if len(ids) == 0 {
-		return fmt.Errorf("%s requires at least one id", action)
+func (executor *Executor) listTasks(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args taskListArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
 	}
-	seen := make(map[int]struct{}, len(ids))
-	for _, id := range ids {
-		if id < 1 {
-			return fmt.Errorf("ids must contain positive integers")
-		}
-		if _, duplicate := seen[id]; duplicate {
-			return fmt.Errorf("ids must not contain duplicates")
-		}
-		seen[id] = struct{}{}
+	status := state.TaskOpen
+	if args.Status != nil {
+		status = *args.Status
 	}
-	return nil
+	tasks, err := tx.ListTasks(ctx, status)
+	if err != nil {
+		return "", err
+	}
+	items := make([]map[string]any, 0, len(tasks))
+	for _, task := range tasks {
+		items = append(items, executor.taskContent(task))
+	}
+	return marshalContent(map[string]any{"tasks": items, "status": status, "display_timezone": executor.location.String()})
+}
+
+func (executor *Executor) updateTask(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args taskUpdateArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	if args.ID < 1 || strings.TrimSpace(args.Description) == "" {
+		return "", fmt.Errorf("id must be positive and description must not be empty")
+	}
+	task, err := tx.UpdateTask(ctx, args.ID, args.Description)
+	if err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"updated": executor.taskContent(task), "display_timezone": executor.location.String()})
+}
+
+func (executor *Executor) completeTask(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args idArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	if args.ID < 1 {
+		return "", fmt.Errorf("id must be positive")
+	}
+	task, err := tx.CompleteTask(ctx, args.ID, executor.now())
+	if err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"completed": executor.taskContent(task), "display_timezone": executor.location.String()})
+}
+
+func (executor *Executor) removeTask(ctx context.Context, tx *state.Tx, raw string) (string, error) {
+	var args idArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	if args.ID < 1 {
+		return "", fmt.Errorf("id must be positive")
+	}
+	task, err := tx.DeleteTask(ctx, args.ID)
+	if err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"removed": executor.taskContent(task), "display_timezone": executor.location.String()})
 }
 
 func (executor *Executor) taskContent(task state.Task) map[string]any {
@@ -463,128 +433,113 @@ type scheduleArguments struct {
 	Timezone string             `json:"timezone"`
 }
 
-type reminderItemArguments struct {
+type addReminderArguments struct {
 	Message  string            `json:"message"`
 	Schedule scheduleArguments `json:"schedule"`
 }
 
-type reminderPatchArguments struct {
+type updateReminderArguments struct {
+	ID       int                `json:"id"`
 	Message  *string            `json:"message"`
 	Enabled  *bool              `json:"enabled"`
 	Schedule *scheduleArguments `json:"schedule"`
 }
 
-type manageReminderArguments struct {
-	Action string                  `json:"action"`
-	Items  []reminderItemArguments `json:"items"`
-	ID     int                     `json:"id"`
-	IDs    []int                   `json:"ids"`
-	Patch  *reminderPatchArguments `json:"patch"`
-}
-
-func (executor *Executor) manageReminders(ctx context.Context, tx *state.Tx, toolCtx Context, raw string) (string, error) {
-	var args manageReminderArguments
+func (executor *Executor) addReminder(ctx context.Context, tx *state.Tx, toolCtx Context, raw string) (string, error) {
+	var args addReminderArguments
 	if err := decodeArguments(raw, &args); err != nil {
 		return "", err
 	}
-	switch args.Action {
-	case "add":
-		if len(args.Items) == 0 || len(args.Items) > 50 {
-			return "", fmt.Errorf("items must contain between 1 and 50 reminders")
-		}
-		added := make([]map[string]any, 0, len(args.Items))
-		for index, item := range args.Items {
-			message := strings.TrimSpace(item.Message)
-			if message == "" {
-				return "", fmt.Errorf("items[%d].message must not be empty", index)
-			}
-			schedule, fireAt, err := executor.resolveSchedule(item.Schedule)
-			if err != nil {
-				return "", fmt.Errorf("items[%d].schedule: %w", index, err)
-			}
-			id, err := tx.AddReminder(ctx, toolCtx.ChannelID, toolCtx.SenderID, message, schedule, fireAt)
-			if err != nil {
-				return "", err
-			}
-			added = append(added, executor.reminderContent(int(id), message, schedule, fireAt, true))
-		}
-		return marshalContent(map[string]any{"added": added, "count": len(added)})
-
-	case "list":
-		reminders, err := tx.ListReminders(ctx, toolCtx.ChannelID, toolCtx.SenderID)
-		if err != nil {
-			return "", err
-		}
-		items := make([]map[string]any, 0, len(reminders))
-		for _, reminder := range reminders {
-			items = append(items, executor.reminderContent(reminder.ID, reminder.Message, reminder.Schedule, reminder.FireAt, reminder.Enabled))
-		}
-		return marshalContent(map[string]any{"reminders": items})
-
-	case "update":
-		if args.ID < 1 || args.Patch == nil {
-			return "", fmt.Errorf("update requires a positive id and patch")
-		}
-		if args.Patch.Message == nil && args.Patch.Enabled == nil && args.Patch.Schedule == nil {
-			return "", fmt.Errorf("patch must change message, enabled, or schedule")
-		}
-		reminder, err := tx.GetReminderForUser(ctx, args.ID, toolCtx.ChannelID, toolCtx.SenderID)
-		if err != nil {
-			return "", err
-		}
-		wasEnabled := reminder.Enabled
-		if args.Patch.Message != nil {
-			message := strings.TrimSpace(*args.Patch.Message)
-			if message == "" {
-				return "", fmt.Errorf("patch.message must not be empty")
-			}
-			reminder.Message = message
-		}
-		if args.Patch.Enabled != nil {
-			reminder.Enabled = *args.Patch.Enabled
-		}
-		if args.Patch.Schedule != nil {
-			reminder.Schedule, reminder.FireAt, err = executor.resolveSchedule(*args.Patch.Schedule)
-			if err != nil {
-				return "", fmt.Errorf("patch.schedule: %w", err)
-			}
-		}
-		if args.Patch.Enabled != nil && *args.Patch.Enabled && !wasEnabled && args.Patch.Schedule == nil {
-			if reminder.Schedule.Kind == state.ScheduleCron && strings.TrimSpace(reminder.Schedule.Timezone) == "" {
-				reminder.Schedule.Timezone = executor.location.String()
-			}
-			reminder.FireAt, err = state.NextReminderRun(reminder.Schedule, executor.now())
-			if err != nil {
-				return "", fmt.Errorf("re-enable reminder: %w; provide a new schedule", err)
-			}
-		}
-		if err := tx.UpdateReminderForUser(ctx, reminder); err != nil {
-			return "", err
-		}
-		return marshalContent(map[string]any{"updated": executor.reminderContent(reminder.ID, reminder.Message, reminder.Schedule, reminder.FireAt, reminder.Enabled)})
-
-	case "remove":
-		if len(args.IDs) == 0 {
-			return "", fmt.Errorf("remove requires at least one id")
-		}
-		seen := make(map[int]struct{}, len(args.IDs))
-		for _, id := range args.IDs {
-			if id < 1 {
-				return "", fmt.Errorf("ids must contain positive integers")
-			}
-			if _, duplicate := seen[id]; duplicate {
-				return "", fmt.Errorf("ids must not contain duplicates")
-			}
-			seen[id] = struct{}{}
-			if err := tx.DeleteReminderForUser(ctx, id, toolCtx.ChannelID, toolCtx.SenderID); err != nil {
-				return "", err
-			}
-		}
-		return marshalContent(map[string]any{"removed_ids": args.IDs, "count": len(args.IDs)})
-
-	default:
-		return "", fmt.Errorf("action must be add, list, update, or remove")
+	message := strings.TrimSpace(args.Message)
+	if message == "" {
+		return "", fmt.Errorf("message must not be empty")
 	}
+	schedule, fireAt, err := executor.resolveSchedule(args.Schedule)
+	if err != nil {
+		return "", fmt.Errorf("schedule: %w", err)
+	}
+	id, err := tx.AddReminder(ctx, toolCtx.ChannelID, toolCtx.SenderID, message, schedule, fireAt)
+	if err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"added": executor.reminderContent(int(id), message, schedule, fireAt, true)})
+}
+
+func (executor *Executor) listReminders(ctx context.Context, tx *state.Tx, toolCtx Context, raw string) (string, error) {
+	var args struct{}
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	reminders, err := tx.ListReminders(ctx, toolCtx.ChannelID, toolCtx.SenderID)
+	if err != nil {
+		return "", err
+	}
+	items := make([]map[string]any, 0, len(reminders))
+	for _, reminder := range reminders {
+		items = append(items, executor.reminderContent(reminder.ID, reminder.Message, reminder.Schedule, reminder.FireAt, reminder.Enabled))
+	}
+	return marshalContent(map[string]any{"reminders": items})
+}
+
+func (executor *Executor) updateReminder(ctx context.Context, tx *state.Tx, toolCtx Context, raw string) (string, error) {
+	var args updateReminderArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	if args.ID < 1 {
+		return "", fmt.Errorf("id must be positive")
+	}
+	if args.Message == nil && args.Enabled == nil && args.Schedule == nil {
+		return "", fmt.Errorf("update must change message, enabled, or schedule")
+	}
+	reminder, err := tx.GetReminderForUser(ctx, args.ID, toolCtx.ChannelID, toolCtx.SenderID)
+	if err != nil {
+		return "", err
+	}
+	wasEnabled := reminder.Enabled
+	if args.Message != nil {
+		message := strings.TrimSpace(*args.Message)
+		if message == "" {
+			return "", fmt.Errorf("message must not be empty")
+		}
+		reminder.Message = message
+	}
+	if args.Enabled != nil {
+		reminder.Enabled = *args.Enabled
+	}
+	if args.Schedule != nil {
+		reminder.Schedule, reminder.FireAt, err = executor.resolveSchedule(*args.Schedule)
+		if err != nil {
+			return "", fmt.Errorf("schedule: %w", err)
+		}
+	}
+	if args.Enabled != nil && *args.Enabled && !wasEnabled && args.Schedule == nil {
+		if reminder.Schedule.Kind == state.ScheduleCron && strings.TrimSpace(reminder.Schedule.Timezone) == "" {
+			reminder.Schedule.Timezone = executor.location.String()
+		}
+		reminder.FireAt, err = state.NextReminderRun(reminder.Schedule, executor.now())
+		if err != nil {
+			return "", fmt.Errorf("re-enable reminder: %w; provide a new schedule", err)
+		}
+	}
+	if err := tx.UpdateReminderForUser(ctx, reminder); err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"updated": executor.reminderContent(reminder.ID, reminder.Message, reminder.Schedule, reminder.FireAt, reminder.Enabled)})
+}
+
+func (executor *Executor) removeReminder(ctx context.Context, tx *state.Tx, toolCtx Context, raw string) (string, error) {
+	var args idArguments
+	if err := decodeArguments(raw, &args); err != nil {
+		return "", err
+	}
+	if args.ID < 1 {
+		return "", fmt.Errorf("id must be positive")
+	}
+	if err := tx.DeleteReminderForUser(ctx, args.ID, toolCtx.ChannelID, toolCtx.SenderID); err != nil {
+		return "", err
+	}
+	return marshalContent(map[string]any{"removed_id": args.ID})
 }
 
 func (executor *Executor) resolveSchedule(args scheduleArguments) (state.ReminderSchedule, time.Time, error) {

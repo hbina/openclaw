@@ -79,9 +79,10 @@ broader platform surface is not the goal of this fork.
 - Trusted channel and sender identity must come from ingress routing, never
   model-controlled tool arguments, because prompt content is not an
   authorization source.
-- A task, reminder, or memory mutation and its matching tool-result transcript must commit
-  atomically. The assistant must never claim durable work that the database did
-  not accept.
+- Each task, reminder, or memory mutation and its matching tool-result
+  transcript must commit atomically. Multiple mutations requested in one turn
+  commit independently and may partially succeed; the assistant must report
+  mixed results and never claim durable work that the database did not accept.
 - Exact tool-call identifiers and deterministic prompt/tool ordering must be
   preserved so stored conversations can be replayed without changing meaning.
 - Semantic reminder selection uses normal model tool choice rather than
@@ -102,12 +103,12 @@ broader platform surface is not the goal of this fork.
 
 ## Migration Truth and Current Risk
 
-The retained Go runtime already supports local chat and structured tool calls,
-atomic owner-global task and reminder operations, one-shot and recurring schedules, semantic memory
-and conversation recall, required persona configuration, contextual reminder
-delivery with structured transcripts, basic Telegram text delivery, health and
-chat HTTP endpoints, and a standalone image without Node or hosted-model
-dependencies.
+The retained Go runtime already supports local chat and structured single-item
+tool calls, independently committed owner-global task and reminder operations,
+one-shot and recurring schedules, semantic memory and conversation recall,
+required persona configuration, contextual reminder delivery with structured
+transcripts, basic Telegram text delivery, health and chat HTTP endpoints, and
+a standalone image without Node or hosted-model dependencies.
 
 That working feature set is not equivalent to production readiness. Remaining
 work is prioritized by the user harm it prevents:

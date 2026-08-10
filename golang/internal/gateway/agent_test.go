@@ -15,6 +15,7 @@ import (
 	"github.com/openclaw/openclaw/go/internal/config"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
+	"github.com/openclaw/openclaw/go/internal/tools"
 )
 
 type recordingProvider struct {
@@ -612,7 +613,7 @@ func TestAgentReminderFallsBackWhenContextOrModelFails(t *testing.T) {
 					ToolCalls: []providers.ToolCall{{
 						ID:       "unexpected",
 						Type:     "function",
-						Function: providers.FunctionCall{Name: "manage_reminders", Arguments: `{"action":"list"}`},
+						Function: providers.FunctionCall{Name: "list_reminders", Arguments: `{}`},
 					}},
 				}}
 				return newTestAgent(t, &scriptedProvider{responses: []providers.GenerateResponse{response}}, channel, "")
@@ -681,8 +682,8 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("provider request count = %d, want 2", len(provider.requests))
 	}
 	followup := provider.requests[1]
-	if len(followup.Tools) != 4 {
-		t.Fatalf("tool definition count = %d, want 4", len(followup.Tools))
+	if len(followup.Tools) != 11 {
+		t.Fatalf("tool definition count = %d, want 11", len(followup.Tools))
 	}
 	if len(followup.Messages) != 4 {
 		t.Fatalf("follow-up message count = %d, want 4", len(followup.Messages))
@@ -718,7 +719,7 @@ func TestAgentReturnsToolValidationErrorToModel(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{
 			ID: "bad-1", Type: "function", Function: providers.FunctionCall{
-				Name: "manage_reminders", Arguments: `{"action":"list","sender_id":"other"}`,
+				Name: "list_reminders", Arguments: `{"sender_id":"other"}`,
 			},
 		}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I couldn't schedule that."}},
@@ -737,7 +738,7 @@ func TestReminderRequestUsesAutomaticUnifiedReminderTool(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{
 			ID: "list-required", Type: "function", Function: providers.FunctionCall{
-				Name: "manage_reminders", Arguments: `{"action":"list"}`,
+				Name: "list_reminders", Arguments: `{}`,
 			},
 		}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "No reminders."}},
@@ -751,10 +752,10 @@ func TestReminderRequestUsesAutomaticUnifiedReminderTool(t *testing.T) {
 		t.Fatalf("request count = %d, want 2", len(provider.requests))
 	}
 	first := provider.requests[0]
-	if first.ToolChoice != "auto" || len(first.Tools) != 4 || first.Tools[0].Function.Name != "manage_reminders" || first.Tools[1].Function.Name != "manage_tasks" {
-		t.Fatalf("first reminder request did not expose automatic unified tool: %#v", first)
+	if first.ToolChoice != "auto" || len(first.Tools) != 11 || first.Tools[0].Function.Name != "add_reminder" || first.Tools[4].Function.Name != "add_task" {
+		t.Fatalf("first reminder request did not expose single-purpose tools: %#v", first)
 	}
-	if first.MaxTokens != defaultMaxTokens || provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 4 {
+	if first.MaxTokens != defaultMaxTokens || provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 11 {
 		t.Fatalf("follow-up request controls: %#v", provider.requests[1])
 	}
 }
@@ -776,7 +777,7 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 		t.Fatalf("provider request count = %d, want 1", len(provider.requests))
 	}
 	request := provider.requests[0]
-	if request.ToolChoice != "auto" || len(request.Tools) != 4 {
+	if request.ToolChoice != "auto" || len(request.Tools) != 11 {
 		t.Fatalf("quoted reminder text forced tool controls: %#v", request)
 	}
 	reminders, err := listRemindersForTest(t, store, "cli", "user-1")
@@ -815,8 +816,8 @@ func TestAgentDoesNotWarnAfterCommittedReminderMutation(t *testing.T) {
 		ID:   "add-reminder",
 		Type: "function",
 		Function: providers.FunctionCall{
-			Name:      "manage_reminders",
-			Arguments: `{"action":"add","items":[{"message":"Workout","schedule":{"kind":"at","at":"2099-01-02T19:00:00Z"}}]}`,
+			Name:      "add_reminder",
+			Arguments: `{"message":"Workout","schedule":{"kind":"at","at":"2099-01-02T19:00:00Z"}}`,
 		},
 	}
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
@@ -839,8 +840,8 @@ func TestRejectedReminderMutationCannotBackSuccessClaim(t *testing.T) {
 		ID:   "bad-add",
 		Type: "function",
 		Function: providers.FunctionCall{
-			Name:      "manage_reminders",
-			Arguments: `{"action":"add","unexpected":true}`,
+			Name:      "add_reminder",
+			Arguments: `{"unexpected":true}`,
 		},
 	}
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
@@ -899,7 +900,7 @@ func TestUnbackedReminderCommitmentDetection(t *testing.T) {
 func TestAgentTaskMutationBacksSuccessClaim(t *testing.T) {
 	call := providers.ToolCall{
 		ID: "task-add", Type: "function",
-		Function: providers.FunctionCall{Name: "manage_tasks", Arguments: `{"action":"add","descriptions":["Prepare launch notes"]}`},
+		Function: providers.FunctionCall{Name: "add_task", Arguments: `{"description":"Prepare launch notes"}`},
 	}
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{call}}},
@@ -924,7 +925,7 @@ func TestFailedTaskMutationCannotBackSuccessClaim(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{
 			ID: "bad-task", Type: "function",
-			Function: providers.FunctionCall{Name: "manage_tasks", Arguments: `{"action":"add","descriptions":["task"],"due_at":"tomorrow"}`},
+			Function: providers.FunctionCall{Name: "add_task", Arguments: `{"description":"task","due_at":"tomorrow"}`},
 		}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I have added the task."}},
 	}}
@@ -936,6 +937,63 @@ func TestFailedTaskMutationCannotBackSuccessClaim(t *testing.T) {
 	tasks, err := listTasksForTest(t, store, state.TaskAll)
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("tasks=%#v err=%v", tasks, err)
+	}
+}
+
+func TestAgentCommitsTaskCallsIndependentlyAndWarnsOnMixedResults(t *testing.T) {
+	calls := []providers.ToolCall{
+		{ID: "add-a", Type: "function", Function: providers.FunctionCall{Name: "add_task", Arguments: `{"description":"First"}`}},
+		{ID: "add-b", Type: "function", Function: providers.FunctionCall{Name: "add_task", Arguments: `{"description":" first "}`}},
+		{ID: "add-c", Type: "function", Function: providers.FunctionCall{Name: "add_task", Arguments: `{"description":"Third"}`}},
+	}
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: calls[:1]}},
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: calls[1:2]}},
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: calls[2:]}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I created all three tasks."}},
+	}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	reply, err := chat(agent, context.Background(), "cli", "owner", "Add First, first, and Third as tasks")
+	if err != nil || !strings.HasSuffix(reply, mixedTaskResultNote) {
+		t.Fatalf("Chat: reply=%q err=%v", reply, err)
+	}
+	tasks, err := listTasksForTest(t, store, state.TaskOpen)
+	if err != nil || len(tasks) != 2 || tasks[0].Description != "First" || tasks[1].Description != "Third" {
+		t.Fatalf("tasks=%#v err=%v", tasks, err)
+	}
+	history, err := store.GetConversationHistory(context.Background(), "cli", "owner")
+	if err != nil || len(history) != 8 {
+		t.Fatalf("history=%#v err=%v", history, err)
+	}
+	for index, callID := range []string{"add-a", "add-b", "add-c"} {
+		var result tools.Result
+		if err := json.Unmarshal([]byte(history[2+index*2].Content), &result); err != nil || result.ToolCallID != callID {
+			t.Fatalf("result %d=%#v decode_err=%v", index, result, err)
+		}
+		if (index == 1) != result.IsError {
+			t.Fatalf("result %d error=%v", index, result.IsError)
+		}
+	}
+}
+
+func TestAgentCommitsReminderCallsIndependentlyAndWarnsOnMixedResults(t *testing.T) {
+	calls := []providers.ToolCall{
+		{ID: "add-a", Type: "function", Function: providers.FunctionCall{Name: "add_reminder", Arguments: `{"message":"First","schedule":{"kind":"at","at":"2099-01-02T09:00:00Z"}}`}},
+		{ID: "add-b", Type: "function", Function: providers.FunctionCall{Name: "add_reminder", Arguments: `{"message":"Broken","schedule":{"kind":"cron","expr":"not cron","timezone":"UTC"}}`}},
+		{ID: "add-c", Type: "function", Function: providers.FunctionCall{Name: "add_reminder", Arguments: `{"message":"Third","schedule":{"kind":"at","at":"2099-01-03T09:00:00Z"}}`}},
+	}
+	provider := &scriptedProvider{responses: []providers.GenerateResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: calls}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "I created all three reminders."}},
+	}}
+	agent, store := newTestAgent(t, provider, nil, "")
+	reply, err := chat(agent, context.Background(), "telegram", "owner", "Add three reminders")
+	if err != nil || !strings.HasSuffix(reply, mixedReminderResultNote) {
+		t.Fatalf("Chat: reply=%q err=%v", reply, err)
+	}
+	reminders, err := listRemindersForTest(t, store, "telegram", "owner")
+	if err != nil || len(reminders) != 2 || reminders[0].Message != "First" || reminders[1].Message != "Third" {
+		t.Fatalf("reminders=%#v err=%v", reminders, err)
 	}
 }
 
@@ -961,8 +1019,8 @@ func TestNoTimeReminderClarificationCreatesNoState(t *testing.T) {
 func TestAgentCombinedTaskAndReminderListingUsesSeparateTools(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{
-			{ID: "list-reminders", Type: "function", Function: providers.FunctionCall{Name: "manage_reminders", Arguments: `{"action":"list"}`}},
-			{ID: "list-tasks", Type: "function", Function: providers.FunctionCall{Name: "manage_tasks", Arguments: `{"action":"list"}`}},
+			{ID: "list-reminders", Type: "function", Function: providers.FunctionCall{Name: "list_reminders", Arguments: `{}`}},
+			{ID: "list-tasks", Type: "function", Function: providers.FunctionCall{Name: "list_tasks", Arguments: `{}`}},
 		}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "Tasks\n- Task ID: 1 — Prepare report\n\nReminders\n- None"}},
 	}}
@@ -975,7 +1033,7 @@ func TestAgentCombinedTaskAndReminderListingUsesSeparateTools(t *testing.T) {
 		t.Fatalf("requests=%d, want 2", len(provider.requests))
 	}
 	calls := provider.requests[1].Messages[len(provider.requests[1].Messages)-3].ToolCalls
-	if len(calls) != 2 || calls[0].Function.Name != "manage_reminders" || calls[1].Function.Name != "manage_tasks" {
+	if len(calls) != 2 || calls[0].Function.Name != "list_reminders" || calls[1].Function.Name != "list_tasks" {
 		t.Fatalf("combined listing calls=%#v", calls)
 	}
 }
@@ -984,7 +1042,7 @@ func TestAgentCompletedTaskHistoryUsesExplicitFilter(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{
 			ID: "completed-tasks", Type: "function",
-			Function: providers.FunctionCall{Name: "manage_tasks", Arguments: `{"action":"list","status":"completed"}`},
+			Function: providers.FunctionCall{Name: "list_tasks", Arguments: `{"status":"completed"}`},
 		}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "No completed tasks."}},
 	}}
@@ -993,7 +1051,7 @@ func TestAgentCompletedTaskHistoryUsesExplicitFilter(t *testing.T) {
 		t.Fatalf("Chat: %v", err)
 	}
 	toolCall := provider.requests[1].Messages[len(provider.requests[1].Messages)-2].ToolCalls[0]
-	if toolCall.Function.Name != "manage_tasks" || !strings.Contains(toolCall.Function.Arguments, `"status":"completed"`) {
+	if toolCall.Function.Name != "list_tasks" || !strings.Contains(toolCall.Function.Arguments, `"status":"completed"`) {
 		t.Fatalf("completed history call=%#v", toolCall)
 	}
 }
@@ -1182,7 +1240,7 @@ func TestAgentStopsAfterMaximumToolRounds(t *testing.T) {
 			Role: providers.RoleAssistant,
 			ToolCalls: []providers.ToolCall{{
 				ID: "list-" + string(rune('a'+index)), Type: "function",
-				Function: providers.FunctionCall{Name: "manage_reminders", Arguments: `{"action":"list"}`},
+				Function: providers.FunctionCall{Name: "list_reminders", Arguments: `{}`},
 			}},
 		}}
 	}
@@ -1216,8 +1274,8 @@ func TestReconstructHistoryKeepsOnlyCompleteToolSequences(t *testing.T) {
 	turns := []state.ConversationTurn{
 		{ID: 1, Role: "tool", ContentType: state.ContentToolResult, Content: `{"tool_call_id":"old","name":"search_memory","content":"{}","is_error":false}`},
 		{ID: 2, Role: "user", ContentType: state.ContentText, Content: "remember this"},
-		{ID: 3, Role: "assistant", ContentType: state.ContentToolCall, Content: `{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"store_memory","arguments":"{}"}}]}`},
-		{ID: 4, Role: "tool", ContentType: state.ContentToolResult, Content: `{"tool_call_id":"call-1","name":"store_memory","content":"{\"stored\":true}","is_error":false}`},
+		{ID: 3, Role: "assistant", ContentType: state.ContentToolCall, Content: `{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"manage_tasks","arguments":"{\"action\":\"list\"}"}}]}`},
+		{ID: 4, Role: "tool", ContentType: state.ContentToolResult, Content: `{"tool_call_id":"call-1","name":"manage_tasks","content":"{\"tasks\":[]}","is_error":false}`},
 		{ID: 5, Role: "assistant", ContentType: state.ContentText, Content: "done"},
 	}
 	messages, err := reconstructHistory(turns)
@@ -1226,6 +1284,9 @@ func TestReconstructHistoryKeepsOnlyCompleteToolSequences(t *testing.T) {
 	}
 	if len(messages) != 4 || messages[0].Role != providers.RoleUser || messages[2].ToolCallID != "call-1" {
 		t.Fatalf("unexpected reconstructed history: %#v", messages)
+	}
+	if messages[1].ToolCalls[0].Function.Name != "manage_tasks" {
+		t.Fatalf("legacy tool call was rewritten: %#v", messages[1])
 	}
 
 	incomplete, err := reconstructHistory(turns[:3])

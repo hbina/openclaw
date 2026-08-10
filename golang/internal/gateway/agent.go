@@ -26,6 +26,8 @@ const (
 const (
 	uncommittedReminderNote = "Note: no reminder change was committed in this turn, so your stored reminders are unchanged."
 	uncommittedTaskNote     = "Note: no task change was committed in this turn, so your stored tasks are unchanged."
+	mixedReminderResultNote = "Note: this turn had mixed reminder results. Some requested reminder changes were committed and others were not."
+	mixedTaskResultNote     = "Note: this turn had mixed task results. Some requested task changes were committed and others were not."
 )
 
 const reminderHeader = "⏰ **Reminder!** ⏰\n\n"
@@ -34,14 +36,14 @@ const chatInstructions = `Use tools when they are needed. Routing identity is tr
 When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
 You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
 Search memory when a past durable fact could improve the answer.
-Use manage_reminders only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
+Use the specific reminder tool only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
 Never claim a reminder changed unless its tool result succeeded.
-Use manage_tasks for explicit tasks or unfinished-work requests. Tasks start immediately when created, stay open until explicitly completed or removed, and never have schedules, due dates, recurrence, timezones, or reminder links. Never invent a date or schedule for a task.
+Use the specific task tool for explicit tasks or unfinished-work requests. Tasks start immediately when created, stay open until explicitly completed or removed, and never have schedules, due dates, recurrence, timezones, or reminder links. Never invent a date or schedule for a task.
 Explicit reminder creation requests require a schedule. If the user says "remind me to" do something without giving a time or schedule, ask when they want the reminder and create neither a task nor a reminder.
 "List my tasks" means list open tasks. Use the completed filter only for an explicit completed-task history request, and all only for an explicit all-task history request.
 When listing both tasks and reminders, call both tools and present separate Tasks and Reminders sections. Label persisted identifiers as Task ID or Reminder ID, never as an ambiguous number.
 Task completion is final: completed tasks cannot be edited, completed again, or reopened. Create a new task for new work. Never claim a task changed unless its tool result succeeded.
-Use one batch add for multiple reminders. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
+For multiple tasks or reminders, emit one single-item tool call per requested change. Each call succeeds or fails independently, so report every result accurately. After a call fails, do not repeat the same call unchanged; continue with any remaining independent requested changes, then report the failure. Schedules support at (RFC3339 with explicit offset), every (fixed milliseconds), and cron (wall-clock expression plus IANA timezone).
 Interpret times without an explicit timezone in the server timezone. For cron, keep the requested wall-clock fields and omit timezone to use the server timezone; never convert them to UTC first.
 Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon/Wed/Fri 19:00 is "0 19 * * 1,3,5".
 These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
@@ -244,7 +246,9 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 
 	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID}
 	reminderMutationSucceeded := false
+	reminderMutationFailed := false
 	taskMutationSucceeded := false
+	taskMutationFailed := false
 	reminderToolUsed := false
 	taskToolUsed := false
 	for round := 0; round < maxToolRounds; round++ {
@@ -272,17 +276,25 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 			messages = append(messages, assistantMessage)
 
 			for _, call := range assistantMessage.ToolCalls {
-				reminderToolUsed = reminderToolUsed || call.Function.Name == "manage_reminders"
-				taskToolUsed = taskToolUsed || call.Function.Name == "manage_tasks"
+				reminderToolUsed = reminderToolUsed || isReminderTool(call.Function.Name)
+				taskToolUsed = taskToolUsed || isTaskTool(call.Function.Name)
 				result, err := a.tools.ExecuteAndRecord(ctx, toolCtx, call)
 				if err != nil {
 					return "", fmt.Errorf("execute tool %q: %w", call.Function.Name, err)
 				}
-				if isSuccessfulReminderMutation(call, result) {
-					reminderMutationSucceeded = true
+				if isReminderMutationTool(call.Function.Name) {
+					if result.IsError {
+						reminderMutationFailed = true
+					} else {
+						reminderMutationSucceeded = true
+					}
 				}
-				if isSuccessfulTaskMutation(call, result) {
-					taskMutationSucceeded = true
+				if isTaskMutationTool(call.Function.Name) {
+					if result.IsError {
+						taskMutationFailed = true
+					} else {
+						taskMutationSucceeded = true
+					}
 				}
 				messages = append(messages, result.Message())
 			}
@@ -299,6 +311,12 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 		}
 		if !taskMutationSucceeded && hasUnbackedTaskCommitment(reply) {
 			reply = appendUncommittedTaskNote(reply)
+		}
+		if reminderMutationSucceeded && reminderMutationFailed {
+			reply = appendNote(reply, mixedReminderResultNote)
+		}
+		if taskMutationSucceeded && taskMutationFailed {
+			reply = appendNote(reply, mixedTaskResultNote)
 		}
 		if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
 			return "", fmt.Errorf("save assistant turn: %w", err)
@@ -415,30 +433,30 @@ func renderScheduledReminder(reminder persistedScheduledReminder) (string, error
 	return fmt.Sprintf("Scheduled reminder event:\nReminder ID: %d\nScheduled for: %s\nStored message:\n%s", reminder.ReminderID, reminder.ScheduledFor, message), nil
 }
 
-func isSuccessfulReminderMutation(call providers.ToolCall, result tools.Result) bool {
-	return isSuccessfulMutation(call, result, "manage_reminders", "add", "update", "remove")
-}
-
-func isSuccessfulTaskMutation(call providers.ToolCall, result tools.Result) bool {
-	return isSuccessfulMutation(call, result, "manage_tasks", "add", "update", "complete", "remove")
-}
-
-func isSuccessfulMutation(call providers.ToolCall, result tools.Result, toolName string, actions ...string) bool {
-	if call.Function.Name != toolName || result.IsError {
+func isReminderTool(name string) bool {
+	switch name {
+	case "add_reminder", "list_reminders", "update_reminder", "remove_reminder":
+		return true
+	default:
 		return false
 	}
-	var arguments struct {
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &arguments); err != nil {
+}
+
+func isTaskTool(name string) bool {
+	switch name {
+	case "add_task", "list_tasks", "update_task", "complete_task", "remove_task":
+		return true
+	default:
 		return false
 	}
-	for _, action := range actions {
-		if arguments.Action == action {
-			return true
-		}
-	}
-	return false
+}
+
+func isReminderMutationTool(name string) bool {
+	return name == "add_reminder" || name == "update_reminder" || name == "remove_reminder"
+}
+
+func isTaskMutationTool(name string) bool {
+	return name == "add_task" || name == "update_task" || name == "complete_task" || name == "remove_task"
 }
 
 func hasUnbackedReminderCommitment(content string) bool {
@@ -454,7 +472,7 @@ func hasUnbackedReminderCommitment(content string) bool {
 }
 
 func appendUncommittedReminderNote(content string) string {
-	return strings.TrimSpace(content) + "\n\n" + uncommittedReminderNote
+	return appendNote(content, uncommittedReminderNote)
 }
 
 func hasUnbackedTaskCommitment(content string) bool {
@@ -470,7 +488,11 @@ func hasUnbackedTaskCommitment(content string) bool {
 }
 
 func appendUncommittedTaskNote(content string) string {
-	return strings.TrimSpace(content) + "\n\n" + uncommittedTaskNote
+	return appendNote(content, uncommittedTaskNote)
+}
+
+func appendNote(content, note string) string {
+	return strings.TrimSpace(content) + "\n\n" + note
 }
 
 func qualifyPersistedIDLabels(content string, taskToolUsed, reminderToolUsed bool) string {
