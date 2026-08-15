@@ -18,6 +18,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "trace" {
+		if err := runTraceCommand(os.Args[2:]); err != nil {
+			log.Fatalf("Trace command failed: %v", err)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--check-state" {
 		store, err := state.NewStore(os.Args[2])
 		if err != nil {

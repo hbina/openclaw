@@ -155,6 +155,58 @@ func (c *OpenAIClient) doLocalJSON(ctx context.Context, method, endpoint string,
 }
 
 func (c *OpenAIClient) Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error) {
+	bodyBytes := req.WireJSON
+	if len(bodyBytes) == 0 {
+		var err error
+		bodyBytes, err = c.MarshalGenerateRequest(req)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("local model new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("local model execute request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, fmt.Errorf("local model read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return &GenerateResponse{RawResponse: append(json.RawMessage(nil), body...), HTTPStatus: resp.StatusCode}, fmt.Errorf("local model unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var oResp openAIResponse
+	if err := json.Unmarshal(body, &oResp); err != nil {
+		return &GenerateResponse{RawResponse: append(json.RawMessage(nil), body...), HTTPStatus: resp.StatusCode}, fmt.Errorf("local model decode response: %w", err)
+	}
+	if len(oResp.Choices) == 0 {
+		return &GenerateResponse{RawResponse: append(json.RawMessage(nil), body...), HTTPStatus: resp.StatusCode}, fmt.Errorf("local model returned no choices")
+	}
+
+	choice := oResp.Choices[0]
+	message := Message{
+		Role:      RoleAssistant,
+		ToolCalls: choice.Message.ToolCalls,
+	}
+	if choice.Message.Content != nil {
+		message.Content = *choice.Message.Content
+	}
+	return &GenerateResponse{Message: message, FinishReason: choice.FinishReason, RawResponse: append(json.RawMessage(nil), body...), HTTPStatus: resp.StatusCode}, nil
+}
+
+func (c *OpenAIClient) MarshalGenerateRequest(req *GenerateRequest) ([]byte, error) {
 	oReq := openAIRequest{
 		Model:     req.Model,
 		Tools:     req.Tools,
@@ -185,42 +237,5 @@ func (c *OpenAIClient) Generate(ctx context.Context, req *GenerateRequest) (*Gen
 	if err != nil {
 		return nil, fmt.Errorf("local model marshal request: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("local model new request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("local model execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return nil, fmt.Errorf("local model unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var oResp openAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&oResp); err != nil {
-		return nil, fmt.Errorf("local model decode response: %w", err)
-	}
-	if len(oResp.Choices) == 0 {
-		return nil, fmt.Errorf("local model returned no choices")
-	}
-
-	choice := oResp.Choices[0]
-	message := Message{
-		Role:      RoleAssistant,
-		ToolCalls: choice.Message.ToolCalls,
-	}
-	if choice.Message.Content != nil {
-		message.Content = *choice.Message.Content
-	}
-	return &GenerateResponse{Message: message, FinishReason: choice.FinishReason}, nil
+	return bodyBytes, nil
 }

@@ -55,6 +55,21 @@ type scoredExchange struct {
 	score    float64
 }
 
+type RAGRetrievalResult struct {
+	Archive            string
+	Outcome            string
+	EmbeddingQuery     string
+	EmbeddingModel     string
+	Dimensions         int
+	IndexVersion       int
+	MinimumScore       float64
+	HistoryHighwaterID int
+	CandidateCount     int
+	ExcludedCount      int
+	QualifiedCount     int
+	Matches            []state.RAGTraceMatch
+}
+
 type RAGService struct {
 	store      *state.Store
 	embedder   providers.Embedder
@@ -274,15 +289,43 @@ func (service *RAGService) Retrieve(
 	tools []providers.ToolDefinition,
 	maxOutputTokens int,
 ) (string, error) {
+	result, err := service.RetrieveDetailed(ctx, query, recent, baseMessages, tools, maxOutputTokens)
+	return result.Archive, err
+}
+
+func (service *RAGService) RetrieveDetailed(
+	ctx context.Context,
+	query string,
+	recent []conversationExchange,
+	baseMessages []providers.Message,
+	tools []providers.ToolDefinition,
+	maxOutputTokens int,
+) (RAGRetrievalResult, error) {
+	embeddingQuery := "task: search result | query: " + query
+	result := RAGRetrievalResult{
+		Outcome: "empty", EmbeddingQuery: embeddingQuery, EmbeddingModel: service.indexID,
+		Dimensions: service.dimensions, IndexVersion: ragIndexVersion, MinimumScore: service.minScore,
+	}
 	requestCtx, cancel := context.WithTimeout(ctx, queryEmbeddingTimeout)
-	vectors, err := service.embedder.Embed(requestCtx, []string{"task: search result | query: " + query})
+	vectors, err := service.embedder.Embed(requestCtx, []string{embeddingQuery})
 	cancel()
 	if err != nil {
-		return "", err
+		result.Outcome = "failed"
+		return result, err
 	}
 	stored, err := service.store.LoadConversationEmbeddings(ctx, service.indexID, ragIndexVersion, service.dimensions)
 	if err != nil {
-		return "", err
+		result.Outcome = "failed"
+		return result, err
+	}
+	result.CandidateCount = len(stored)
+	allTurns, err := service.store.GetAllConversationHistory(ctx)
+	if err != nil {
+		result.Outcome = "failed"
+		return result, err
+	}
+	if len(allTurns) > 0 {
+		result.HistoryHighwaterID = allTurns[len(allTurns)-1].ID
 	}
 	excluded := make(map[string]struct{}, len(recent))
 	for _, exchange := range recent {
@@ -293,11 +336,13 @@ func (service *RAGService) Retrieve(
 	for _, item := range stored {
 		key := exchangeIdentity(item.StartHistoryID, item.EndHistoryID)
 		if _, ok := excluded[key]; ok {
+			result.ExcludedCount++
 			continue
 		}
 		storedVector, err := vector.Unpack(item.Embedding, service.dimensions)
 		if err != nil {
-			return "", fmt.Errorf("decode stored embedding %d: %w", item.ID, err)
+			result.Outcome = "failed"
+			return result, fmt.Errorf("decode stored embedding %d: %w", item.ID, err)
 		}
 		score := vector.Dot(queryVector, storedVector)
 		if score >= service.minScore && score > best[key] {
@@ -305,12 +350,9 @@ func (service *RAGService) Retrieve(
 		}
 	}
 	if len(best) == 0 {
-		return "", nil
+		return result, nil
 	}
-	allTurns, err := service.store.GetAllConversationHistory(ctx)
-	if err != nil {
-		return "", err
-	}
+	result.QualifiedCount = len(best)
 	var matches []scoredExchange
 	for _, exchange := range completeExchangesByRoute(allTurns) {
 		if score, ok := best[exchangeIdentity(exchange.StartID, exchange.EndID)]; ok {
@@ -325,23 +367,27 @@ func (service *RAGService) Retrieve(
 	})
 	contextSize, err := service.loadContextSize(ctx)
 	if err != nil {
-		return "", err
+		result.Outcome = "failed"
+		return result, err
 	}
 	limit := contextSize - maxOutputTokens - contextSafetyTokens
 	if limit <= 0 {
-		return "", fmt.Errorf("chat context has no room for input")
+		result.Outcome = "failed"
+		return result, fmt.Errorf("chat context has no room for input")
 	}
 	low, high := 0, len(matches)
 	for low < high {
 		middle := (low + high + 1) / 2
 		archive, err := renderArchive(matches[:middle])
 		if err != nil {
-			return "", err
+			result.Outcome = "failed"
+			return result, err
 		}
 		candidateMessages := insertArchiveMessage(baseMessages, archive)
 		count, err := service.sizer.CountPromptTokens(ctx, candidateMessages, tools)
 		if err != nil {
-			return "", err
+			result.Outcome = "failed"
+			return result, err
 		}
 		if count <= limit {
 			low = middle
@@ -350,9 +396,33 @@ func (service *RAGService) Retrieve(
 		}
 	}
 	if low == 0 {
-		return "", nil
+		return result, nil
 	}
-	return renderArchive(matches[:low])
+	archive, err := renderArchive(matches[:low])
+	if err != nil {
+		result.Outcome = "failed"
+		return result, err
+	}
+	result.Archive = archive
+	result.Outcome = "selected"
+	for index, match := range matches[:low] {
+		messages, reconstructErr := reconstructHistory(match.exchange.Turns)
+		if reconstructErr != nil {
+			result.Outcome = "failed"
+			return result, reconstructErr
+		}
+		encoded, marshalErr := json.Marshal(messages)
+		if marshalErr != nil {
+			result.Outcome = "failed"
+			return result, marshalErr
+		}
+		hash := sha256.Sum256(encoded)
+		result.Matches = append(result.Matches, state.RAGTraceMatch{
+			Rank: index + 1, StartHistoryID: match.exchange.StartID, EndHistoryID: match.exchange.EndID,
+			SimilarityScore: match.score, ContentHash: hex.EncodeToString(hash[:]), MessagesJSON: string(encoded),
+		})
+	}
+	return result, nil
 }
 
 func (service *RAGService) loadContextSize(ctx context.Context) (int, error) {

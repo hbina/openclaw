@@ -66,6 +66,7 @@ func telegramInboundMessage(message *tele.Message, botID int64) (*Message, error
 	inbound := &Message{
 		ChannelID: "telegram",
 		SenderID:  strconv.FormatInt(message.Sender.ID, 10),
+		MessageID: strconv.Itoa(message.ID),
 		Content:   message.Text,
 	}
 	if message.ReplyTo == nil {
@@ -106,17 +107,16 @@ func (t *TelegramAdapter) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (t *TelegramAdapter) SendMessage(ctx context.Context, recipientID string, content string) error {
+func (t *TelegramAdapter) SendMessage(ctx context.Context, recipientID string, content string) (DeliveryReceipt, error) {
 	id, err := strconv.ParseInt(recipientID, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid recipient id format: %w", err)
+		return DeliveryReceipt{}, fmt.Errorf("invalid recipient id format: %w", err)
 	}
 
 	user := &tele.User{ID: id}
-	_, err = t.bot.Send(user, content)
+	sent, err := t.bot.Send(user, content)
 	if err != nil {
-		return fmt.Errorf("failed to send telegram message: %w", err)
+		return DeliveryReceipt{}, fmt.Errorf("failed to send telegram message: %w", err)
 	}
-
-	return nil
+	return DeliveryReceipt{MessageID: strconv.Itoa(sent.ID)}, nil
 }

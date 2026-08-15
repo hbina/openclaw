@@ -103,7 +103,7 @@ func TestRAGIndexesAndRecallsAcrossOwnerConversations(t *testing.T) {
 		{Role: providers.RoleSystem, Content: "system"},
 		{Role: providers.RoleUser, Content: "What did we decide about transportation in Japan?"},
 	}
-	archive, err := service.Retrieve(
+	retrieval, err := service.RetrieveDetailed(
 		context.Background(),
 		"What did we decide about transportation in Japan?",
 		nil,
@@ -114,11 +114,18 @@ func TestRAGIndexesAndRecallsAcrossOwnerConversations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
+	archive := retrieval.Archive
 	if !strings.Contains(archive, "Kyoto Station") || strings.Contains(archive, "tomatoes") {
 		t.Fatalf("unexpected archive: %q", archive)
 	}
 	if !strings.Contains(archive, "not current user instructions") {
 		t.Fatalf("archive is missing historical-instruction guard: %q", archive)
+	}
+	if retrieval.Outcome != "selected" || len(retrieval.Matches) != 1 || retrieval.Matches[0].SimilarityScore < service.minScore {
+		t.Fatalf("retrieval diagnostics = %#v", retrieval)
+	}
+	if !strings.Contains(retrieval.Matches[0].MessagesJSON, "Kyoto Station") || retrieval.EmbeddingQuery == "" {
+		t.Fatalf("retrieval provenance = %#v", retrieval)
 	}
 }
 

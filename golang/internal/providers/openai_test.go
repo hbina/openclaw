@@ -1,15 +1,46 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOpenAIClientPersistsTheWireRequestAndResponseShape(t *testing.T) {
+	var received []byte
+	responseBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		_, _ = w.Write(responseBody)
+	}))
+	defer server.Close()
+	client, err := NewOpenAIClient("secret", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &GenerateRequest{Model: "default", Messages: []Message{{Role: RoleUser, Content: "hello"}}, MaxTokens: 10}
+	prepared, err := MarshalGenerateRequest(client, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(prepared, received) {
+		t.Fatalf("prepared=%s received=%s", prepared, received)
+	}
+	if !bytes.Equal(result.RawResponse, responseBody) || result.HTTPStatus != http.StatusOK {
+		t.Fatalf("result=%#v", result)
+	}
+}
 
 func TestNewOpenAIClientRequiresLocalBaseURL(t *testing.T) {
 	if _, err := NewOpenAIClient("", ""); err == nil {

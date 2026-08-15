@@ -105,3 +105,37 @@ for model/version/source range/part.
 
 There are no `agent_state`, `conversation_compactions`, or persona tables.
 Persona remains operator-owned configuration.
+
+## Response provenance
+
+Response provenance is always enabled and retained until the operator performs
+an explicit future maintenance action. It records diagnostic inputs and
+outcomes, not credentials or transport authorization headers.
+
+- `response_traces` is the root record for one inbound chat or scheduled
+  reminder attempt. It stores the trusted route, original structured input,
+  external inbound id, optional reminder id, history link, lifecycle status,
+  and failure stage.
+- `trace_events` provides a stable sequence for the RAG, LLM, tool, output, and
+  delivery stages. Independent conversations can interleave globally without
+  losing their per-trace order.
+- `rag_retrievals` records the exact embedding query, index contract, selection
+  counts, outcome, and rendered archive inserted into the prompt.
+  `rag_matches` records only matches that survived prompt-budget selection,
+  including source history ids, rank, score, hash, and exact reconstructed
+  messages.
+- `llm_calls` records each tool-loop or reminder-model round, including the
+  sanitized request body actually sent and the response body returned by the
+  local OpenAI-compatible server.
+- `tool_executions` relates exact model call ids, arguments, results, errors,
+  and mutation outcomes to their LLM round.
+- `response_outputs` keeps raw model or fallback content, ordered application
+  transformations, and exact final channel text.
+- `delivery_attempts` is persisted before external I/O. `attempting` with no
+  completion is deliberately ambiguous: the process may have stopped after
+  provider acceptance but before SQLite finalization. An accepted delivery
+  links the final assistant history row and provider message id.
+
+Full trace content is available only through the local `openclaw trace`
+commands. The HTTP API returns the numeric trace id in
+`X-OpenClaw-Trace-ID`; Telegram reply text is not modified.

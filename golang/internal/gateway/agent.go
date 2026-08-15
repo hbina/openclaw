@@ -84,8 +84,31 @@ type Agent struct {
 type ChatInput struct {
 	ChannelID string
 	SenderID  string
+	MessageID string
 	Content   string
 	Reply     *channels.ReplyContext
+}
+
+type PreparedResponse struct {
+	TraceID       int64
+	OutputEventID int64
+	ChannelID     string
+	SenderID      string
+	Content       string
+	release       func()
+}
+
+func (response *PreparedResponse) Release() {
+	if response.release != nil {
+		response.release()
+		response.release = nil
+	}
+}
+
+type outputTransformation struct {
+	Name   string `json:"name"`
+	Before string `json:"before"`
+	After  string `json:"after"`
 }
 
 type persistedInboundMessage struct {
@@ -144,10 +167,34 @@ func (a *Agent) BackfillMemoryEmbeddings(ctx context.Context) error {
 	return a.tools.BackfillMemoryEmbeddings(ctx)
 }
 
-func (a *Agent) generate(ctx context.Context, request *providers.GenerateRequest) (*providers.GenerateResponse, error) {
+func (a *Agent) generate(ctx context.Context, traceID int64, round int, purpose string, request *providers.GenerateRequest) (*providers.GenerateResponse, int64, error) {
+	wireRequest, err := providers.MarshalGenerateRequest(a.provider, request)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal model request for trace: %w", err)
+	}
+	eventID, err := a.store.StartLLMCall(ctx, traceID, round, purpose, string(wireRequest))
+	if err != nil {
+		return nil, 0, err
+	}
 	requestCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
 	defer cancel()
-	return a.provider.Generate(requestCtx, request)
+	response, generateErr := a.provider.Generate(requestCtx, request)
+	responseJSON := ""
+	httpStatus := 0
+	finishReason := ""
+	if response != nil {
+		httpStatus = response.HTTPStatus
+		finishReason = response.FinishReason
+		if len(response.RawResponse) > 0 {
+			responseJSON = string(response.RawResponse)
+		} else if encoded, marshalErr := json.Marshal(response); marshalErr == nil {
+			responseJSON = string(encoded)
+		}
+	}
+	if err := a.store.FinishLLMCall(ctx, eventID, responseJSON, httpStatus, finishReason, generateErr); err != nil {
+		return nil, eventID, fmt.Errorf("finish LLM trace: %w", err)
+	}
+	return response, eventID, generateErr
 }
 
 func (a *Agent) systemPrompt(channelID, senderID string, now time.Time, instructions string) string {
@@ -165,6 +212,7 @@ Identity:
 
 func (a *Agent) contextualMessages(
 	ctx context.Context,
+	traceID int64,
 	channelID, senderID, systemPrompt, query string,
 	current providers.Message,
 	definitions []providers.ToolDefinition,
@@ -190,39 +238,78 @@ func (a *Agent) contextualMessages(
 
 	messages := baseMessages
 	if a.rag != nil {
-		archive, retrieveErr := a.rag.Retrieve(
+		retrieval, retrieveErr := a.rag.RetrieveDetailed(
 			ctx, query, recentExchanges, baseMessages, definitions, maxOutputTokens,
 		)
+		detail := state.RAGTrace{
+			Outcome: retrieval.Outcome, EmbeddingQuery: retrieval.EmbeddingQuery,
+			EmbeddingModel: retrieval.EmbeddingModel, Dimensions: retrieval.Dimensions,
+			IndexVersion: retrieval.IndexVersion, MinimumScore: retrieval.MinimumScore,
+			HistoryHighwaterID: retrieval.HistoryHighwaterID, CandidateCount: retrieval.CandidateCount,
+			ExcludedCount: retrieval.ExcludedCount, QualifiedCount: retrieval.QualifiedCount,
+			RenderedArchive: retrieval.Archive, Matches: retrieval.Matches,
+		}
+		if err := a.store.RecordRAGTrace(ctx, traceID, detail, retrieveErr); err != nil {
+			return nil, fmt.Errorf("record conversation retrieval trace: %w", err)
+		}
 		if retrieveErr != nil {
 			if strictRecall {
 				return nil, fmt.Errorf("retrieve conversation context: %w", retrieveErr)
 			}
 			log.Printf("Conversation RAG unavailable; using recent context: %v", retrieveErr)
-		} else if archive != "" {
-			messages = insertArchiveMessage(baseMessages, archive)
+		} else if retrieval.Archive != "" {
+			messages = insertArchiveMessage(baseMessages, retrieval.Archive)
 		}
+	} else if err := a.store.RecordRAGTrace(ctx, traceID, state.RAGTrace{Outcome: "disabled"}, nil); err != nil {
+		return nil, fmt.Errorf("record disabled retrieval trace: %w", err)
 	}
 	return messages, nil
 }
 
 // Chat generates a reply for an inbound turn and loads and saves the complete
 // structured conversation history in SQLite.
-func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
+func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared PreparedResponse, returnErr error) {
 	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(input.ChannelID, input.SenderID))
 	if err != nil {
-		return "", fmt.Errorf("wait for conversation turn: %w", err)
+		return prepared, fmt.Errorf("wait for conversation turn: %w", err)
 	}
-	defer releaseConversation()
+	prepared.release = releaseConversation
+	defer func() {
+		if returnErr != nil {
+			prepared.Release()
+		}
+	}()
 
 	now := time.Now()
 	inbound := persistedInboundMessage{Content: input.Content, Reply: input.Reply}
+	inboundPayload, err := json.Marshal(inbound)
+	if err != nil {
+		return prepared, fmt.Errorf("encode inbound message: %w", err)
+	}
+	traceID, err := a.store.StartResponseTrace(ctx, state.TraceInput{
+		TriggerType: "chat", ChannelID: input.ChannelID, SenderID: input.SenderID,
+		ExternalMessageID: input.MessageID, InputJSON: string(inboundPayload),
+	})
+	if err != nil {
+		return prepared, err
+	}
+	prepared.TraceID = traceID
+	defer func() {
+		if returnErr != nil {
+			if finishErr := a.store.FinishTrace(context.Background(), traceID, "failed", "generation", returnErr); finishErr != nil {
+				log.Printf("Trace %d failure could not be finalized: %v", traceID, finishErr)
+			}
+		}
+	}()
+	log.Printf("Response trace %d started for %s [%s]", traceID, input.ChannelID, input.SenderID)
 	renderedInbound, err := renderInboundMessage(inbound)
 	if err != nil {
-		return "", fmt.Errorf("render inbound message: %w", err)
+		return prepared, fmt.Errorf("render inbound message: %w", err)
 	}
 	definitions := tools.Definitions(a.location)
 	messages, err := a.contextualMessages(
 		ctx,
+		traceID,
 		input.ChannelID,
 		input.SenderID,
 		a.systemPrompt(input.ChannelID, input.SenderID, now, chatInstructions),
@@ -233,15 +320,15 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 		false,
 	)
 	if err != nil {
-		return "", err
+		return prepared, err
 	}
 
-	payload, err := json.Marshal(inbound)
+	historyID, err := a.store.SaveConversationMessageID(ctx, input.ChannelID, input.SenderID, "user", state.ContentInboundMessage, string(inboundPayload))
 	if err != nil {
-		return "", fmt.Errorf("encode inbound message: %w", err)
+		return prepared, fmt.Errorf("save user turn: %w", err)
 	}
-	if err := a.store.SaveConversationMessage(ctx, input.ChannelID, input.SenderID, "user", state.ContentInboundMessage, string(payload)); err != nil {
-		return "", fmt.Errorf("save user turn: %w", err)
+	if err := a.store.LinkTraceInbound(ctx, traceID, historyID); err != nil {
+		return prepared, err
 	}
 
 	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID}
@@ -252,7 +339,7 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 	reminderToolUsed := false
 	taskToolUsed := false
 	for round := 0; round < maxToolRounds; round++ {
-		resp, err := a.generate(ctx, &providers.GenerateRequest{
+		resp, llmEventID, err := a.generate(ctx, traceID, round+1, "chat", &providers.GenerateRequest{
 			Model:      "default",
 			Messages:   messages,
 			Tools:      definitions,
@@ -260,7 +347,7 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 			MaxTokens:  defaultMaxTokens,
 		})
 		if err != nil {
-			return "", fmt.Errorf("agent generation failed: %w", err)
+			return prepared, fmt.Errorf("agent generation failed: %w", err)
 		}
 
 		if len(resp.Message.ToolCalls) > 0 {
@@ -268,19 +355,26 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 			assistantMessage.Role = providers.RoleAssistant
 			payload, err := json.Marshal(assistantMessage)
 			if err != nil {
-				return "", fmt.Errorf("encode assistant tool calls: %w", err)
+				return prepared, fmt.Errorf("encode assistant tool calls: %w", err)
 			}
 			if err := a.store.SaveConversationMessage(ctx, input.ChannelID, input.SenderID, "assistant", state.ContentToolCall, string(payload)); err != nil {
-				return "", fmt.Errorf("save assistant tool calls: %w", err)
+				return prepared, fmt.Errorf("save assistant tool calls: %w", err)
 			}
 			messages = append(messages, assistantMessage)
 
 			for _, call := range assistantMessage.ToolCalls {
+				toolEventID, traceErr := a.store.StartToolExecution(ctx, traceID, llmEventID, call.ID, call.Function.Name, call.Function.Arguments)
+				if traceErr != nil {
+					return prepared, traceErr
+				}
 				reminderToolUsed = reminderToolUsed || isReminderTool(call.Function.Name)
 				taskToolUsed = taskToolUsed || isTaskTool(call.Function.Name)
-				result, err := a.tools.ExecuteAndRecord(ctx, toolCtx, call)
+				callToolCtx := toolCtx
+				callToolCtx.TraceEventID = toolEventID
+				result, err := a.tools.ExecuteAndRecord(ctx, callToolCtx, call)
 				if err != nil {
-					return "", fmt.Errorf("execute tool %q: %w", call.Function.Name, err)
+					_ = a.store.FinishToolExecution(ctx, toolEventID, "", true, false, err)
+					return prepared, fmt.Errorf("execute tool %q: %w", call.Function.Name, err)
 				}
 				if isReminderMutationTool(call.Function.Name) {
 					if result.IsError {
@@ -301,41 +395,92 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 			continue
 		}
 
-		reply := strings.TrimSpace(resp.Message.Content)
-		if reply == "" {
-			return "", fmt.Errorf("agent generation returned neither content nor tool calls")
+		source := resp.Message.Content
+		reply := strings.TrimSpace(source)
+		transformations := make([]outputTransformation, 0)
+		if reply != source {
+			transformations = append(transformations, outputTransformation{Name: "trim", Before: source, After: reply})
 		}
+		if reply == "" {
+			return prepared, fmt.Errorf("agent generation returned neither content nor tool calls")
+		}
+		before := reply
 		reply = qualifyPersistedIDLabels(reply, taskToolUsed, reminderToolUsed)
+		if reply != before {
+			transformations = append(transformations, outputTransformation{Name: "qualify_persisted_ids", Before: before, After: reply})
+		}
 		if !reminderMutationSucceeded && hasUnbackedReminderCommitment(reply) {
+			before = reply
 			reply = appendUncommittedReminderNote(reply)
+			transformations = append(transformations, outputTransformation{Name: "uncommitted_reminder_note", Before: before, After: reply})
 		}
 		if !taskMutationSucceeded && hasUnbackedTaskCommitment(reply) {
+			before = reply
 			reply = appendUncommittedTaskNote(reply)
+			transformations = append(transformations, outputTransformation{Name: "uncommitted_task_note", Before: before, After: reply})
 		}
 		if reminderMutationSucceeded && reminderMutationFailed {
+			before = reply
 			reply = appendNote(reply, mixedReminderResultNote)
+			transformations = append(transformations, outputTransformation{Name: "mixed_reminder_note", Before: before, After: reply})
 		}
 		if taskMutationSucceeded && taskMutationFailed {
+			before = reply
 			reply = appendNote(reply, mixedTaskResultNote)
+			transformations = append(transformations, outputTransformation{Name: "mixed_task_note", Before: before, After: reply})
 		}
-		if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
-			return "", fmt.Errorf("save assistant turn: %w", err)
+		transformJSON, err := json.Marshal(transformations)
+		if err != nil {
+			return prepared, err
 		}
-		if a.rag != nil {
-			a.rag.Notify()
+		outputEventID, err := a.store.RecordResponseOutput(ctx, traceID, "llm", &llmEventID, source, string(transformJSON), reply)
+		if err != nil {
+			return prepared, err
 		}
-
-		return reply, nil
+		prepared.TraceID = traceID
+		prepared.OutputEventID = outputEventID
+		prepared.ChannelID = input.ChannelID
+		prepared.SenderID = input.SenderID
+		prepared.Content = reply
+		return prepared, nil
 	}
 
 	reply := "I couldn't complete that request because the tool workflow exceeded its safety limit."
-	if err := a.store.SaveConversationTurn(ctx, input.ChannelID, input.SenderID, "assistant", reply); err != nil {
-		return "", fmt.Errorf("save tool limit response: %w", err)
+	transformJSON := `[{"name":"tool_round_safety_limit","before":"","after":"I couldn't complete that request because the tool workflow exceeded its safety limit."}]`
+	outputEventID, err := a.store.RecordResponseOutput(ctx, traceID, "safety_limit", nil, "", transformJSON, reply)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.TraceID = traceID
+	prepared.OutputEventID = outputEventID
+	prepared.ChannelID = input.ChannelID
+	prepared.SenderID = input.SenderID
+	prepared.Content = reply
+	return prepared, nil
+}
+
+func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
+	prepared, err := a.PrepareChat(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	defer prepared.Release()
+	deliveryID, err := a.store.PrepareDelivery(ctx, prepared.TraceID, prepared.OutputEventID, input.ChannelID, input.SenderID, prepared.Content)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		return "", err
+	}
+	if err := a.store.MarkDeliveryAttempting(ctx, deliveryID); err != nil {
+		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		return "", err
+	}
+	if err := a.store.CompleteDelivery(ctx, prepared.TraceID, deliveryID, "internal", input.ChannelID, input.SenderID, prepared.Content); err != nil {
+		return "", err
 	}
 	if a.rag != nil {
 		a.rag.Notify()
 	}
-	return reply, nil
+	return prepared.Content, nil
 }
 
 // DeliverReminder renders a due reminder with the normal persona and
@@ -348,28 +493,69 @@ func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) er
 	}
 	defer releaseConversation()
 
-	ch, err := a.chanReg.Get(reminder.ChannelID)
-	if err != nil {
-		return fmt.Errorf("get channel %s: %w", reminder.ChannelID, err)
-	}
-
 	scheduled := persistedScheduledReminder{
 		ReminderID:   reminder.ID,
 		Message:      reminder.Message,
 		ScheduledFor: reminder.FireAt.In(a.location).Format(time.RFC3339),
 	}
-	rendered, err := renderScheduledReminder(scheduled)
+	traceInput, err := json.Marshal(scheduled)
+	if err != nil {
+		return fmt.Errorf("encode reminder trace input: %w", err)
+	}
+	reminderID := reminder.ID
+	traceID, err := a.store.StartResponseTrace(ctx, state.TraceInput{TriggerType: "reminder", ChannelID: reminder.ChannelID, SenderID: reminder.SenderID, ReminderID: &reminderID, InputJSON: string(traceInput)})
 	if err != nil {
 		return err
 	}
+	completed := false
+	defer func() {
+		if !completed {
+			log.Printf("Reminder response trace %d did not complete", traceID)
+		}
+	}()
+	ch, err := a.chanReg.Get(reminder.ChannelID)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "channel", err)
+		return fmt.Errorf("get channel %s: %w", reminder.ChannelID, err)
+	}
+	rendered, err := renderScheduledReminder(scheduled)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "input", err)
+		return err
+	}
 
-	body, renderErr := a.renderReminder(ctx, reminder, rendered, time.Now())
+	body, llmEventID, renderErr := a.renderReminder(ctx, traceID, reminder, rendered, time.Now())
+	sourceType := "llm"
+	sourceContent := body
 	if renderErr != nil {
 		log.Printf("Reminder %d contextual rendering unavailable; using static fallback: %v", reminder.ID, renderErr)
 		body = reminder.Message
+		sourceType = "static_reminder_fallback"
+		sourceContent = reminder.Message
 	}
 	notification := reminderHeader + strings.TrimSpace(body)
-	if err := ch.SendMessage(ctx, reminder.SenderID, notification); err != nil {
+	transforms, _ := json.Marshal([]outputTransformation{{Name: "add_reminder_header", Before: body, After: notification}})
+	var sourceEvent *int64
+	if llmEventID != 0 {
+		sourceEvent = &llmEventID
+	}
+	outputEventID, err := a.store.RecordResponseOutput(ctx, traceID, sourceType, sourceEvent, sourceContent, string(transforms), notification)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "output", err)
+		return err
+	}
+	deliveryID, err := a.store.PrepareDelivery(ctx, traceID, outputEventID, reminder.ChannelID, reminder.SenderID, notification)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "delivery", err)
+		return err
+	}
+	if err := a.store.MarkDeliveryAttempting(ctx, deliveryID); err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "delivery", err)
+		return err
+	}
+	receipt, err := ch.SendMessage(ctx, reminder.SenderID, notification)
+	if err != nil {
+		_ = a.store.FailDelivery(context.Background(), traceID, deliveryID, err)
 		return fmt.Errorf("send reminder %d: %w", reminder.ID, err)
 	}
 
@@ -377,18 +563,20 @@ func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) er
 	if err != nil {
 		return fmt.Errorf("encode scheduled reminder %d: %w", reminder.ID, err)
 	}
-	if err := a.store.CompleteReminderDelivery(ctx, reminder, time.Now(), string(payload), notification); err != nil {
+	if err := a.store.CompleteReminderTraceDelivery(ctx, reminder, time.Now(), string(payload), notification, traceID, deliveryID, receipt.MessageID); err != nil {
 		return fmt.Errorf("complete reminder %d delivery: %w", reminder.ID, err)
 	}
+	completed = true
 	if a.rag != nil {
 		a.rag.Notify()
 	}
 	return nil
 }
 
-func (a *Agent) renderReminder(ctx context.Context, reminder state.Reminder, rendered string, now time.Time) (string, error) {
+func (a *Agent) renderReminder(ctx context.Context, traceID int64, reminder state.Reminder, rendered string, now time.Time) (string, int64, error) {
 	messages, err := a.contextualMessages(
 		ctx,
+		traceID,
 		reminder.ChannelID,
 		reminder.SenderID,
 		a.systemPrompt(reminder.ChannelID, reminder.SenderID, now, reminderInstructions),
@@ -399,24 +587,24 @@ func (a *Agent) renderReminder(ctx context.Context, reminder state.Reminder, ren
 		true,
 	)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	response, err := a.generate(ctx, &providers.GenerateRequest{
+	response, llmEventID, err := a.generate(ctx, traceID, 1, "reminder", &providers.GenerateRequest{
 		Model:     "default",
 		Messages:  messages,
 		MaxTokens: reminderMaxTokens,
 	})
 	if err != nil {
-		return "", fmt.Errorf("generate reminder: %w", err)
+		return "", llmEventID, fmt.Errorf("generate reminder: %w", err)
 	}
 	if response == nil || len(response.Message.ToolCalls) > 0 {
-		return "", fmt.Errorf("reminder generation returned an invalid response")
+		return "", llmEventID, fmt.Errorf("reminder generation returned an invalid response")
 	}
 	body := strings.TrimSpace(response.Message.Content)
 	if body == "" {
-		return "", fmt.Errorf("reminder generation returned empty content")
+		return "", llmEventID, fmt.Errorf("reminder generation returned empty content")
 	}
-	return body, nil
+	return body, llmEventID, nil
 }
 
 func renderScheduledReminder(reminder persistedScheduledReminder) (string, error) {
@@ -668,20 +856,44 @@ func isUserTurn(turn state.ConversationTurn) bool {
 func (a *Agent) HandleMessage(ctx context.Context, msg *channels.Message) error {
 	log.Printf("Agent received message from %s [%s]: %s\n", msg.ChannelID, msg.SenderID, msg.Content)
 
-	reply, err := a.Chat(ctx, ChatInput{
+	prepared, err := a.PrepareChat(ctx, ChatInput{
 		ChannelID: msg.ChannelID,
 		SenderID:  msg.SenderID,
+		MessageID: msg.MessageID,
 		Content:   msg.Content,
 		Reply:     msg.Reply,
 	})
 	if err != nil {
 		return err
 	}
+	defer prepared.Release()
 
 	ch, err := a.chanReg.Get(msg.ChannelID)
 	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "channel", err)
 		return fmt.Errorf("channel %s not found: %w", msg.ChannelID, err)
 	}
 
-	return ch.SendMessage(ctx, msg.SenderID, reply)
+	deliveryID, err := a.store.PrepareDelivery(ctx, prepared.TraceID, prepared.OutputEventID, msg.ChannelID, msg.SenderID, prepared.Content)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		return err
+	}
+	if err := a.store.MarkDeliveryAttempting(ctx, deliveryID); err != nil {
+		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		return err
+	}
+	receipt, err := ch.SendMessage(ctx, msg.SenderID, prepared.Content)
+	if err != nil {
+		_ = a.store.FailDelivery(context.Background(), prepared.TraceID, deliveryID, err)
+		return err
+	}
+	if err := a.store.CompleteDelivery(ctx, prepared.TraceID, deliveryID, receipt.MessageID, msg.ChannelID, msg.SenderID, prepared.Content); err != nil {
+		return err
+	}
+	if a.rag != nil {
+		a.rag.Notify()
+	}
+	log.Printf("Response trace %d delivered as %s", prepared.TraceID, receipt.MessageID)
+	return nil
 }

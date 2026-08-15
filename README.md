@@ -5,6 +5,11 @@ runtime is Go, serves one trusted owner per deployment, uses Telegram for text
 messages, and keeps tasks, reminders, durable memory, structured transcripts,
 and a derived retrieval index in one SQLite database.
 
+Every generated reply and contextual reminder has an always-on local
+provenance trace covering accepted input, selected recall, model/tool rounds,
+application transformations, and delivery outcome. Operators inspect these
+records with `openclaw trace list` and `openclaw trace show`.
+
 The model stack is local:
 
 - one OpenAI-compatible `llama-server` for chat and tool generation;

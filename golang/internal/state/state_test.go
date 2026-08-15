@@ -493,7 +493,7 @@ func TestConversationChunkIndexPersistsAndIsVersionScoped(t *testing.T) {
 
 func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
 	store := newTestStore(t)
-	for _, table := range []string{"memory_entries", "reminders", "tasks", "conversation_history", "conversation_chunks"} {
+	for _, table := range []string{"memory_entries", "reminders", "tasks", "conversation_history", "conversation_chunks", "response_traces", "trace_events", "rag_retrievals", "rag_matches", "llm_calls", "tool_executions", "response_outputs", "delivery_attempts"} {
 		if !databaseTableExists(t, store, table) {
 			t.Errorf("fresh database is missing %s", table)
 		}
@@ -519,6 +519,23 @@ func TestStoreRejectsMissingCanonicalTaskIndex(t *testing.T) {
 	}
 	if _, err := NewStore(path); err == nil || !strings.Contains(err.Error(), "task duplicate-prevention index is missing") {
 		t.Fatalf("NewStore error = %v", err)
+	}
+}
+
+func TestStoreRejectsMissingCanonicalProvenanceIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-trace-index.sqlite")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`DROP INDEX idx_delivery_provider_message`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(path); err == nil || !strings.Contains(err.Error(), "idx_delivery_provider_message") {
+		t.Fatalf("NewStore error=%v", err)
 	}
 }
 

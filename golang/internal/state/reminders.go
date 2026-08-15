@@ -218,6 +218,35 @@ func (s *Store) CompleteReminderDelivery(ctx context.Context, reminder Reminder,
 	})
 }
 
+// CompleteReminderTraceDelivery atomically records the delivered reminder,
+// advances its schedule, and finalizes the matching provenance trace.
+func (s *Store) CompleteReminderTraceDelivery(ctx context.Context, reminder Reminder, now time.Time, scheduledContent, notification string, traceID, deliveryEventID int64, providerMessageID string) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		if err := tx.SaveConversationMessage(ctx, reminder.ChannelID, reminder.SenderID, "user", ContentScheduledReminder, scheduledContent); err != nil {
+			return err
+		}
+		result, err := tx.tx.ExecContext(ctx, `INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, 'assistant', ?, ?)`, reminder.ChannelID, reminder.SenderID, ContentText, notification)
+		if err != nil {
+			return err
+		}
+		historyID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := tx.completeReminder(ctx, reminder, now); err != nil {
+			return err
+		}
+		if _, err := tx.tx.ExecContext(ctx, `UPDATE delivery_attempts SET provider_message_id=?, conversation_history_id=?, accepted_at=CURRENT_TIMESTAMP WHERE event_id=?`, providerMessageID, historyID, deliveryEventID); err != nil {
+			return err
+		}
+		if _, err := tx.tx.ExecContext(ctx, `UPDATE trace_events SET status='succeeded', completed_at=CURRENT_TIMESTAMP WHERE id=?`, deliveryEventID); err != nil {
+			return err
+		}
+		_, err = tx.tx.ExecContext(ctx, `UPDATE response_traces SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?`, traceID)
+		return err
+	})
+}
+
 func (tx *Tx) completeReminder(ctx context.Context, reminder Reminder, now time.Time) error {
 	if reminder.Schedule.Kind == ScheduleAt {
 		return tx.deleteReminder(ctx, reminder.ID)

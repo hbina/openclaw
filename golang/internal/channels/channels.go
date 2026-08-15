@@ -28,8 +28,13 @@ type ReplyContext struct {
 type Message struct {
 	ChannelID string
 	SenderID  string
+	MessageID string
 	Content   string
 	Reply     *ReplyContext
+}
+
+type DeliveryReceipt struct {
+	MessageID string
 }
 
 // Handler is a callback function for processing incoming messages.
@@ -44,7 +49,7 @@ type Channel interface {
 	// Stop disconnects from the service cleanly.
 	Stop(ctx context.Context) error
 	// SendMessage sends a text message to a specific recipient on this channel.
-	SendMessage(ctx context.Context, recipientID string, content string) error
+	SendMessage(ctx context.Context, recipientID string, content string) (DeliveryReceipt, error)
 }
 
 // Registry holds all initialized channels.

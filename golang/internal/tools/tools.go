@@ -17,8 +17,9 @@ import (
 const memorySearchLimit = 5
 
 type Context struct {
-	ChannelID string
-	SenderID  string
+	ChannelID    string
+	SenderID     string
+	TraceEventID int64
 }
 
 type Result struct {
@@ -257,7 +258,14 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 			return err
 		}
 		result.Content = content
-		return saveResult(ctx, tx, toolCtx, result)
+		if err := saveResult(ctx, tx, toolCtx, result); err != nil {
+			return err
+		}
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		return tx.FinishToolExecution(ctx, toolCtx.TraceEventID, string(payload), result.IsError, toolMutation(call.Function.Name))
 	})
 	if err == nil {
 		return result, nil
@@ -656,6 +664,22 @@ func saveResult(ctx context.Context, tx *state.Tx, toolCtx Context, result Resul
 
 func (executor *Executor) recordResult(ctx context.Context, toolCtx Context, result Result) error {
 	return executor.store.WithTx(ctx, func(tx *state.Tx) error {
-		return saveResult(ctx, tx, toolCtx, result)
+		if err := saveResult(ctx, tx, toolCtx, result); err != nil {
+			return err
+		}
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		return tx.FinishToolExecution(ctx, toolCtx.TraceEventID, string(payload), result.IsError, false)
 	})
+}
+
+func toolMutation(name string) bool {
+	switch name {
+	case "add_reminder", "update_reminder", "remove_reminder", "add_task", "update_task", "complete_task", "remove_task", "store_memory":
+		return true
+	default:
+		return false
+	}
 }

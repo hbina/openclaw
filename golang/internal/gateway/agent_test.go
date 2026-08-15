@@ -106,13 +106,13 @@ func (c *recordingChannel) Stop(context.Context) error {
 	return nil
 }
 
-func (c *recordingChannel) SendMessage(_ context.Context, recipientID, content string) error {
+func (c *recordingChannel) SendMessage(_ context.Context, recipientID, content string) (channels.DeliveryReceipt, error) {
 	if c.err != nil {
-		return c.err
+		return channels.DeliveryReceipt{}, c.err
 	}
 	c.recipient = recipientID
 	c.content = content
-	return nil
+	return channels.DeliveryReceipt{MessageID: "test-message"}, nil
 }
 
 func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, soul string) (*Agent, *state.Store) {
@@ -539,6 +539,10 @@ func TestAgentDeliversContextualReminderAndRecordsExchange(t *testing.T) {
 		delivered.ContentType != state.ContentText || delivered.Role != "assistant" || delivered.Content != wantNotification {
 		t.Fatalf("delivery transcript scheduled=%#v delivered=%#v", scheduled, delivered)
 	}
+	traces, traceErr := store.ListResponseTraces(context.Background(), state.TraceFilter{})
+	if traceErr != nil || len(traces) != 1 || traces[0].TriggerType != "reminder" || traces[0].Status != "completed" {
+		t.Fatalf("reminder traces=%#v err=%v", traces, traceErr)
+	}
 	var payload persistedScheduledReminder
 	if err := json.Unmarshal([]byte(scheduled.Content), &payload); err != nil || payload.ReminderID != reminder.ID || payload.Message != reminder.Message {
 		t.Fatalf("scheduled payload=%#v err=%v", payload, err)
@@ -655,6 +659,25 @@ func TestAgentReminderSendFailurePreservesDueStateAndTranscript(t *testing.T) {
 	if historyErr != nil || len(history) != 0 {
 		t.Fatalf("history=%#v err=%v", history, historyErr)
 	}
+	traces, traceErr := store.ListResponseTraces(context.Background(), state.TraceFilter{})
+	if traceErr != nil || len(traces) != 1 || traces[0].Status != "failed" {
+		t.Fatalf("failed reminder traces=%#v err=%v", traces, traceErr)
+	}
+}
+
+func TestAgentDoesNotSendWhenTraceCannotBePersisted(t *testing.T) {
+	channel := &recordingChannel{}
+	agent, store := newTestAgent(t, &recordingProvider{}, channel, "")
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := agent.HandleMessage(context.Background(), &channels.Message{ChannelID: channel.ID(), SenderID: "owner", Content: "hello"})
+	if err == nil {
+		t.Fatal("HandleMessage succeeded with unavailable trace store")
+	}
+	if channel.content != "" {
+		t.Fatalf("untraced content was sent: %q", channel.content)
+	}
 }
 
 func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
@@ -712,6 +735,21 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 	}
 	if history[1].ContentType != state.ContentToolCall || history[2].ContentType != state.ContentToolResult {
 		t.Fatalf("structured rows missing: %#v", history)
+	}
+	traces, err := store.ListResponseTraces(ctx, state.TraceFilter{Limit: 10})
+	if err != nil || len(traces) != 2 {
+		t.Fatalf("traces=%#v err=%v", traces, err)
+	}
+	report, err := store.GetTraceReport(ctx, traces[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, event := range report.Events {
+		kinds = append(kinds, event["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "rag,llm,tool,llm,output,delivery" {
+		t.Fatalf("trace kinds=%v", kinds)
 	}
 }
 

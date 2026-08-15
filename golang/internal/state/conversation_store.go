@@ -26,14 +26,25 @@ type ConversationTurn struct {
 
 // SaveConversationMessage is the canonical write path for conversation history.
 func (s *Store) SaveConversationMessage(ctx context.Context, channelID, senderID, role, contentType, content string) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.SaveConversationMessageID(ctx, channelID, senderID, role, contentType, content)
+	return err
+}
+
+// SaveConversationMessageID persists a structured turn and returns its stable
+// history identifier for provenance links.
+func (s *Store) SaveConversationMessageID(ctx context.Context, channelID, senderID, role, contentType, content string) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, ?, ?, ?)`,
 		channelID, senderID, role, contentType, content,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save conversation message: %w", err)
+		return 0, fmt.Errorf("failed to save conversation message: %w", err)
 	}
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read conversation message id: %w", err)
+	}
+	return id, nil
 }
 
 func (tx *Tx) SaveConversationMessage(ctx context.Context, channelID, senderID, role, contentType, content string) error {

@@ -54,11 +54,35 @@ type GenerateRequest struct {
 	Tools      []ToolDefinition
 	ToolChoice string
 	MaxTokens  int
+	WireJSON   json.RawMessage `json:"-"`
 }
 
 type GenerateResponse struct {
 	Message      Message
 	FinishReason string
+	RawResponse  json.RawMessage
+	HTTPStatus   int
+}
+
+// WireRequestMarshaler exposes the exact sanitized request body a provider
+// will send, allowing the caller to persist it before network I/O.
+type WireRequestMarshaler interface {
+	MarshalGenerateRequest(req *GenerateRequest) ([]byte, error)
+}
+
+func MarshalGenerateRequest(provider Provider, req *GenerateRequest) ([]byte, error) {
+	var body []byte
+	var err error
+	if marshaler, ok := provider.(WireRequestMarshaler); ok {
+		body, err = marshaler.MarshalGenerateRequest(req)
+	} else {
+		body, err = json.Marshal(req)
+	}
+	if err != nil {
+		return nil, err
+	}
+	req.WireJSON = append(req.WireJSON[:0], body...)
+	return body, nil
 }
 
 // Provider is retained as a narrow injection seam for the local model client

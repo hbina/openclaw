@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -133,17 +134,46 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		body.SenderID = "cli-user"
 	}
 
-	reply, err := g.agent.Chat(r.Context(), ChatInput{
+	prepared, err := g.agent.PrepareChat(r.Context(), ChatInput{
 		ChannelID: "cli",
 		SenderID:  body.SenderID,
 		Content:   body.Message,
 	})
 	if err != nil {
+		if prepared.TraceID != 0 {
+			w.Header().Set("X-OpenClaw-Trace-ID", fmt.Sprintf("%d", prepared.TraceID))
+		}
 		log.Printf("chat endpoint error: %v", err)
 		http.Error(w, "agent error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer prepared.Release()
 
+	deliveryID, err := g.store.PrepareDelivery(r.Context(), prepared.TraceID, prepared.OutputEventID, "cli", body.SenderID, prepared.Content)
+	if err != nil {
+		log.Printf("trace %d prepare HTTP delivery: %v", prepared.TraceID, err)
+		_ = g.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		http.Error(w, "agent error", http.StatusInternalServerError)
+		return
+	}
+	if err := g.store.MarkDeliveryAttempting(r.Context(), deliveryID); err != nil {
+		log.Printf("trace %d mark HTTP delivery: %v", prepared.TraceID, err)
+		_ = g.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
+		http.Error(w, "agent error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"reply": reply})
+	w.Header().Set("X-OpenClaw-Trace-ID", fmt.Sprintf("%d", prepared.TraceID))
+	if err := json.NewEncoder(w).Encode(map[string]string{"reply": prepared.Content}); err != nil {
+		_ = g.store.FailDelivery(context.Background(), prepared.TraceID, deliveryID, err)
+		return
+	}
+	if err := g.store.CompleteDelivery(context.Background(), prepared.TraceID, deliveryID, "http", "cli", body.SenderID, prepared.Content); err != nil {
+		log.Printf("trace %d HTTP response sent but finalization failed: %v", prepared.TraceID, err)
+		return
+	}
+	if g.agent.rag != nil {
+		g.agent.rag.Notify()
+	}
+	log.Printf("Response trace %d delivered over HTTP", prepared.TraceID)
 }
