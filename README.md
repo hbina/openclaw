@@ -19,6 +19,13 @@ The model stack is local:
 There are no hosted-model fallbacks, plugins, multi-agent routing, WhatsApp,
 Discord, browser tools, skills, or Node dependencies. The upstream Node runtime
 has been removed from this branch; it remains available only in Git history.
+Historical Node application state is deliberately not imported or read by the
+Go runtime, and no backward-compatibility path is supported.
+
+Memory is a revisioned SQLite ledger with profile, durable, and daily records,
+FTS5 plus vector retrieval, local-model query planning/reranking, and a
+post-response local-model curator. The ledger cutover requires a fresh Go
+database; existing Go state is also deliberately not migrated.
 
 ## Documentation
 
@@ -36,10 +43,10 @@ has been removed from this branch; it remains available only in Git history.
 Run Go commands from `golang/`:
 
 ```bash
-GOCACHE=/tmp/openclaw-go-cache go test ./...
-GOCACHE=/tmp/openclaw-go-cache go vet ./...
-GOCACHE=/tmp/openclaw-go-cache go test -race ./...
-GOCACHE=/tmp/openclaw-go-cache go build -o /tmp/openclaw-go ./cmd/openclaw
+GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 ./...
+GOCACHE=/tmp/openclaw-go-cache go vet -tags sqlite_fts5 ./...
+GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 -race ./...
+GOCACHE=/tmp/openclaw-go-cache go build -tags sqlite_fts5 -o /tmp/openclaw-go ./cmd/openclaw
 ```
 
 Build the standalone runtime image with:

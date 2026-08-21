@@ -5,21 +5,24 @@ summary: Retained runtime components and data flow
 
 The production image contains one Go binary:
 
-```text
-Telegram text ─┐
-               ├─> Gateway ─> Agent/tool loop ─> chat llama-server
-POST /chat ────┘          │          │
-                          │          ├─> embedding llama-server
-                          │          └─> SQLite
-                          └─> reminder delivery loop ─> contextual agent render
-                                                       ├─> chat llama-server
-                                                       ├─> embedding llama-server
-                                                       └─> SQLite ─> Telegram
+```mermaid
+flowchart TD
+    INPUT[Owner message or due reminder] --> PLAN[LLM recall planner]
+    PLAN --> RETRIEVE[SQLite FTS5 and vector retrieval]
+    RETRIEVE --> RERANK[LLM evidence selector]
+    RERANK --> AGENT[Main LLM agent]
+    AGENT --> CURATE[LLM memory curator]
+    CURATE --> INDEX[Synchronous conversation embedding]
+    INDEX --> DELIVER[HTTP or Telegram delivery]
+    DELIVER --> COMMIT[Atomic transcript, chunks, and delivery commit]
+    CURATE --> MEMORY[Memory service]
+    MEMORY --> EMBED[Embedding llama-server]
+    EMBED --> SQLITE[(SQLite ledger, revisions, FTS5, vectors, traces)]
 ```
 
 `cmd/openclaw` loads strict configuration, opens SQLite, creates both local
-model clients, registers Telegram when enabled, starts conversation indexing,
-and starts the Gateway.
+model clients, probes both required local services, validates every derived
+index, registers Telegram when enabled, and starts the Gateway.
 
 The agent stores every inbound message, assistant message, tool call, and tool
 result as structured transcript rows. Task, reminder, and memory mutations and
@@ -31,19 +34,23 @@ a separate routed delivery ledger; neither state type references or updates the
 other.
 
 Recent context is the latest two complete exchanges for the current routing
-key. Older complete exchanges from any of the owner's channels are embedded
-into a derived index and recalled by semantic similarity when they fit the
-chat model's context window. Recalled text is marked as historical context,
-not as current instructions.
+key. A bounded profile/durable core is always present. The local chat model
+plans recall and selects from hybrid memory and conversation candidates.
+Recalled conversations are historical evidence, not current instructions. A
+separate local-model curator stores or revises concise profile, durable, and
+daily memories after the response draft.
 
 When a reminder is due, the agent loads the same persona, recent exchanges,
 and semantic conversation recall used for an inbound turn. It asks the local
-chat model for a concise notification body without exposing tools, adds the
-fixed reminder heading, and sends the result. If context retrieval or model
-generation fails, delivery uses the stored reminder text. Successful
-deliveries are recorded as complete scheduled-reminder exchanges and become
-available to later context and recall.
+chat model for a concise notification body without exposing public tools, adds
+the fixed reminder heading, synchronously embeds the completed exchange, and
+sends the result. A required-service failure prevents delivery and leaves the
+reminder due. Successful deliveries commit transcript and vectors together.
 
-The repository still contains Node source as a behavioral reference during
-migration. It is not copied into the Go image and is not a supported
-deployment path.
+Deleted Node source in Git history may be consulted only as behavioral
+evidence. Historical Node application state is deliberately discarded at Go
+cutover: the retained runtime does not import, translate, or read it, and no
+backward-compatibility path is supported.
+
+The memory-ledger cutover also requires a fresh Go database. Existing Go
+tasks, reminders, memories, transcripts, and traces are not migrated.

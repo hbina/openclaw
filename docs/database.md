@@ -5,20 +5,28 @@ summary: Canonical tables, columns, relationships, and rebuild policy
 
 The runtime supports one exact schema. Startup creates it only for a new
 database and then validates the complete table and column set. It does not run
-legacy `ALTER TABLE` migrations. A non-canonical database fails startup and
-must be rebuilt deliberately from a verified backup.
+legacy `ALTER TABLE` migrations. A non-canonical database fails startup. This
+cutover requires an empty new database; prior Go and Node state is deliberately
+not migrated.
 
-## `memory_entries`
+## Memory ledger
 
-Global durable facts for the one owner.
+`memories` is the stable owner-facing record. It stores the Memory ID, kind,
+active/deleted status, current revision pointer, active-content hash, and
+observed/created/updated/deleted timestamps. The partial unique content-hash
+index makes exact active duplicates idempotent.
 
-| Column | Purpose |
-| --- | --- |
-| `id` | Autoincremented memory identifier. |
-| `content` | The durable fact stored by the agent. Exact duplicates are not inserted. |
-| `embedding_model` | Stable embedding index id used for this vector. |
-| `dimensions` | Vector dimension count used to validate and decode `embedding`. |
-| `embedding` | Packed float vector used by semantic memory search. |
+`memory_revisions` is immutable audit history. Each row stores a revision
+number, content and hash, trusted origin class, chat/operator source class,
+optional source conversation and trace references, and creation time. Updating
+a memory advances the pointer in `memories`; removing one retains all
+revisions.
+
+`memory_embeddings` contains the current active revision's packed vector,
+stable embedding index id, and dimensions. `memory_fts` is an FTS5 virtual
+table containing the same current active revision. Deleted memories have rows
+in neither derived table. Both indexes are replaced with the ledger mutation
+in the same transaction.
 
 ## `reminders`
 
@@ -69,6 +77,7 @@ Append-only structured transcript and source of truth for conversation recall.
 | `sender_id` | Source conversation routing key. |
 | `role` | Provider role such as `user`, `assistant`, or `tool`. |
 | `content_type` | `text`, `inbound_message`, `scheduled_reminder`, `tool_call`, or `tool_result`. |
+| `audience` | `conversation` for owner-visible replay or `internal` for curator audit calls. |
 | `content` | Plain text or the structured JSON payload for the content type. |
 | `created_at` | Timestamp used when rendering historical conversation documents. |
 
@@ -93,14 +102,12 @@ Rebuildable semantic index derived only from complete exchanges in
 | `embedding_model` | Stable embedding index id. |
 | `dimensions` | Stored vector dimension count. |
 | `index_version` | Rendering/chunking format version. |
-| `embedding` | Packed vector; null while work is pending. |
-| `attempts` | Consecutive failed embedding attempts. |
-| `retry_at` | Earliest retry time after an embedding failure. |
+| `embedding` | Required packed vector. Incomplete index rows cannot exist. |
 
 The source relationship is
 `conversation_chunks.start_history_id..end_history_id` to the inclusive range
 of `conversation_history.id`. It is intentionally not a foreign key because
-the index is disposable and rebuilt asynchronously. Uniqueness is enforced
+the index is disposable and rebuilt explicitly. Uniqueness is enforced
 for model/version/source range/part.
 
 There are no `agent_state`, `conversation_compactions`, or persona tables.
@@ -121,15 +128,14 @@ outcomes, not credentials or transport authorization headers.
   losing their per-trace order.
 - `rag_retrievals` records the exact embedding query, index contract, selection
   counts, outcome, and rendered archive inserted into the prompt.
-  `rag_matches` records only matches that survived prompt-budget selection,
-  including source history ids, rank, score, hash, and exact reconstructed
-  messages.
+  `rag_matches` records conversation candidates and `memory_rag_matches`
+  records memory/revision IDs plus keyword, vector, and combined scores.
 - `llm_calls` records each tool-loop or reminder-model round, including the
   sanitized request body actually sent and the response body returned by the
   local OpenAI-compatible server.
 - `tool_executions` relates exact model call ids, arguments, results, errors,
   and mutation outcomes to their LLM round.
-- `response_outputs` keeps raw model or fallback content, ordered application
+- `response_outputs` keeps raw model content, ordered application
   transformations, and exact final channel text.
 - `delivery_attempts` is persisted before external I/O. `attempting` with no
   completion is deliberately ambiguous: the process may have stopped after

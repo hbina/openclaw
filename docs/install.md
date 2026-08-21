@@ -11,6 +11,9 @@ Prerequisites:
 - a non-secret `openclaw.json` and separate `secrets.json`;
 - a persistent host directory for SQLite.
 
+For the memory-ledger release, the SQLite directory must be empty. Existing
+Node and pre-ledger Go databases are intentionally not migrated or read.
+
 Build:
 
 ```bash
