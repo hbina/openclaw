@@ -79,6 +79,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to configure local embedding provider: %v", err)
 	}
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if _, err := primaryProv.ContextSize(probeCtx); err != nil {
+		probeCancel()
+		log.Fatalf("Local chat provider readiness probe failed: %v", err)
+	}
+	vectors, err := embeddingProv.Embed(probeCtx, []string{"openclaw readiness probe"})
+	probeCancel()
+	if err != nil || len(vectors) != 1 {
+		log.Fatalf("Local embedding provider readiness probe failed: vectors=%d error=%v", len(vectors), err)
+	}
+	if err := store.ValidateDerivedMemoryState(context.Background(), cfg.Models.Embeddings.IndexID, cfg.Models.Embeddings.Dimensions); err != nil {
+		log.Fatalf("Memory index readiness check failed: %v", err)
+	}
+	if gaps, err := store.CountConversationIndexGaps(context.Background(), cfg.Models.Embeddings.IndexID, 1, cfg.Models.Embeddings.Dimensions); err != nil {
+		log.Fatalf("Conversation index readiness check failed: %v", err)
+	} else if gaps != 0 {
+		log.Fatalf("Conversation index readiness check failed: %d completed exchanges are unindexed; run memory reindex", gaps)
+	}
 
 	// 4. Channels
 	chanReg := channels.NewRegistry()
@@ -106,11 +124,6 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := agent.BackfillMemoryEmbeddings(ctx); err != nil {
-		log.Printf("Warning: memory embedding backfill incomplete: %v", err)
-	}
-	rag.Start(ctx)
-
 	if err := gw.Start(ctx); err != nil {
 		log.Fatalf("Gateway failed to start: %v", err)
 	}

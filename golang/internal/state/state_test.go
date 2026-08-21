@@ -409,17 +409,17 @@ func TestMemorySearch(t *testing.T) {
 	}
 	for _, seed := range seeds {
 		if err := store.WithTx(ctx, func(tx *Tx) error {
-			_, err := tx.SaveMemoryUnique(ctx, seed.content, model, dims, vector.Pack(seed.vector))
+			_, _, err := tx.StoreMemory(ctx, MemoryWrite{Kind: MemoryDurable, Content: seed.content, OriginClass: MemoryOriginOwner, SourceKind: MemorySourceOperator, EmbeddingModel: model, Dimensions: dims, Embedding: vector.Pack(seed.vector), Now: time.Now()})
 			return err
 		}); err != nil {
 			t.Fatalf("SaveMemoryUnique(%q): %v", seed.content, err)
 		}
 	}
 
-	var entries []MemoryEntry
+	var entries []MemorySearchResult
 	if err := store.WithTx(ctx, func(tx *Tx) error {
 		var err error
-		entries, err = tx.SearchMemoryByVector(ctx, model, dims, []float32{1, 0}, 0.5, 10)
+		entries, err = tx.SearchMemories(ctx, model, dims, []float32{1, 0}, `"espresso"`, 0.5, 10)
 		return err
 	}); err != nil {
 		t.Fatalf("SearchMemoryByVector: %v", err)
@@ -431,6 +431,49 @@ func TestMemorySearch(t *testing.T) {
 		if entry.ID == 0 || entry.Content == "" {
 			t.Fatalf("incomplete memory entry: %#v", entry)
 		}
+	}
+}
+
+func TestMemoryLedgerRevisionsAndDeletionRetainAudit(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 21, 8, 0, 0, 0, time.UTC)
+	write := MemoryWrite{Kind: MemoryProfile, Content: "Owner prefers espresso.", OriginClass: MemoryOriginOwner, SourceKind: MemorySourceOperator, EmbeddingModel: "test", Dimensions: 2, Embedding: vector.Pack([]float32{1, 0}), Now: now}
+	var item Memory
+	if err := store.WithTx(ctx, func(tx *Tx) error { var err error; item, _, err = tx.StoreMemory(ctx, write); return err }); err != nil {
+		t.Fatalf("StoreMemory: %v", err)
+	}
+	stableID := item.ID
+	write.Content = "Owner now prefers tea."
+	write.Kind = MemoryDurable
+	write.Embedding = vector.Pack([]float32{0, 1})
+	write.Now = now.Add(time.Hour)
+	if err := store.WithTx(ctx, func(tx *Tx) error { var err error; item, err = tx.UpdateMemory(ctx, stableID, write); return err }); err != nil {
+		t.Fatalf("UpdateMemory: %v", err)
+	}
+	if item.ID != stableID || item.RevisionNumber != 2 || item.Kind != MemoryDurable {
+		t.Fatalf("updated memory=%#v", item)
+	}
+	var revisionCount int
+	if err := store.db.QueryRow(`SELECT count(*) FROM memory_revisions WHERE memory_id=?`, stableID).Scan(&revisionCount); err != nil || revisionCount != 2 {
+		t.Fatalf("revision count=%d err=%v", revisionCount, err)
+	}
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		var err error
+		item, err = tx.RemoveMemory(ctx, stableID, now.Add(2*time.Hour))
+		return err
+	}); err != nil {
+		t.Fatalf("RemoveMemory: %v", err)
+	}
+	if item.Status != MemoryDeleted || item.DeletedAt == nil {
+		t.Fatalf("deleted memory=%#v", item)
+	}
+	results, err := store.SearchMemories(ctx, "test", 2, []float32{0, 1}, `"tea"`, 0, 10)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("deleted search results=%#v err=%v", results, err)
+	}
+	if err := store.db.QueryRow(`SELECT count(*) FROM memory_revisions WHERE memory_id=?`, stableID).Scan(&revisionCount); err != nil || revisionCount != 2 {
+		t.Fatalf("retained revisions=%d err=%v", revisionCount, err)
 	}
 }
 
@@ -464,22 +507,12 @@ func TestConversationHistory(t *testing.T) {
 func TestConversationChunkIndexPersistsAndIsVersionScoped(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	chunk := ConversationChunkKey{
-		StartHistoryID: 1, EndHistoryID: 2, PartIndex: 0,
-		ContentHash: "hash", EmbeddingModel: "embeddinggemma-v1",
-		Dimensions: 3, IndexVersion: 1,
-	}
-	due, attempts, err := store.PrepareConversationChunk(ctx, chunk, time.Now())
-	if err != nil || !due || attempts != 0 {
-		t.Fatalf("PrepareConversationChunk: due=%v attempts=%d err=%v", due, attempts, err)
-	}
 	blob := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
-	if err := store.SaveConversationChunkEmbedding(ctx, chunk, blob); err != nil {
-		t.Fatalf("SaveConversationChunkEmbedding: %v", err)
-	}
-	due, _, err = store.PrepareConversationChunk(ctx, chunk, time.Now())
-	if err != nil || due {
-		t.Fatalf("prepared completed chunk: due=%v err=%v", due, err)
+	err := store.WithTx(ctx, func(tx *Tx) error {
+		return tx.SaveConversationChunks(ctx, 1, 2, []ConversationChunk{{PartIndex: 0, ContentHash: "hash", EmbeddingModel: "embeddinggemma-v1", Dimensions: 3, IndexVersion: 1, Embedding: blob}})
+	})
+	if err != nil {
+		t.Fatalf("SaveConversationChunks: %v", err)
 	}
 	active, err := store.LoadConversationEmbeddings(ctx, "embeddinggemma-v1", 1, 3)
 	if err != nil || len(active) != 1 || string(active[0].Embedding) != string(blob) {
@@ -491,9 +524,33 @@ func TestConversationChunkIndexPersistsAndIsVersionScoped(t *testing.T) {
 	}
 }
 
+func TestConversationIndexGapValidation(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.SaveConversationTurn(ctx, "cli", "owner", "user", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveConversationTurn(ctx, "cli", "owner", "assistant", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	gaps, err := store.CountConversationIndexGaps(ctx, "test", 1, 2)
+	if err != nil || gaps != 1 {
+		t.Fatalf("unindexed gaps=%d err=%v", gaps, err)
+	}
+	if err := store.WithTx(ctx, func(tx *Tx) error {
+		return tx.SaveConversationChunks(ctx, 1, 2, []ConversationChunk{{PartIndex: 0, ContentHash: "hash", EmbeddingModel: "test", Dimensions: 2, IndexVersion: 1, Embedding: vector.Pack([]float32{1, 0})}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gaps, err = store.CountConversationIndexGaps(ctx, "test", 1, 2)
+	if err != nil || gaps != 0 {
+		t.Fatalf("indexed gaps=%d err=%v", gaps, err)
+	}
+}
+
 func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
 	store := newTestStore(t)
-	for _, table := range []string{"memory_entries", "reminders", "tasks", "conversation_history", "conversation_chunks", "response_traces", "trace_events", "rag_retrievals", "rag_matches", "llm_calls", "tool_executions", "response_outputs", "delivery_attempts"} {
+	for _, table := range []string{"memories", "memory_revisions", "memory_embeddings", "memory_fts", "memory_rag_matches", "reminders", "tasks", "conversation_history", "conversation_chunks", "response_traces", "trace_events", "rag_retrievals", "rag_matches", "llm_calls", "tool_executions", "response_outputs", "delivery_attempts"} {
 		if !databaseTableExists(t, store, table) {
 			t.Errorf("fresh database is missing %s", table)
 		}

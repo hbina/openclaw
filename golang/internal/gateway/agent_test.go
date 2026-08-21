@@ -581,7 +581,7 @@ func TestAgentReminderUsesSemanticRecall(t *testing.T) {
 	}
 }
 
-func TestAgentReminderFallsBackWhenContextOrModelFails(t *testing.T) {
+func TestAgentReminderFailsClosedWhenContextOrModelFails(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		agent func(*testing.T, *recordingChannel) (*Agent, *state.Store)
@@ -628,15 +628,19 @@ func TestAgentReminderFallsBackWhenContextOrModelFails(t *testing.T) {
 			channel := &recordingChannel{}
 			agent, store := test.agent(t, channel)
 			reminder := addDueReminderForTest(t, store, channel.ID(), "owner", "Bring phone charger to work")
-			if err := agent.DeliverReminder(context.Background(), reminder); err != nil {
-				t.Fatalf("DeliverReminder: %v", err)
+			if err := agent.DeliverReminder(context.Background(), reminder); err == nil {
+				t.Fatal("DeliverReminder succeeded")
 			}
-			if channel.content != reminderHeader+reminder.Message {
-				t.Fatalf("fallback notification = %q", channel.content)
+			if channel.content != "" {
+				t.Fatalf("unexpected notification = %q", channel.content)
 			}
 			history, err := store.GetConversationHistory(context.Background(), channel.ID(), "owner")
-			if err != nil || len(history) != 2 || history[1].Content != channel.content {
-				t.Fatalf("fallback history=%#v err=%v", history, err)
+			if err != nil || len(history) != 0 {
+				t.Fatalf("failed reminder history=%#v err=%v", history, err)
+			}
+			due, err := store.FetchDueReminders()
+			if err != nil || len(due) != 1 {
+				t.Fatalf("due reminders=%#v err=%v", due, err)
 			}
 		})
 	}
@@ -686,7 +690,7 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		Type: "function",
 		Function: providers.FunctionCall{
 			Name:      "store_memory",
-			Arguments: `{"content":"The user prefers espresso."}`,
+			Arguments: `{"content":"The user prefers espresso.","kind":"profile"}`,
 		},
 	}
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{
@@ -705,8 +709,8 @@ func TestAgentExecutesAndReplaysStructuredToolCalls(t *testing.T) {
 		t.Fatalf("provider request count = %d, want 2", len(provider.requests))
 	}
 	followup := provider.requests[1]
-	if len(followup.Tools) != 11 {
-		t.Fatalf("tool definition count = %d, want 11", len(followup.Tools))
+	if len(followup.Tools) != 15 {
+		t.Fatalf("tool definition count = %d, want 15", len(followup.Tools))
 	}
 	if len(followup.Messages) != 4 {
 		t.Fatalf("follow-up message count = %d, want 4", len(followup.Messages))
@@ -790,10 +794,10 @@ func TestReminderRequestUsesAutomaticUnifiedReminderTool(t *testing.T) {
 		t.Fatalf("request count = %d, want 2", len(provider.requests))
 	}
 	first := provider.requests[0]
-	if first.ToolChoice != "auto" || len(first.Tools) != 11 || first.Tools[0].Function.Name != "add_reminder" || first.Tools[4].Function.Name != "add_task" {
+	if first.ToolChoice != "auto" || len(first.Tools) != 15 || first.Tools[0].Function.Name != "add_reminder" || first.Tools[4].Function.Name != "add_task" {
 		t.Fatalf("first reminder request did not expose single-purpose tools: %#v", first)
 	}
-	if first.MaxTokens != defaultMaxTokens || provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 11 {
+	if first.MaxTokens != defaultMaxTokens || provider.requests[1].ToolChoice != "auto" || len(provider.requests[1].Tools) != 15 {
 		t.Fatalf("follow-up request controls: %#v", provider.requests[1])
 	}
 }
@@ -815,7 +819,7 @@ func TestQuotedReminderTextDoesNotForceToolUse(t *testing.T) {
 		t.Fatalf("provider request count = %d, want 1", len(provider.requests))
 	}
 	request := provider.requests[0]
-	if request.ToolChoice != "auto" || len(request.Tools) != 11 {
+	if request.ToolChoice != "auto" || len(request.Tools) != 15 {
 		t.Fatalf("quoted reminder text forced tool controls: %#v", request)
 	}
 	reminders, err := listRemindersForTest(t, store, "cli", "user-1")

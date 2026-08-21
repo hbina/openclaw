@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build a statically linked binary
-RUN CGO_ENABLED=1 GOOS=linux go build -a -o openclaw ./cmd/openclaw
+RUN CGO_ENABLED=1 GOOS=linux go build -tags sqlite_fts5 -a -o openclaw ./cmd/openclaw
 
 # Final minimal image
 FROM alpine:latest

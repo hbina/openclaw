@@ -243,15 +243,15 @@ func TestGlobalMemoryToolsAreIdempotentAndSearchable(t *testing.T) {
 	firstUser := Context{ChannelID: "telegram", SenderID: "first"}
 	secondUser := Context{ChannelID: "cli", SenderID: "second"}
 
-	first, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-1", "store_memory", `{"content":"The user prefers espresso."}`))
+	first, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-1", "store_memory", `{"content":"The user prefers espresso.","kind":"profile"}`))
 	if err != nil || first.IsError {
 		t.Fatalf("first store: %#v err=%v", first, err)
 	}
-	duplicate, err := executor.ExecuteAndRecord(ctx, secondUser, call("store-2", "store_memory", `{"content":"The user prefers espresso."}`))
+	duplicate, err := executor.ExecuteAndRecord(ctx, secondUser, call("store-2", "store_memory", `{"content":"The user prefers espresso.","kind":"profile"}`))
 	if err != nil || duplicate.IsError || !stringsContain(duplicate.Content, `"stored":false`) {
 		t.Fatalf("duplicate store: %#v err=%v", duplicate, err)
 	}
-	distractor, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-3", "store_memory", `{"content":"The user's favorite color is blue."}`))
+	distractor, err := executor.ExecuteAndRecord(ctx, firstUser, call("store-3", "store_memory", `{"content":"The user's favorite color is blue.","kind":"profile"}`))
 	if err != nil || distractor.IsError {
 		t.Fatalf("distractor store: %#v err=%v", distractor, err)
 	}
@@ -412,7 +412,7 @@ func TestToolCatalogUsesSinglePurposeTools(t *testing.T) {
 	wantNames := []string{
 		"add_reminder", "list_reminders", "update_reminder", "remove_reminder",
 		"add_task", "list_tasks", "update_task", "complete_task", "remove_task",
-		"store_memory", "search_memory",
+		"store_memory", "get_memory", "list_memories", "update_memory", "remove_memory", "search_memory",
 	}
 	for _, definition := range definitions {
 		if definition.Function.Name == "manage_personality" {

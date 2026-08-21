@@ -168,12 +168,9 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		_ = g.store.FailDelivery(context.Background(), prepared.TraceID, deliveryID, err)
 		return
 	}
-	if err := g.store.CompleteDelivery(context.Background(), prepared.TraceID, deliveryID, "http", "cli", body.SenderID, prepared.Content); err != nil {
+	if err := g.store.CompleteDeliveryIndexed(context.Background(), prepared.TraceID, deliveryID, "http", "cli", body.SenderID, prepared.Content, prepared.StartHistoryID, prepared.Chunks); err != nil {
 		log.Printf("trace %d HTTP response sent but finalization failed: %v", prepared.TraceID, err)
 		return
-	}
-	if g.agent.rag != nil {
-		g.agent.rag.Notify()
 	}
 	log.Printf("Response trace %d delivered over HTTP", prepared.TraceID)
 }

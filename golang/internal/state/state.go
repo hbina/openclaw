@@ -124,12 +124,53 @@ func (s *Store) initializeSchema() error {
 	}
 
 	query := `
-	CREATE TABLE IF NOT EXISTS memory_entries (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		content TEXT NOT NULL,
-		embedding_model TEXT NOT NULL DEFAULT '',
-		dimensions INTEGER NOT NULL DEFAULT 0,
-		embedding BLOB
+	CREATE TABLE IF NOT EXISTS memories (
+		id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind                TEXT NOT NULL CHECK (kind IN ('profile', 'durable', 'daily')),
+		status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
+		current_revision_id INTEGER,
+		current_content_hash TEXT,
+		observed_at         DATETIME NOT NULL,
+		created_at          DATETIME NOT NULL,
+		updated_at          DATETIME NOT NULL,
+		deleted_at          DATETIME,
+		FOREIGN KEY (current_revision_id) REFERENCES memory_revisions(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS memory_revisions (
+		id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		memory_id         INTEGER NOT NULL,
+		revision_number   INTEGER NOT NULL,
+		content           TEXT NOT NULL,
+		content_hash      TEXT NOT NULL,
+		origin_class      TEXT NOT NULL CHECK (origin_class IN ('owner', 'agent', 'system', 'untrusted')),
+		source_kind       TEXT NOT NULL CHECK (source_kind IN ('chat', 'operator')),
+		source_history_id INTEGER,
+		source_trace_id   INTEGER,
+		created_at        DATETIME NOT NULL,
+		FOREIGN KEY (memory_id) REFERENCES memories(id),
+		FOREIGN KEY (source_history_id) REFERENCES conversation_history(id),
+		FOREIGN KEY (source_trace_id) REFERENCES response_traces(id),
+		UNIQUE (memory_id, revision_number)
+	);
+
+	CREATE TABLE IF NOT EXISTS memory_embeddings (
+		memory_id      INTEGER NOT NULL,
+		revision_id    INTEGER NOT NULL,
+		embedding_model TEXT NOT NULL,
+		dimensions     INTEGER NOT NULL,
+		embedding      BLOB NOT NULL,
+		created_at     DATETIME NOT NULL,
+		PRIMARY KEY (memory_id, revision_id, embedding_model),
+		FOREIGN KEY (memory_id) REFERENCES memories(id),
+		FOREIGN KEY (revision_id) REFERENCES memory_revisions(id)
+	);
+
+	CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+		content,
+		memory_id UNINDEXED,
+		revision_id UNINDEXED,
+		tokenize = 'unicode61'
 	);
 
 	CREATE TABLE IF NOT EXISTS reminders (
@@ -159,6 +200,7 @@ func (s *Store) initializeSchema() error {
 		sender_id   TEXT    NOT NULL,
 		role        TEXT    NOT NULL,
 		content_type TEXT   NOT NULL DEFAULT 'text',
+		audience    TEXT    NOT NULL DEFAULT 'conversation' CHECK (audience IN ('conversation', 'internal')),
 		content     TEXT    NOT NULL,
 		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -175,9 +217,7 @@ func (s *Store) initializeSchema() error {
 		embedding_model     TEXT NOT NULL,
 		dimensions          INTEGER NOT NULL,
 		index_version       INTEGER NOT NULL,
-		embedding           BLOB,
-		attempts            INTEGER NOT NULL DEFAULT 0,
-		retry_at            DATETIME,
+		embedding           BLOB NOT NULL,
 		UNIQUE (embedding_model, index_version, start_history_id, end_history_id, part_index)
 	);
 
@@ -243,6 +283,22 @@ func (s *Store) initializeSchema() error {
 		UNIQUE (retrieval_event_id, rank)
 	);
 
+	CREATE TABLE IF NOT EXISTS memory_rag_matches (
+		id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+		retrieval_event_id INTEGER NOT NULL,
+		rank               INTEGER NOT NULL,
+		memory_id          INTEGER NOT NULL,
+		revision_id        INTEGER NOT NULL,
+		vector_score       REAL NOT NULL,
+		keyword_score      REAL NOT NULL,
+		combined_score     REAL NOT NULL,
+		content_hash       TEXT NOT NULL,
+		FOREIGN KEY (retrieval_event_id) REFERENCES rag_retrievals(event_id),
+		FOREIGN KEY (memory_id) REFERENCES memories(id),
+		FOREIGN KEY (revision_id) REFERENCES memory_revisions(id),
+		UNIQUE (retrieval_event_id, rank)
+	);
+
 	CREATE TABLE IF NOT EXISTS llm_calls (
 		event_id        INTEGER PRIMARY KEY,
 		round_number    INTEGER NOT NULL,
@@ -303,8 +359,14 @@ func (s *Store) initializeSchema() error {
 		ON tasks(lower(trim(description)))
 		WHERE completed_at IS NULL;
 
-	CREATE INDEX IF NOT EXISTS idx_memory_entries_embedding_model
-		ON memory_entries(embedding_model, dimensions);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_active_content
+		ON memories(current_content_hash) WHERE status = 'active';
+
+	CREATE INDEX IF NOT EXISTS idx_memories_active_kind
+		ON memories(status, kind, updated_at DESC, id ASC);
+
+	CREATE INDEX IF NOT EXISTS idx_memory_embeddings_model
+		ON memory_embeddings(embedding_model, dimensions);
 
 	CREATE INDEX IF NOT EXISTS idx_response_traces_time
 		ON response_traces(started_at DESC, id DESC);
@@ -330,9 +392,25 @@ func (s *Store) initializeSchema() error {
 
 func (s *Store) validateCanonicalSchema() error {
 	expected := map[string][]string{
-		"memory_entries": {
-			"id", "content", "embedding_model", "dimensions", "embedding",
+		"memories": {
+			"id", "kind", "status", "current_revision_id", "current_content_hash",
+			"observed_at", "created_at", "updated_at", "deleted_at",
 		},
+		"memory_revisions": {
+			"id", "memory_id", "revision_number", "content", "content_hash", "origin_class",
+			"source_kind", "source_history_id", "source_trace_id", "created_at",
+		},
+		"memory_embeddings": {
+			"memory_id", "revision_id", "embedding_model", "dimensions", "embedding", "created_at",
+		},
+		"memory_fts": {
+			"content", "memory_id", "revision_id",
+		},
+		"memory_fts_config":  {"k", "v"},
+		"memory_fts_content": {"id", "c0", "c1", "c2"},
+		"memory_fts_data":    {"id", "block"},
+		"memory_fts_docsize": {"id", "sz"},
+		"memory_fts_idx":     {"segid", "term", "pgno"},
 		"reminders": {
 			"id", "channel_id", "sender_id", "message", "fire_at", "schedule_kind",
 			"every_ms", "anchor_at", "cron_expr", "timezone", "enabled",
@@ -341,11 +419,11 @@ func (s *Store) validateCanonicalSchema() error {
 			"id", "description", "started_at", "completed_at",
 		},
 		"conversation_history": {
-			"id", "channel_id", "sender_id", "role", "content_type", "content", "created_at",
+			"id", "channel_id", "sender_id", "role", "content_type", "audience", "content", "created_at",
 		},
 		"conversation_chunks": {
 			"id", "start_history_id", "end_history_id", "part_index", "content_hash",
-			"embedding_model", "dimensions", "index_version", "embedding", "attempts", "retry_at",
+			"embedding_model", "dimensions", "index_version", "embedding",
 		},
 		"response_traces": {
 			"id", "trigger_type", "channel_id", "sender_id", "external_message_id",
@@ -363,6 +441,10 @@ func (s *Store) validateCanonicalSchema() error {
 		"rag_matches": {
 			"id", "retrieval_event_id", "rank", "start_history_id", "end_history_id",
 			"similarity_score", "content_hash", "messages_json",
+		},
+		"memory_rag_matches": {
+			"id", "retrieval_event_id", "rank", "memory_id", "revision_id", "vector_score",
+			"keyword_score", "combined_score", "content_hash",
 		},
 		"llm_calls": {
 			"event_id", "round_number", "purpose", "request_json", "response_json", "http_status", "finish_reason",
@@ -459,7 +541,7 @@ func (s *Store) validateCanonicalSchema() error {
 	if normalizedIndexSQL != expectedTaskIndexSQL {
 		return fmt.Errorf("task duplicate-prevention index does not match the canonical definition; rebuild the database")
 	}
-	for _, name := range []string{"idx_response_traces_time", "idx_response_traces_route", "idx_response_traces_external_message", "idx_trace_events_trace", "idx_delivery_provider_message"} {
+	for _, name := range []string{"idx_memories_active_content", "idx_memories_active_kind", "idx_memory_embeddings_model", "idx_response_traces_time", "idx_response_traces_route", "idx_response_traces_external_message", "idx_trace_events_trace", "idx_delivery_provider_message"} {
 		var count int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&count); err != nil {
 			return fmt.Errorf("inspect canonical provenance index %s: %w", name, err)

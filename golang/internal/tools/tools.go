@@ -9,17 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
-	"github.com/openclaw/openclaw/go/internal/vector"
 )
 
-const memorySearchLimit = 5
-
 type Context struct {
-	ChannelID    string
-	SenderID     string
-	TraceEventID int64
+	ChannelID       string
+	SenderID        string
+	TraceEventID    int64
+	ResponseTraceID int64
+	SourceHistoryID int64
+	Audience        string
 }
 
 type Result struct {
@@ -45,6 +46,7 @@ type Executor struct {
 	indexID    string
 	dimensions int
 	minScore   float64
+	memory     *memory.Service
 }
 
 func NewExecutor(
@@ -65,6 +67,7 @@ func NewExecutor(
 	return &Executor{
 		store: store, now: now, location: location,
 		embedder: embedder, indexID: indexID, dimensions: dimensions, minScore: minScore,
+		memory: memory.NewService(store, embedder, indexID, dimensions, minScore, now),
 	}
 }
 
@@ -73,72 +76,108 @@ func NewExecutor(
 // embedding call is network I/O and shouldn't happen while a transaction is
 // held open.
 type memoryToolInput struct {
-	text      string
-	embedding []float32
+	write   *state.MemoryWrite
+	search  *memory.PreparedSearch
+	id      int64
+	kind    *state.MemoryKind
+	status  state.MemoryStatus
+	limit   int
+	mutated bool
+}
+
+func (executor *Executor) prepareUpdateMemory(ctx context.Context, raw string) (*memoryToolInput, error) {
+	var args struct {
+		ID      int64             `json:"id"`
+		Content string            `json:"content"`
+		Kind    *state.MemoryKind `json:"kind"`
+	}
+	if err := decodeArguments(raw, &args); err != nil {
+		return nil, err
+	}
+	if args.ID < 1 {
+		return nil, fmt.Errorf("id must be positive")
+	}
+	kind := state.MemoryKind("")
+	if args.Kind != nil {
+		kind = *args.Kind
+	}
+	write, err := executor.memory.PrepareWrite(ctx, kindOrDurable(kind), args.Content, memory.Provenance{Origin: state.MemoryOriginAgent, Source: state.MemorySourceChat})
+	if err != nil {
+		return nil, err
+	}
+	write.Kind = kind
+	return &memoryToolInput{id: args.ID, write: &write}, nil
+}
+
+func kindOrDurable(kind state.MemoryKind) state.MemoryKind {
+	if kind == "" {
+		return state.MemoryDurable
+	}
+	return kind
+}
+
+func prepareMemoryRead(raw string, list bool) (*memoryToolInput, error) {
+	if list {
+		var args struct {
+			Kind   *state.MemoryKind  `json:"kind"`
+			Status state.MemoryStatus `json:"status"`
+			Limit  int                `json:"limit"`
+		}
+		if err := decodeArguments(raw, &args); err != nil {
+			return nil, err
+		}
+		if args.Kind != nil && !state.ValidMemoryKind(*args.Kind) {
+			return nil, fmt.Errorf("invalid memory kind")
+		}
+		if args.Status != "" && args.Status != state.MemoryActive && args.Status != state.MemoryDeleted && args.Status != "all" {
+			return nil, fmt.Errorf("invalid memory status")
+		}
+		if args.Limit < 0 || args.Limit > 100 {
+			return nil, fmt.Errorf("limit must be between 1 and 100")
+		}
+		return &memoryToolInput{kind: args.Kind, status: args.Status, limit: args.Limit}, nil
+	}
+	var args struct {
+		ID int64 `json:"id"`
+	}
+	if err := decodeArguments(raw, &args); err != nil {
+		return nil, err
+	}
+	if args.ID < 1 {
+		return nil, fmt.Errorf("id must be positive")
+	}
+	return &memoryToolInput{id: args.ID}, nil
 }
 
 func (executor *Executor) prepareStoreMemory(ctx context.Context, raw string) (*memoryToolInput, error) {
 	var args struct {
-		Content string `json:"content"`
+		Content string           `json:"content"`
+		Kind    state.MemoryKind `json:"kind"`
 	}
 	if err := decodeArguments(raw, &args); err != nil {
 		return nil, err
 	}
-	content := strings.TrimSpace(args.Content)
-	if content == "" {
-		return nil, fmt.Errorf("content must not be empty")
-	}
-	vectors, err := executor.embedder.Embed(ctx, []string{"title: none | text: " + content})
+	write, err := executor.memory.PrepareWrite(ctx, args.Kind, args.Content, memory.Provenance{Origin: state.MemoryOriginAgent, Source: state.MemorySourceChat})
 	if err != nil {
-		return nil, fmt.Errorf("embed memory content: %w", err)
+		return nil, err
 	}
-	return &memoryToolInput{text: content, embedding: vectors[0]}, nil
+	return &memoryToolInput{write: &write}, nil
 }
 
 func (executor *Executor) prepareSearchMemory(ctx context.Context, raw string) (*memoryToolInput, error) {
 	var args struct {
-		Query string `json:"query"`
+		Query      string            `json:"query"`
+		Kind       *state.MemoryKind `json:"kind"`
+		MaxResults int               `json:"max_results"`
 	}
 	if err := decodeArguments(raw, &args); err != nil {
 		return nil, err
 	}
-	query := strings.TrimSpace(args.Query)
-	if query == "" {
-		return nil, fmt.Errorf("query must not be empty")
-	}
-	vectors, err := executor.embedder.Embed(ctx, []string{"task: search result | query: " + query})
+	prepared, err := executor.memory.PrepareSearch(ctx, args.Query, nil, args.MaxResults)
 	if err != nil {
-		return nil, fmt.Errorf("embed memory query: %w", err)
+		return nil, err
 	}
-	return &memoryToolInput{text: query, embedding: vectors[0]}, nil
-}
-
-// BackfillMemoryEmbeddings embeds any memory entries that predate semantic
-// search or were stranded without an embedding by a prior embedding-provider
-// outage. It is meant to run once at startup; memory writes embed
-// synchronously going forward, so there is no ongoing background indexer.
-func (executor *Executor) BackfillMemoryEmbeddings(ctx context.Context) error {
-	entries, err := executor.store.MemoryEntriesMissingEmbedding(ctx, executor.indexID, executor.dimensions)
-	if err != nil {
-		return fmt.Errorf("list memory entries missing embeddings: %w", err)
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-	inputs := make([]string, len(entries))
-	for index, entry := range entries {
-		inputs[index] = "title: none | text: " + entry.Content
-	}
-	vectors, err := executor.embedder.Embed(ctx, inputs)
-	if err != nil {
-		return fmt.Errorf("embed memory backfill batch: %w", err)
-	}
-	for index, entry := range entries {
-		if err := executor.store.SaveMemoryEmbedding(ctx, entry.ID, executor.indexID, executor.dimensions, vector.Pack(vectors[index])); err != nil {
-			return fmt.Errorf("save memory embedding %d: %w", entry.ID, err)
-		}
-	}
-	return nil
+	return &memoryToolInput{search: &prepared, kind: args.Kind}, nil
 }
 
 func Definitions(location *time.Location) []providers.ToolDefinition {
@@ -195,13 +234,25 @@ func Definitions(location *time.Location) []providers.ToolDefinition {
 			"type":"object","additionalProperties":false,
 			"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
 		}`),
-		definition("store_memory", "Store a stable preference or durable fact in the agent's global memory.", `{
+		definition("store_memory", "Store one profile, durable, or daily memory.", `{
 			"type":"object","additionalProperties":false,
-			"properties":{"content":{"type":"string","description":"One concise durable fact."}},"required":["content"]
+			"properties":{"content":{"type":"string","description":"One concise standalone fact."},"kind":{"type":"string","enum":["profile","durable","daily"]}},"required":["content","kind"]
 		}`),
-		definition("search_memory", "Search the agent's global memory for relevant durable facts.", `{
+		definition("get_memory", "Get one memory by its stable Memory ID.", `{
+			"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
+		}`),
+		definition("list_memories", "List memories. Status defaults to active and limit defaults to 20.", `{
+			"type":"object","additionalProperties":false,"properties":{"kind":{"type":"string","enum":["profile","durable","daily"]},"status":{"type":"string","enum":["active","deleted","all"]},"limit":{"type":"integer","minimum":1,"maximum":100}}
+		}`),
+		definition("update_memory", "Create a new revision of one active memory, retaining its stable Memory ID.", `{
+			"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer","minimum":1},"content":{"type":"string"},"kind":{"type":"string","enum":["profile","durable","daily"]}},"required":["id","content"]
+		}`),
+		definition("remove_memory", "Stop one memory from being recalled. Audit revisions are retained.", `{
+			"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer","minimum":1}},"required":["id"]
+		}`),
+		definition("search_memory", "Hybrid keyword and semantic search over active memories.", `{
 			"type":"object","additionalProperties":false,
-			"properties":{"query":{"type":"string"}},"required":["query"]
+			"properties":{"query":{"type":"string"},"kind":{"type":"string","enum":["profile","durable","daily"]},"max_results":{"type":"integer","minimum":1,"maximum":20}},"required":["query"]
 		}`),
 	}
 }
@@ -238,6 +289,12 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 		switch call.Function.Name {
 		case "store_memory":
 			memoryInput, prepareErr = executor.prepareStoreMemory(ctx, call.Function.Arguments)
+		case "get_memory", "remove_memory":
+			memoryInput, prepareErr = prepareMemoryRead(call.Function.Arguments, false)
+		case "list_memories":
+			memoryInput, prepareErr = prepareMemoryRead(call.Function.Arguments, true)
+		case "update_memory":
+			memoryInput, prepareErr = executor.prepareUpdateMemory(ctx, call.Function.Arguments)
 		case "search_memory":
 			memoryInput, prepareErr = executor.prepareSearchMemory(ctx, call.Function.Arguments)
 		}
@@ -265,7 +322,11 @@ func (executor *Executor) ExecuteAndRecord(ctx context.Context, toolCtx Context,
 		if err != nil {
 			return err
 		}
-		return tx.FinishToolExecution(ctx, toolCtx.TraceEventID, string(payload), result.IsError, toolMutation(call.Function.Name))
+		committed := toolMutation(call.Function.Name)
+		if isMemoryMutationTool(call.Function.Name) {
+			committed = memoryInput != nil && memoryInput.mutated
+		}
+		return tx.FinishToolExecution(ctx, toolCtx.TraceEventID, string(payload), result.IsError, committed)
 	})
 	if err == nil {
 		return result, nil
@@ -300,22 +361,72 @@ func (executor *Executor) execute(ctx context.Context, tx *state.Tx, toolCtx Con
 	case "remove_task":
 		return executor.removeTask(ctx, tx, call.Function.Arguments)
 	case "store_memory":
-		stored, err := tx.SaveMemoryUnique(ctx, memoryInput.text, executor.indexID, executor.dimensions, vector.Pack(memoryInput.embedding))
+		memoryWrite := *memoryInput.write
+		if toolCtx.SourceHistoryID > 0 {
+			memoryWrite.SourceHistoryID = &toolCtx.SourceHistoryID
+		}
+		if toolCtx.ResponseTraceID > 0 {
+			memoryWrite.SourceTraceID = &toolCtx.ResponseTraceID
+		}
+		storedMemory, stored, err := tx.StoreMemory(ctx, memoryWrite)
 		if err != nil {
 			return "", err
 		}
-		return marshalContent(map[string]any{"content": memoryInput.text, "stored": stored})
+		memoryInput.mutated = stored
+		return marshalContent(map[string]any{"memory": storedMemory, "stored": stored})
 
-	case "search_memory":
-		entries, err := tx.SearchMemoryByVector(ctx, executor.indexID, executor.dimensions, memoryInput.embedding, executor.minScore, memorySearchLimit)
+	case "get_memory":
+		storedMemory, err := tx.GetMemory(ctx, memoryInput.id)
 		if err != nil {
 			return "", err
 		}
-		memories := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			memories = append(memories, entry.Content)
+		return marshalContent(map[string]any{"memory": storedMemory})
+
+	case "list_memories":
+		memories, err := tx.ListMemories(ctx, state.MemoryFilter{Kind: memoryInput.kind, Status: memoryInput.status, Limit: memoryInput.limit})
+		if err != nil {
+			return "", err
 		}
 		return marshalContent(map[string]any{"memories": memories})
+
+	case "update_memory":
+		memoryWrite := *memoryInput.write
+		if toolCtx.SourceHistoryID > 0 {
+			memoryWrite.SourceHistoryID = &toolCtx.SourceHistoryID
+		}
+		if toolCtx.ResponseTraceID > 0 {
+			memoryWrite.SourceTraceID = &toolCtx.ResponseTraceID
+		}
+		storedMemory, err := tx.UpdateMemory(ctx, memoryInput.id, memoryWrite)
+		if err != nil {
+			return "", err
+		}
+		memoryInput.mutated = true
+		return marshalContent(map[string]any{"updated": storedMemory})
+
+	case "remove_memory":
+		storedMemory, err := tx.RemoveMemory(ctx, memoryInput.id, executor.now())
+		if err != nil {
+			return "", err
+		}
+		memoryInput.mutated = true
+		return marshalContent(map[string]any{"removed": storedMemory})
+
+	case "search_memory":
+		entries, err := tx.SearchMemories(ctx, executor.indexID, executor.dimensions, memoryInput.search.Embedding, memoryInput.search.FTSQuery, executor.minScore, memoryInput.search.Limit)
+		if err != nil {
+			return "", err
+		}
+		if memoryInput.kind != nil {
+			filtered := entries[:0]
+			for _, entry := range entries {
+				if entry.Kind == *memoryInput.kind {
+					filtered = append(filtered, entry)
+				}
+			}
+			entries = filtered
+		}
+		return marshalContent(map[string]any{"memories": entries})
 
 	default:
 		return "", fmt.Errorf("unknown tool %q", call.Function.Name)
@@ -659,7 +770,11 @@ func saveResult(ctx context.Context, tx *state.Tx, toolCtx Context, result Resul
 	if err != nil {
 		return fmt.Errorf("encode tool transcript result: %w", err)
 	}
-	return tx.SaveConversationMessage(ctx, toolCtx.ChannelID, toolCtx.SenderID, "tool", state.ContentToolResult, string(payload))
+	audience := toolCtx.Audience
+	if audience == "" {
+		audience = state.AudienceConversation
+	}
+	return tx.SaveConversationMessageAudience(ctx, toolCtx.ChannelID, toolCtx.SenderID, "tool", state.ContentToolResult, audience, string(payload))
 }
 
 func (executor *Executor) recordResult(ctx context.Context, toolCtx Context, result Result) error {
@@ -677,9 +792,13 @@ func (executor *Executor) recordResult(ctx context.Context, toolCtx Context, res
 
 func toolMutation(name string) bool {
 	switch name {
-	case "add_reminder", "update_reminder", "remove_reminder", "add_task", "update_task", "complete_task", "remove_task", "store_memory":
+	case "add_reminder", "update_reminder", "remove_reminder", "add_task", "update_task", "complete_task", "remove_task", "store_memory", "update_memory", "remove_memory":
 		return true
 	default:
 		return false
 	}
+}
+
+func isMemoryMutationTool(name string) bool {
+	return name == "store_memory" || name == "update_memory" || name == "remove_memory"
 }

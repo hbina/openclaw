@@ -314,10 +314,10 @@ printf 'Next image:    %s\n' "$IMAGE"
 step "Running Go verification gates"
 (
   cd "$GO_DIR"
-  GOCACHE=/tmp/openclaw-go-cache go test ./...
-  GOCACHE=/tmp/openclaw-go-cache go test -race ./...
-  GOCACHE=/tmp/openclaw-go-cache go vet ./...
-  GOCACHE=/tmp/openclaw-go-cache go build -o /tmp/openclaw-go ./cmd/openclaw
+  GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 ./...
+  GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 -race ./...
+  GOCACHE=/tmp/openclaw-go-cache go vet -tags sqlite_fts5 ./...
+  GOCACHE=/tmp/openclaw-go-cache go build -tags sqlite_fts5 -o /tmp/openclaw-go ./cmd/openclaw
 
   unformatted="$(gofmt -l .)"
   [[ -z "$unformatted" ]] || {
@@ -563,7 +563,7 @@ docker rm "$backup_container" >/dev/null
 container_id="$(docker inspect "$CONTAINER" --format '{{.Id}}')"
 transcript_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM conversation_history;')"
 reminder_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM reminders;')"
-memory_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM memory_entries;')"
+memory_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM memories;')"
 chunk_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM conversation_chunks;')"
 response_trace_count="$(sqlite3 "$DB_FILE" 'SELECT count(*) FROM response_traces;')"
 

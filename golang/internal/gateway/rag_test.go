@@ -91,8 +91,8 @@ func TestRAGIndexesAndRecallsAcrossOwnerConversations(t *testing.T) {
 	if err := service.IndexOnce(context.Background()); err != nil {
 		t.Fatalf("second IndexOnce: %v", err)
 	}
-	if embedder.tokenizeCalls != tokenizeCalls {
-		t.Fatalf("second IndexOnce made %d tokenize calls, want none", embedder.tokenizeCalls-tokenizeCalls)
+	if embedder.tokenizeCalls <= tokenizeCalls {
+		t.Fatalf("explicit reindex did not rebuild conversation chunks")
 	}
 	stored, err := store.LoadConversationEmbeddings(context.Background(), "embeddinggemma-test", ragIndexVersion, 3)
 	if err != nil || len(stored) != 2 {
@@ -175,7 +175,7 @@ func TestRAGUsesCapacityInsteadOfFixedResultCount(t *testing.T) {
 	}
 }
 
-func TestAgentFallsBackToRecentContextWhenEmbeddingFails(t *testing.T) {
+func TestAgentFailsClosedWhenEmbeddingFails(t *testing.T) {
 	provider := &recordingProvider{}
 	agent, store := newTestAgent(t, provider, nil, "")
 	for _, value := range []string{"one", "two", "three"} {
@@ -184,14 +184,11 @@ func TestAgentFallsBackToRecentContextWhenEmbeddingFails(t *testing.T) {
 	agent.rag = NewRAGService(store, &fakeEmbedder{fail: true}, &fakePromptSizer{
 		contextSize: 10_000,
 	}, "embeddinggemma-test", 3, 0.35)
-	if _, err := chat(agent, context.Background(), "cli", "owner", "current"); err != nil {
-		t.Fatalf("Chat: %v", err)
-	}
-	if len(provider.request.Messages) != 6 || provider.request.Messages[1].Content != "two question" {
-		t.Fatalf("fallback messages = %#v", provider.request.Messages)
+	if _, err := chat(agent, context.Background(), "cli", "owner", "current"); err == nil {
+		t.Fatal("Chat succeeded")
 	}
 	history, err := store.GetConversationHistory(context.Background(), "cli", "owner")
-	if err != nil || len(history) != 8 {
+	if err != nil || len(history) != 6 {
 		t.Fatalf("history rows=%d err=%v", len(history), err)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -25,8 +24,6 @@ const (
 	// This is independent of the model's larger context window.
 	maxEmbeddingInputTokens = 480
 	embeddingTokenOverlap   = 100
-	indexBatchSize          = 16
-	indexPollInterval       = 30 * time.Second
 	queryEmbeddingTimeout   = 15 * time.Second
 	indexEmbeddingTimeout   = 2 * time.Minute
 	contextSafetyTokens     = 512
@@ -42,12 +39,6 @@ type conversationExchange struct {
 	EndID     int
 	CreatedAt time.Time
 	Turns     []state.ConversationTurn
-}
-
-type indexedCandidate struct {
-	key      state.ConversationChunkKey
-	document string
-	attempts int
 }
 
 type scoredExchange struct {
@@ -71,14 +62,12 @@ type RAGRetrievalResult struct {
 }
 
 type RAGService struct {
-	store      *state.Store
-	embedder   providers.Embedder
-	sizer      providers.PromptSizer
-	indexID    string
-	dimensions int
-	minScore   float64
-	wake       chan struct{}
-
+	store       *state.Store
+	embedder    providers.Embedder
+	sizer       providers.PromptSizer
+	indexID     string
+	dimensions  int
+	minScore    float64
 	contextMu   sync.Mutex
 	contextSize int
 }
@@ -94,149 +83,60 @@ func NewRAGService(
 	return &RAGService{
 		store: store, embedder: embedder, sizer: sizer,
 		indexID: indexID, dimensions: dimensions, minScore: minScore,
-		wake: make(chan struct{}, 1),
 	}
 }
 
-func (service *RAGService) Start(ctx context.Context) {
-	go service.run(ctx)
-}
-
-func (service *RAGService) Notify() {
-	select {
-	case service.wake <- struct{}{}:
-	default:
-	}
-}
-
-func (service *RAGService) run(ctx context.Context) {
-	if err := service.IndexOnce(ctx); err != nil && ctx.Err() == nil {
-		log.Printf("Conversation RAG indexing deferred: %v", err)
-	}
-	ticker := time.NewTicker(indexPollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		case <-service.wake:
-		}
-		if err := service.IndexOnce(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("Conversation RAG indexing deferred: %v", err)
-		}
-	}
-}
-
-func (service *RAGService) IndexOnce(ctx context.Context) error {
-	turns, err := service.store.GetAllConversationHistory(ctx)
+// PrepareConversationChunks synchronously embeds a complete exchange before it
+// is delivered. The caller commits these prepared chunks with the delivered
+// transcript in one SQLite transaction.
+func (service *RAGService) PrepareConversationChunks(ctx context.Context, exchange conversationExchange) ([]state.ConversationChunk, error) {
+	documents, err := service.embeddingDocuments(ctx, exchange)
 	if err != nil {
-		return err
-	}
-	exchanges := completeExchangesByRoute(turns)
-	now := time.Now()
-	var candidates []indexedCandidate
-	for _, exchange := range exchanges {
-		indexed, err := service.store.ConversationExchangeIndexed(
-			ctx,
-			service.indexID,
-			ragIndexVersion,
-			service.dimensions,
-			exchange.StartID,
-			exchange.EndID,
-		)
-		if err != nil {
-			return err
-		}
-		if indexed {
-			continue
-		}
-		parts, err := service.embeddingDocuments(ctx, exchange)
-		if err != nil {
-			return fmt.Errorf("prepare exchange %d-%d: %w", exchange.StartID, exchange.EndID, err)
-		}
-		for index, document := range parts {
-			hash := sha256.Sum256([]byte(document))
-			key := state.ConversationChunkKey{
-				StartHistoryID: exchange.StartID, EndHistoryID: exchange.EndID,
-				PartIndex: index, ContentHash: hex.EncodeToString(hash[:]),
-				EmbeddingModel: service.indexID, Dimensions: service.dimensions,
-				IndexVersion: ragIndexVersion,
-			}
-			due, attempts, err := service.store.PrepareConversationChunk(ctx, key, now)
-			if err != nil {
-				return err
-			}
-			if due {
-				candidates = append(candidates, indexedCandidate{key: key, document: document, attempts: attempts})
-			}
-		}
-	}
-	for start := 0; start < len(candidates); start += indexBatchSize {
-		end := min(start+indexBatchSize, len(candidates))
-		service.embedCandidates(ctx, candidates[start:end])
-	}
-	pending, err := service.store.CountPendingConversationChunks(ctx, service.indexID, ragIndexVersion)
-	if err != nil {
-		return err
-	}
-	if pending == 0 {
-		if err := service.store.PruneStaleConversationChunks(ctx, service.indexID, ragIndexVersion); err != nil {
-			return err
-		}
-	}
-	if len(candidates) > 0 {
-		log.Printf("Conversation RAG index processed %d chunk parts; %d remain pending", len(candidates), pending)
-	}
-	return nil
-}
-
-func (service *RAGService) embedCandidates(ctx context.Context, candidates []indexedCandidate) {
-	if len(candidates) == 0 || ctx.Err() != nil {
-		return
-	}
-	inputs := make([]string, len(candidates))
-	for index := range candidates {
-		inputs[index] = candidates[index].document
+		return nil, err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, indexEmbeddingTimeout)
-	vectors, err := service.embedder.Embed(requestCtx, inputs)
+	vectors, err := service.embedder.Embed(requestCtx, documents)
 	cancel()
 	if err != nil {
-		if len(candidates) > 1 {
-			middle := len(candidates) / 2
-			service.embedCandidates(ctx, candidates[:middle])
-			service.embedCandidates(ctx, candidates[middle:])
-			return
-		}
-		candidate := candidates[0]
-		log.Printf(
-			"Conversation RAG embedding failed for history range %d-%d part %d: %v",
-			candidate.key.StartHistoryID,
-			candidate.key.EndHistoryID,
-			candidate.key.PartIndex,
-			err,
-		)
-		attempts := candidate.attempts + 1
-		delay := 5 * time.Second
-		for step := 1; step < attempts && delay < 5*time.Minute; step++ {
-			delay *= 2
-		}
-		if delay > 5*time.Minute {
-			delay = 5 * time.Minute
-		}
-		if recordErr := service.store.RecordConversationChunkFailure(
-			ctx, candidate.key, attempts, time.Now().Add(delay),
-		); recordErr != nil {
-			log.Printf("Conversation RAG failed to record retry: %v", recordErr)
-		}
-		return
+		return nil, fmt.Errorf("embed completed conversation: %w", err)
 	}
-	for index, vec := range vectors {
-		if err := service.store.SaveConversationChunkEmbedding(ctx, candidates[index].key, vector.Pack(vec)); err != nil {
-			log.Printf("Conversation RAG failed to save embedding: %v", err)
-		}
+	if len(vectors) != len(documents) {
+		return nil, fmt.Errorf("conversation embedding count %d does not match chunks %d", len(vectors), len(documents))
 	}
+	chunks := make([]state.ConversationChunk, len(documents))
+	for index, document := range documents {
+		hash := sha256.Sum256([]byte(document))
+		chunks[index] = state.ConversationChunk{PartIndex: index, ContentHash: hex.EncodeToString(hash[:]), EmbeddingModel: service.indexID, Dimensions: service.dimensions, IndexVersion: ragIndexVersion, Embedding: vector.Pack(vectors[index])}
+	}
+	return chunks, nil
+}
+
+func (service *RAGService) PrepareReindex(ctx context.Context) ([]state.ConversationReindexEntry, error) {
+	turns, err := service.store.GetAllConversationHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	exchanges := completeExchangesByRoute(turns)
+	entries := make([]state.ConversationReindexEntry, 0, len(exchanges))
+	for _, exchange := range exchanges {
+		chunks, err := service.PrepareConversationChunks(ctx, exchange)
+		if err != nil {
+			return nil, fmt.Errorf("prepare conversation %d-%d: %w", exchange.StartID, exchange.EndID, err)
+		}
+		entries = append(entries, state.ConversationReindexEntry{StartHistoryID: int64(exchange.StartID), EndHistoryID: int64(exchange.EndID), Chunks: chunks})
+	}
+	return entries, nil
+}
+
+// IndexOnce is an explicit synchronous maintenance operation retained for
+// tests and offline repair. The production gateway never runs it in the
+// background.
+func (service *RAGService) IndexOnce(ctx context.Context) error {
+	entries, err := service.PrepareReindex(ctx)
+	if err != nil {
+		return err
+	}
+	return service.store.ReplaceConversationIndexes(ctx, entries)
 }
 
 func (service *RAGService) embeddingDocuments(ctx context.Context, exchange conversationExchange) ([]string, error) {

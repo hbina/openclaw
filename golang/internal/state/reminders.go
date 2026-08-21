@@ -221,8 +221,17 @@ func (s *Store) CompleteReminderDelivery(ctx context.Context, reminder Reminder,
 // CompleteReminderTraceDelivery atomically records the delivered reminder,
 // advances its schedule, and finalizes the matching provenance trace.
 func (s *Store) CompleteReminderTraceDelivery(ctx context.Context, reminder Reminder, now time.Time, scheduledContent, notification string, traceID, deliveryEventID int64, providerMessageID string) error {
+	return s.CompleteReminderTraceDeliveryIndexed(ctx, reminder, now, scheduledContent, notification, traceID, deliveryEventID, providerMessageID, nil)
+}
+
+func (s *Store) CompleteReminderTraceDeliveryIndexed(ctx context.Context, reminder Reminder, now time.Time, scheduledContent, notification string, traceID, deliveryEventID int64, providerMessageID string, chunks []ConversationChunk) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
-		if err := tx.SaveConversationMessage(ctx, reminder.ChannelID, reminder.SenderID, "user", ContentScheduledReminder, scheduledContent); err != nil {
+		startResult, err := tx.tx.ExecContext(ctx, `INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, 'user', ?, ?)`, reminder.ChannelID, reminder.SenderID, ContentScheduledReminder, scheduledContent)
+		if err != nil {
+			return err
+		}
+		startHistoryID, err := startResult.LastInsertId()
+		if err != nil {
 			return err
 		}
 		result, err := tx.tx.ExecContext(ctx, `INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, 'assistant', ?, ?)`, reminder.ChannelID, reminder.SenderID, ContentText, notification)
@@ -232,6 +241,11 @@ func (s *Store) CompleteReminderTraceDelivery(ctx context.Context, reminder Remi
 		historyID, err := result.LastInsertId()
 		if err != nil {
 			return err
+		}
+		if len(chunks) > 0 {
+			if err := tx.SaveConversationChunks(ctx, startHistoryID, historyID, chunks); err != nil {
+				return err
+			}
 		}
 		if err := tx.completeReminder(ctx, reminder, now); err != nil {
 			return err

@@ -14,12 +14,18 @@ const (
 	ContentToolResult        = "tool_result"
 )
 
+const (
+	AudienceConversation = "conversation"
+	AudienceInternal     = "internal"
+)
+
 type ConversationTurn struct {
 	ID          int
 	ChannelID   string
 	SenderID    string
 	Role        string
 	ContentType string
+	Audience    string
 	Content     string // plain text or a JSON-encoded structured payload
 	CreatedAt   time.Time
 }
@@ -28,6 +34,17 @@ type ConversationTurn struct {
 func (s *Store) SaveConversationMessage(ctx context.Context, channelID, senderID, role, contentType, content string) error {
 	_, err := s.SaveConversationMessageID(ctx, channelID, senderID, role, contentType, content)
 	return err
+}
+
+func (s *Store) SaveConversationMessageAudience(ctx context.Context, channelID, senderID, role, contentType, audience, content string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO conversation_history (channel_id, sender_id, role, content_type, audience, content) VALUES (?, ?, ?, ?, ?, ?)`,
+		channelID, senderID, role, contentType, audience, content,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save conversation message: %w", err)
+	}
+	return nil
 }
 
 // SaveConversationMessageID persists a structured turn and returns its stable
@@ -48,9 +65,13 @@ func (s *Store) SaveConversationMessageID(ctx context.Context, channelID, sender
 }
 
 func (tx *Tx) SaveConversationMessage(ctx context.Context, channelID, senderID, role, contentType, content string) error {
+	return tx.SaveConversationMessageAudience(ctx, channelID, senderID, role, contentType, AudienceConversation, content)
+}
+
+func (tx *Tx) SaveConversationMessageAudience(ctx context.Context, channelID, senderID, role, contentType, audience, content string) error {
 	_, err := tx.tx.ExecContext(ctx,
-		`INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, ?, ?, ?)`,
-		channelID, senderID, role, contentType, content,
+		`INSERT INTO conversation_history (channel_id, sender_id, role, content_type, audience, content) VALUES (?, ?, ?, ?, ?, ?)`,
+		channelID, senderID, role, contentType, audience, content,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save conversation message: %w", err)
@@ -66,9 +87,9 @@ func (s *Store) SaveConversationTurn(ctx context.Context, channelID, senderID, r
 // GetConversationHistory returns every turn for a route in oldest-first order.
 func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID string) ([]ConversationTurn, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, channel_id, sender_id, role, content_type, content, created_at
+		SELECT id, channel_id, sender_id, role, content_type, audience, content, created_at
 		FROM conversation_history
-		WHERE channel_id = ? AND sender_id = ?
+		WHERE channel_id = ? AND sender_id = ? AND audience = 'conversation'
 		ORDER BY id ASC
 	`, channelID, senderID)
 	if err != nil {
@@ -79,7 +100,7 @@ func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID 
 	var turns []ConversationTurn
 	for rows.Next() {
 		var t ConversationTurn
-		if err := rows.Scan(&t.ID, &t.ChannelID, &t.SenderID, &t.Role, &t.ContentType, &t.Content, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ChannelID, &t.SenderID, &t.Role, &t.ContentType, &t.Audience, &t.Content, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan conversation turn: %w", err)
 		}
 		turns = append(turns, t)
@@ -89,8 +110,9 @@ func (s *Store) GetConversationHistory(ctx context.Context, channelID, senderID 
 
 func (s *Store) GetAllConversationHistory(ctx context.Context) ([]ConversationTurn, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, channel_id, sender_id, role, content_type, content, created_at
+		SELECT id, channel_id, sender_id, role, content_type, audience, content, created_at
 		FROM conversation_history
+		WHERE audience = 'conversation'
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -103,7 +125,7 @@ func (s *Store) GetAllConversationHistory(ctx context.Context) ([]ConversationTu
 		var turn ConversationTurn
 		if err := rows.Scan(
 			&turn.ID, &turn.ChannelID, &turn.SenderID, &turn.Role,
-			&turn.ContentType, &turn.Content, &turn.CreatedAt,
+			&turn.ContentType, &turn.Audience, &turn.Content, &turn.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan conversation turn: %w", err)
 		}

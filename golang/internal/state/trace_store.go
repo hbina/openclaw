@@ -21,18 +21,29 @@ type TraceInput struct {
 }
 
 type RAGTrace struct {
-	Outcome            string          `json:"outcome"`
-	EmbeddingQuery     string          `json:"embedding_query"`
-	EmbeddingModel     string          `json:"embedding_model"`
-	Dimensions         int             `json:"dimensions"`
-	IndexVersion       int             `json:"index_version"`
-	MinimumScore       float64         `json:"minimum_score"`
-	HistoryHighwaterID int             `json:"history_highwater_id"`
-	CandidateCount     int             `json:"candidate_count"`
-	ExcludedCount      int             `json:"excluded_count"`
-	QualifiedCount     int             `json:"qualified_count"`
-	RenderedArchive    string          `json:"rendered_archive"`
-	Matches            []RAGTraceMatch `json:"matches"`
+	Outcome            string                `json:"outcome"`
+	EmbeddingQuery     string                `json:"embedding_query"`
+	EmbeddingModel     string                `json:"embedding_model"`
+	Dimensions         int                   `json:"dimensions"`
+	IndexVersion       int                   `json:"index_version"`
+	MinimumScore       float64               `json:"minimum_score"`
+	HistoryHighwaterID int                   `json:"history_highwater_id"`
+	CandidateCount     int                   `json:"candidate_count"`
+	ExcludedCount      int                   `json:"excluded_count"`
+	QualifiedCount     int                   `json:"qualified_count"`
+	RenderedArchive    string                `json:"rendered_archive"`
+	Matches            []RAGTraceMatch       `json:"matches"`
+	MemoryMatches      []MemoryRAGTraceMatch `json:"memory_matches"`
+}
+
+type MemoryRAGTraceMatch struct {
+	Rank          int     `json:"rank"`
+	MemoryID      int64   `json:"memory_id"`
+	RevisionID    int64   `json:"revision_id"`
+	VectorScore   float64 `json:"vector_score"`
+	KeywordScore  float64 `json:"keyword_score"`
+	CombinedScore float64 `json:"combined_score"`
+	ContentHash   string  `json:"content_hash"`
 }
 
 type RAGTraceMatch struct {
@@ -145,7 +156,7 @@ func (s *Store) RecordRAGTrace(ctx context.Context, traceID int64, detail RAGTra
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, eventID, detail.Outcome, detail.EmbeddingQuery,
 			detail.EmbeddingModel, detail.Dimensions, detail.IndexVersion, detail.MinimumScore,
 			detail.HistoryHighwaterID, detail.CandidateCount, detail.ExcludedCount, detail.QualifiedCount,
-			len(detail.Matches), detail.RenderedArchive)
+			len(detail.Matches)+len(detail.MemoryMatches), detail.RenderedArchive)
 		if err != nil {
 			return fmt.Errorf("record RAG retrieval: %w", err)
 		}
@@ -155,6 +166,13 @@ func (s *Store) RecordRAGTrace(ctx context.Context, traceID int64, detail RAGTra
 				VALUES (?, ?, ?, ?, ?, ?, ?)`, eventID, match.Rank, match.StartHistoryID, match.EndHistoryID,
 				match.SimilarityScore, match.ContentHash, match.MessagesJSON); err != nil {
 				return fmt.Errorf("record RAG match: %w", err)
+			}
+		}
+		for _, match := range detail.MemoryMatches {
+			if _, err := tx.tx.ExecContext(ctx, `INSERT INTO memory_rag_matches
+				(retrieval_event_id,rank,memory_id,revision_id,vector_score,keyword_score,combined_score,content_hash)
+				VALUES (?,?,?,?,?,?,?,?)`, eventID, match.Rank, match.MemoryID, match.RevisionID, match.VectorScore, match.KeywordScore, match.CombinedScore, match.ContentHash); err != nil {
+				return fmt.Errorf("record memory RAG match: %w", err)
 			}
 		}
 		_, err = tx.tx.ExecContext(ctx, `UPDATE trace_events SET status = ?, error = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?`, status, traceError(cause), eventID)
@@ -295,6 +313,10 @@ func (s *Store) FailDelivery(ctx context.Context, traceID, eventID int64, cause 
 }
 
 func (s *Store) CompleteDelivery(ctx context.Context, traceID, eventID int64, providerMessageID string, channelID, senderID, content string) error {
+	return s.CompleteDeliveryIndexed(ctx, traceID, eventID, providerMessageID, channelID, senderID, content, 0, nil)
+}
+
+func (s *Store) CompleteDeliveryIndexed(ctx context.Context, traceID, eventID int64, providerMessageID string, channelID, senderID, content string, startHistoryID int64, chunks []ConversationChunk) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
 		result, err := tx.tx.ExecContext(ctx, `INSERT INTO conversation_history (channel_id, sender_id, role, content_type, content) VALUES (?, ?, 'assistant', ?, ?)`, channelID, senderID, ContentText, content)
 		if err != nil {
@@ -303,6 +325,11 @@ func (s *Store) CompleteDelivery(ctx context.Context, traceID, eventID int64, pr
 		historyID, err := result.LastInsertId()
 		if err != nil {
 			return err
+		}
+		if len(chunks) > 0 {
+			if err := tx.SaveConversationChunks(ctx, startHistoryID, historyID, chunks); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.tx.ExecContext(ctx, `UPDATE delivery_attempts SET provider_message_id = ?, conversation_history_id = ?, accepted_at = CURRENT_TIMESTAMP WHERE event_id = ?`, providerMessageID, historyID, eventID); err != nil {
 			return err
@@ -473,6 +500,23 @@ func (s *Store) traceEventDetail(ctx context.Context, eventID int64, kind string
 			matches = append(matches, map[string]any{"rank": rank, "start_history_id": start, "end_history_id": end, "similarity_score": score, "content_hash": hash, "messages_json": json.RawMessage(messages)})
 		}
 		result["matches"] = matches
+		memoryRows, err := s.db.QueryContext(ctx, `SELECT rank,memory_id,revision_id,vector_score,keyword_score,combined_score,content_hash FROM memory_rag_matches WHERE retrieval_event_id=? ORDER BY rank`, eventID)
+		if err != nil {
+			return nil, err
+		}
+		defer memoryRows.Close()
+		var memoryMatches []map[string]any
+		for memoryRows.Next() {
+			var rank int
+			var memoryID, revisionID int64
+			var vectorScore, keywordScore, combinedScore float64
+			var hash string
+			if err := memoryRows.Scan(&rank, &memoryID, &revisionID, &vectorScore, &keywordScore, &combinedScore, &hash); err != nil {
+				return nil, err
+			}
+			memoryMatches = append(memoryMatches, map[string]any{"rank": rank, "memory_id": memoryID, "revision_id": revisionID, "vector_score": vectorScore, "keyword_score": keywordScore, "combined_score": combinedScore, "content_hash": hash})
+		}
+		result["memory_matches"] = memoryMatches
 	}
 	return result, nil
 }

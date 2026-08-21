@@ -11,6 +11,7 @@ import (
 
 	"github.com/openclaw/openclaw/go/internal/channels"
 	"github.com/openclaw/openclaw/go/internal/config"
+	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
 	"github.com/openclaw/openclaw/go/internal/tools"
@@ -28,14 +29,16 @@ const (
 	uncommittedTaskNote     = "Note: no task change was committed in this turn, so your stored tasks are unchanged."
 	mixedReminderResultNote = "Note: this turn had mixed reminder results. Some requested reminder changes were committed and others were not."
 	mixedTaskResultNote     = "Note: this turn had mixed task results. Some requested task changes were committed and others were not."
+	uncommittedMemoryNote   = "Note: no memory change was committed in this turn, so your stored memories are unchanged."
+	mixedMemoryResultNote   = "Note: this turn had mixed memory results. Some requested memory changes were committed and others were not."
 )
 
 const reminderHeader = "⏰ **Reminder!** ⏰\n\n"
 
 const chatInstructions = `Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
 When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
-You may store stable preferences and durable user facts when useful, even without an explicit request. Never store credentials, secrets, or transient details.
-Search memory when a past durable fact could improve the answer.
+You may store one concise profile, durable, or daily memory when persistence is material to the current response. Profile covers enduring owner identity, preferences, and relationships; durable covers reusable facts, decisions, and project context; daily covers episodic context likely to matter soon. Never store credentials, secrets, greetings, speculation, or routine transient details. A separate curator also reviews the completed exchange.
+Search memory when a past owner fact could improve the answer. Update the existing Memory ID when a remembered fact changes; remove memory only when the owner explicitly asks to forget it.
 Use the specific reminder tool only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
 Never claim a reminder changed unless its tool result succeeded.
 Use the specific task tool for explicit tasks or unfinished-work requests. Tasks start immediately when created, stay open until explicitly completed or removed, and never have schedules, due dates, recurrence, timezones, or reminder links. Never invent a date or schedule for a task.
@@ -65,7 +68,12 @@ var unbackedTaskCommitmentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ve|i have|i)\s+(?:successfully\s+)?(?:added|created|started|updated|changed|completed|finished|removed|deleted)\b[^.!?\n]{0,80}\btasks?\b`),
 }
 
-var persistedIDPattern = regexp.MustCompile(`(?i)\b(?:(Task|Reminder)\s+)?ID(\s*[:#]?\s*[1-9][0-9]*)`)
+var unbackedMemoryCommitmentPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ll|i will)\s+(?:remember|save|store|forget)\b`),
+	regexp.MustCompile(`(?i)\b(?:i\s*['’]?ve|i have|i)\s+(?:remembered|saved|stored|updated|forgotten|removed)\b`),
+}
+
+var persistedIDPattern = regexp.MustCompile(`(?i)\b(?:(Task|Reminder|Memory)\s+)?ID(\s*[:#]?\s*[1-9][0-9]*)`)
 
 // Agent runs the primary interaction loop.
 type Agent struct {
@@ -78,6 +86,9 @@ type Agent struct {
 	location          *time.Location
 	conversationLocks *conversationLockManager
 	rag               *RAGService
+	memory            *memory.Service
+	embedder          providers.Embedder
+	modelMemory       bool
 }
 
 // ChatInput is the canonical inbound turn passed to the agent.
@@ -90,12 +101,14 @@ type ChatInput struct {
 }
 
 type PreparedResponse struct {
-	TraceID       int64
-	OutputEventID int64
-	ChannelID     string
-	SenderID      string
-	Content       string
-	release       func()
+	TraceID        int64
+	OutputEventID  int64
+	ChannelID      string
+	SenderID       string
+	Content        string
+	StartHistoryID int64
+	Chunks         []state.ConversationChunk
+	release        func()
 }
 
 func (response *PreparedResponse) Release() {
@@ -154,17 +167,14 @@ func NewAgent(
 		identity:          identity,
 		location:          location,
 		conversationLocks: newConversationLockManager(),
+		memory:            memory.NewService(store, embedder, indexID, dimensions, minScore, time.Now),
+		embedder:          embedder,
 	}
+	_, agent.modelMemory = provider.(*providers.OpenAIClient)
 	if len(ragServices) > 0 {
 		agent.rag = ragServices[0]
 	}
 	return agent
-}
-
-// BackfillMemoryEmbeddings fills memory rows without a current-model embedding,
-// including rows stranded by a prior embedding-provider outage.
-func (a *Agent) BackfillMemoryEmbeddings(ctx context.Context) error {
-	return a.tools.BackfillMemoryEmbeddings(ctx)
 }
 
 func (a *Agent) generate(ctx context.Context, traceID int64, round int, purpose string, request *providers.GenerateRequest) (*providers.GenerateResponse, int64, error) {
@@ -221,10 +231,7 @@ func (a *Agent) contextualMessages(
 ) ([]providers.Message, error) {
 	history, err := a.store.GetConversationHistory(ctx, channelID, senderID)
 	if err != nil {
-		if strictRecall {
-			return nil, fmt.Errorf("load conversation history: %w", err)
-		}
-		log.Printf("Failed to load conversation history: %v", err)
+		return nil, fmt.Errorf("load conversation history: %w", err)
 	}
 
 	recentExchanges, historyMessages, err := recentConversation(history)
@@ -238,27 +245,74 @@ func (a *Agent) contextualMessages(
 
 	messages := baseMessages
 	if a.rag != nil {
-		retrieval, retrieveErr := a.rag.RetrieveDetailed(
-			ctx, query, recentExchanges, baseMessages, definitions, maxOutputTokens,
-		)
+		planned := query
+		var keywords []string
+		if a.modelMemory {
+			var planErr error
+			planned, keywords, planErr = a.planRecall(ctx, traceID, query, historyMessages)
+			if planErr != nil {
+				return nil, fmt.Errorf("plan recall: %w", planErr)
+			}
+		}
+		retrieval, memoryMatches, retrieveErr := a.retrieveUnified(ctx, planned, keywords, recentExchanges, baseMessages, definitions, maxOutputTokens)
+		if retrieveErr != nil {
+			detail := state.RAGTrace{Outcome: retrieval.Outcome, EmbeddingQuery: retrieval.EmbeddingQuery, EmbeddingModel: retrieval.EmbeddingModel, Dimensions: retrieval.Dimensions, IndexVersion: retrieval.IndexVersion, MinimumScore: retrieval.MinimumScore, HistoryHighwaterID: retrieval.HistoryHighwaterID, CandidateCount: retrieval.CandidateCount, ExcludedCount: retrieval.ExcludedCount, QualifiedCount: retrieval.QualifiedCount}
+			if err := a.store.RecordRAGTrace(ctx, traceID, detail, retrieveErr); err != nil {
+				return nil, fmt.Errorf("record failed retrieval trace: %w", err)
+			}
+			return nil, fmt.Errorf("retrieve unified context: %w", retrieveErr)
+		}
+		archive := retrieval.Archive
+		selectedMemoryIDs := make([]int64, 0, len(memoryMatches))
+		for _, item := range memoryMatches {
+			selectedMemoryIDs = append(selectedMemoryIDs, item.ID)
+		}
+		selectedConversationIDs := make([]string, 0, len(retrieval.Matches))
+		for _, item := range retrieval.Matches {
+			selectedConversationIDs = append(selectedConversationIDs, fmt.Sprintf("%d:%d", item.StartHistoryID, item.EndHistoryID))
+		}
+		if a.modelMemory {
+			var rerankErr error
+			archive, selectedMemoryIDs, selectedConversationIDs, rerankErr = a.rerankRecallDetailed(ctx, traceID, query, memoryMatches, retrieval.Matches)
+			if rerankErr != nil {
+				return nil, fmt.Errorf("rerank recall: %w", rerankErr)
+			}
+		}
 		detail := state.RAGTrace{
 			Outcome: retrieval.Outcome, EmbeddingQuery: retrieval.EmbeddingQuery,
 			EmbeddingModel: retrieval.EmbeddingModel, Dimensions: retrieval.Dimensions,
 			IndexVersion: retrieval.IndexVersion, MinimumScore: retrieval.MinimumScore,
 			HistoryHighwaterID: retrieval.HistoryHighwaterID, CandidateCount: retrieval.CandidateCount,
 			ExcludedCount: retrieval.ExcludedCount, QualifiedCount: retrieval.QualifiedCount,
-			RenderedArchive: retrieval.Archive, Matches: retrieval.Matches,
+			RenderedArchive: archive,
 		}
-		if err := a.store.RecordRAGTrace(ctx, traceID, detail, retrieveErr); err != nil {
+		memoryByID := map[int64]state.MemorySearchResult{}
+		for _, item := range memoryMatches {
+			memoryByID[item.ID] = item
+		}
+		for index, id := range selectedMemoryIDs {
+			item := memoryByID[id]
+			detail.MemoryMatches = append(detail.MemoryMatches, state.MemoryRAGTraceMatch{Rank: index + 1, MemoryID: item.ID, RevisionID: item.RevisionID, VectorScore: item.VectorScore, KeywordScore: item.KeywordScore, CombinedScore: item.CombinedScore, ContentHash: item.ContentHash})
+		}
+		conversationByID := map[string]state.RAGTraceMatch{}
+		for _, item := range retrieval.Matches {
+			conversationByID[fmt.Sprintf("%d:%d", item.StartHistoryID, item.EndHistoryID)] = item
+		}
+		for index, id := range selectedConversationIDs {
+			item := conversationByID[id]
+			item.Rank = index + 1
+			detail.Matches = append(detail.Matches, item)
+		}
+		if err := a.store.RecordRAGTrace(ctx, traceID, detail, nil); err != nil {
 			return nil, fmt.Errorf("record conversation retrieval trace: %w", err)
 		}
-		if retrieveErr != nil {
-			if strictRecall {
-				return nil, fmt.Errorf("retrieve conversation context: %w", retrieveErr)
-			}
-			log.Printf("Conversation RAG unavailable; using recent context: %v", retrieveErr)
-		} else if retrieval.Archive != "" {
-			messages = insertArchiveMessage(baseMessages, retrieval.Archive)
+		core, coreErr := a.memoryCore(ctx)
+		if coreErr != nil {
+			return nil, fmt.Errorf("load memory core: %w", coreErr)
+		}
+		combined := strings.TrimSpace(strings.Join([]string{core, archive}, "\n\n"))
+		if combined != "" {
+			messages = insertArchiveMessage(baseMessages, combined)
 		}
 	} else if err := a.store.RecordRAGTrace(ctx, traceID, state.RAGTrace{Outcome: "disabled"}, nil); err != nil {
 		return nil, fmt.Errorf("record disabled retrieval trace: %w", err)
@@ -331,13 +385,16 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		return prepared, err
 	}
 
-	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID}
+	toolCtx := tools.Context{ChannelID: input.ChannelID, SenderID: input.SenderID, ResponseTraceID: traceID, SourceHistoryID: historyID}
 	reminderMutationSucceeded := false
 	reminderMutationFailed := false
 	taskMutationSucceeded := false
 	taskMutationFailed := false
 	reminderToolUsed := false
 	taskToolUsed := false
+	memoryMutationSucceeded := false
+	memoryMutationFailed := false
+	memoryToolUsed := false
 	for round := 0; round < maxToolRounds; round++ {
 		resp, llmEventID, err := a.generate(ctx, traceID, round+1, "chat", &providers.GenerateRequest{
 			Model:      "default",
@@ -390,6 +447,14 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 						taskMutationSucceeded = true
 					}
 				}
+				if isMemoryMutationTool(call.Function.Name) {
+					if result.IsError {
+						memoryMutationFailed = true
+					} else {
+						memoryMutationSucceeded = true
+					}
+				}
+				memoryToolUsed = memoryToolUsed || isMemoryTool(call.Function.Name)
 				messages = append(messages, result.Message())
 			}
 			continue
@@ -404,8 +469,16 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		if reply == "" {
 			return prepared, fmt.Errorf("agent generation returned neither content nor tool calls")
 		}
+		curated := false
+		if a.modelMemory {
+			curated, err = a.curateMemories(ctx, traceID, historyID, input.ChannelID, input.SenderID, renderedInbound, reply)
+			if err != nil {
+				return prepared, fmt.Errorf("curate memory: %w", err)
+			}
+		}
+		memoryMutationSucceeded = memoryMutationSucceeded || curated
 		before := reply
-		reply = qualifyPersistedIDLabels(reply, taskToolUsed, reminderToolUsed)
+		reply = qualifyPersistedIDLabelsForTools(reply, taskToolUsed, reminderToolUsed, memoryToolUsed)
 		if reply != before {
 			transformations = append(transformations, outputTransformation{Name: "qualify_persisted_ids", Before: before, After: reply})
 		}
@@ -429,6 +502,16 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 			reply = appendNote(reply, mixedTaskResultNote)
 			transformations = append(transformations, outputTransformation{Name: "mixed_task_note", Before: before, After: reply})
 		}
+		if !memoryMutationSucceeded && hasUnbackedMemoryCommitment(reply) {
+			before = reply
+			reply = appendNote(reply, uncommittedMemoryNote)
+			transformations = append(transformations, outputTransformation{Name: "uncommitted_memory_note", Before: before, After: reply})
+		}
+		if memoryMutationSucceeded && memoryMutationFailed {
+			before = reply
+			reply = appendNote(reply, mixedMemoryResultNote)
+			transformations = append(transformations, outputTransformation{Name: "mixed_memory_note", Before: before, After: reply})
+		}
 		transformJSON, err := json.Marshal(transformations)
 		if err != nil {
 			return prepared, err
@@ -442,6 +525,10 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		prepared.ChannelID = input.ChannelID
 		prepared.SenderID = input.SenderID
 		prepared.Content = reply
+		prepared.StartHistoryID, prepared.Chunks, err = a.prepareCurrentExchange(ctx, input.ChannelID, input.SenderID, reply)
+		if err != nil {
+			return prepared, fmt.Errorf("index completed exchange: %w", err)
+		}
 		return prepared, nil
 	}
 
@@ -456,6 +543,10 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 	prepared.ChannelID = input.ChannelID
 	prepared.SenderID = input.SenderID
 	prepared.Content = reply
+	prepared.StartHistoryID, prepared.Chunks, err = a.prepareCurrentExchange(ctx, input.ChannelID, input.SenderID, reply)
+	if err != nil {
+		return prepared, fmt.Errorf("index completed exchange: %w", err)
+	}
 	return prepared, nil
 }
 
@@ -474,11 +565,8 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 		_ = a.store.FinishTrace(context.Background(), prepared.TraceID, "failed", "delivery", err)
 		return "", err
 	}
-	if err := a.store.CompleteDelivery(ctx, prepared.TraceID, deliveryID, "internal", input.ChannelID, input.SenderID, prepared.Content); err != nil {
+	if err := a.store.CompleteDeliveryIndexed(ctx, prepared.TraceID, deliveryID, "internal", input.ChannelID, input.SenderID, prepared.Content, prepared.StartHistoryID, prepared.Chunks); err != nil {
 		return "", err
-	}
-	if a.rag != nil {
-		a.rag.Notify()
 	}
 	return prepared.Content, nil
 }
@@ -525,15 +613,28 @@ func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) er
 	}
 
 	body, llmEventID, renderErr := a.renderReminder(ctx, traceID, reminder, rendered, time.Now())
+	if renderErr != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "generation", renderErr)
+		return fmt.Errorf("render reminder %d: %w", reminder.ID, renderErr)
+	}
+	if a.modelMemory {
+		if _, err := a.curateMemories(ctx, traceID, 0, reminder.ChannelID, reminder.SenderID, rendered, body); err != nil {
+			_ = a.store.FinishTrace(context.Background(), traceID, "failed", "memory_curate", err)
+			return fmt.Errorf("curate reminder memory: %w", err)
+		}
+	}
 	sourceType := "llm"
 	sourceContent := body
-	if renderErr != nil {
-		log.Printf("Reminder %d contextual rendering unavailable; using static fallback: %v", reminder.ID, renderErr)
-		body = reminder.Message
-		sourceType = "static_reminder_fallback"
-		sourceContent = reminder.Message
-	}
 	notification := reminderHeader + strings.TrimSpace(body)
+	payload, err := json.Marshal(scheduled)
+	if err != nil {
+		return fmt.Errorf("encode scheduled reminder %d: %w", reminder.ID, err)
+	}
+	chunks, err := a.prepareReminderExchange(ctx, reminder, string(payload), notification)
+	if err != nil {
+		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "index", err)
+		return fmt.Errorf("index reminder %d exchange: %w", reminder.ID, err)
+	}
 	transforms, _ := json.Marshal([]outputTransformation{{Name: "add_reminder_header", Before: body, After: notification}})
 	var sourceEvent *int64
 	if llmEventID != 0 {
@@ -559,17 +660,10 @@ func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) er
 		return fmt.Errorf("send reminder %d: %w", reminder.ID, err)
 	}
 
-	payload, err := json.Marshal(scheduled)
-	if err != nil {
-		return fmt.Errorf("encode scheduled reminder %d: %w", reminder.ID, err)
-	}
-	if err := a.store.CompleteReminderTraceDelivery(ctx, reminder, time.Now(), string(payload), notification, traceID, deliveryID, receipt.MessageID); err != nil {
+	if err := a.store.CompleteReminderTraceDeliveryIndexed(ctx, reminder, time.Now(), string(payload), notification, traceID, deliveryID, receipt.MessageID, chunks); err != nil {
 		return fmt.Errorf("complete reminder %d delivery: %w", reminder.ID, err)
 	}
 	completed = true
-	if a.rag != nil {
-		a.rag.Notify()
-	}
 	return nil
 }
 
@@ -647,6 +741,31 @@ func isTaskMutationTool(name string) bool {
 	return name == "add_task" || name == "update_task" || name == "complete_task" || name == "remove_task"
 }
 
+func isMemoryMutationTool(name string) bool {
+	return name == "store_memory" || name == "update_memory" || name == "remove_memory"
+}
+
+func isMemoryTool(name string) bool {
+	switch name {
+	case "store_memory", "get_memory", "list_memories", "update_memory", "remove_memory", "search_memory":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasUnbackedMemoryCommitment(content string) bool {
+	if strings.Contains(strings.ToLower(content), strings.ToLower(uncommittedMemoryNote)) {
+		return false
+	}
+	for _, pattern := range unbackedMemoryCommitmentPatterns {
+		if pattern.MatchString(content) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUnbackedReminderCommitment(content string) bool {
 	if strings.Contains(strings.ToLower(content), strings.ToLower(uncommittedReminderNote)) {
 		return false
@@ -684,12 +803,18 @@ func appendNote(content, note string) string {
 }
 
 func qualifyPersistedIDLabels(content string, taskToolUsed, reminderToolUsed bool) string {
+	return qualifyPersistedIDLabelsForTools(content, taskToolUsed, reminderToolUsed, false)
+}
+
+func qualifyPersistedIDLabelsForTools(content string, taskToolUsed, reminderToolUsed, memoryToolUsed bool) string {
 	label := ""
 	switch {
-	case taskToolUsed && !reminderToolUsed:
+	case taskToolUsed && !reminderToolUsed && !memoryToolUsed:
 		label = "Task ID"
-	case reminderToolUsed && !taskToolUsed:
+	case reminderToolUsed && !taskToolUsed && !memoryToolUsed:
 		label = "Reminder ID"
+	case memoryToolUsed && !taskToolUsed && !reminderToolUsed:
+		label = "Memory ID"
 	default:
 		return content
 	}
@@ -888,11 +1013,8 @@ func (a *Agent) HandleMessage(ctx context.Context, msg *channels.Message) error 
 		_ = a.store.FailDelivery(context.Background(), prepared.TraceID, deliveryID, err)
 		return err
 	}
-	if err := a.store.CompleteDelivery(ctx, prepared.TraceID, deliveryID, receipt.MessageID, msg.ChannelID, msg.SenderID, prepared.Content); err != nil {
+	if err := a.store.CompleteDeliveryIndexed(ctx, prepared.TraceID, deliveryID, receipt.MessageID, msg.ChannelID, msg.SenderID, prepared.Content, prepared.StartHistoryID, prepared.Chunks); err != nil {
 		return err
-	}
-	if a.rag != nil {
-		a.rag.Notify()
 	}
 	log.Printf("Response trace %d delivered as %s", prepared.TraceID, receipt.MessageID)
 	return nil
