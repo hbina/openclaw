@@ -24,6 +24,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "memory" {
+		if err := runMemoryCommand(os.Args[2:]); err != nil {
+			log.Fatalf("Memory command failed: %v", err)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--check-state" {
 		store, err := state.NewStore(os.Args[2])
 		if err != nil {
