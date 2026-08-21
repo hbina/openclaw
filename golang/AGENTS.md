@@ -45,9 +45,10 @@ and enable testing, not to reopen the product to hosted services.
 - **Conversation history is structured.** Inbound messages, scheduled reminder
   events, tool calls, and tool results retain their meaning so replay and recall
   do not have to infer semantics from flattened prose.
-- **The semantic index is derived state.** Conversation history is the source
-  of truth; embeddings and chunks must be rebuildable. This allows model or
-  index changes without making vectors irreplaceable owner data.
+- **The semantic index is derived state.** Memory revisions and conversation
+  history are sources of truth; FTS rows, embeddings, and chunks are rebuilt
+  only by an explicit offline operation. Runtime fallback, background repair,
+  and partially indexed states would make recall behavior unknowable.
 - **Recalled history is explicitly non-authoritative.** Retrieval provides
   relevant evidence, not new instructions. This distinction prevents archived
   requests and tool calls from becoming unintended current actions.
@@ -58,10 +59,11 @@ and enable testing, not to reopen the product to hosted services.
 - **Tool schemas remain simple and strict.** The deployed local Gemma model must
   use them reliably. Schema elegance or breadth is less important than
   predictable calls under the actual local model.
-- **Contextual reminders are tool-free.** A due reminder may use persona,
-  recent conversation, and semantic recall to improve wording, but it must not
-  acquire new capabilities while firing. The stored text remains the fallback,
-  and the exact delivered exchange becomes conversation history.
+- **Contextual reminders expose no public tools.** A due reminder uses persona,
+  model-planned recall, and the internal memory curator, but cannot acquire new
+  owner-facing capabilities while firing. Required-stage failure prevents
+  delivery and leaves the reminder due; the exact successful exchange and its
+  vectors commit together.
 
 ## Implementation Values
 

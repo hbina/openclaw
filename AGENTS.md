@@ -47,7 +47,10 @@ broader platform surface is not the goal of this fork.
 - **Go is the only production runtime.** The slim fork removed the Node runtime
   to reduce the deployable surface and eliminate a second behavioral path.
   Deleted Node code in Git history may clarify an ambiguous retained behavior,
-  but it is not a reason to restore unsupported upstream features.
+  but it is not a reason to restore unsupported upstream features. Historical
+  Node application state is deliberately discarded at Go cutover. A Node-state
+  importer, reader, migration adapter, or other backward-compatibility path
+  does not belong in the retained product.
 - **SQLite is the single state authority.** Tasks, reminders, memory, transcripts, and
   derived recall metadata belong together so mutation, backup, recovery, and
   inspection have one coherent boundary. JSON, JSONL, or text sidecars would
@@ -94,21 +97,29 @@ broader platform surface is not the goal of this fork.
 - Reminder completion follows successful channel delivery. Failed sends must
   remain retryable; recurring advancement or one-shot deletion before delivery
   would silently lose reminders.
-- Contextual reminder wording is an enhancement, not a delivery dependency.
-  If recall or generation is unavailable, the stored reminder text remains the
-  truthful fallback.
+- Recall, curation, generation, and synchronous indexing are required delivery
+  stages. The operator owns both local model servers, so the runtime fails
+  explicitly instead of silently changing behavior. A failed reminder remains
+  due and retryable; stored text is not a generation fallback.
 - Secrets are operational inputs, not application state or documentation.
   Credentials must never be printed, committed, copied into images, or exposed
   in reports.
 
 ## Migration Truth and Current Risk
 
-The retained Go runtime already supports local chat and structured single-item
-tool calls, independently committed owner-global task and reminder operations,
-one-shot and recurring schedules, semantic memory and conversation recall,
-required persona configuration, contextual reminder delivery with structured
-transcripts, basic Telegram text delivery, health and chat HTTP endpoints, and
-a standalone image without Node or hosted-model dependencies.
+The retained Go runtime supports local chat and structured single-item tools,
+owner-global tasks and reminders, one-shot and recurring schedules, a
+revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
+proactive model curation, synchronous derived indexing, required persona
+configuration, contextual reminders, structured transcripts, Telegram text
+delivery, HTTP endpoints, and a standalone image without Node or hosted-model
+dependencies.
+
+Historical Node state is an accepted discard rather than a migration target.
+The Go runtime starts from its canonical SQLite state and does not import,
+translate, or read the deleted runtime's data formats. This avoids preserving
+an untested compatibility path whose behavior and recovery properties cannot
+be proven against the retained product.
 
 That working feature set is not equivalent to production readiness. Remaining
 work is prioritized by the user harm it prevents:
@@ -126,13 +137,9 @@ work is prioritized by the user harm it prevents:
    wording from being mistaken for site watching, conditional suppression, or
    third-party contact. Those Node-style jobs remain a separate unresolved
    capability.
-5. **A deliberate Node-state decision** prevents historical owner data from
-   being silently abandoned. The Node runtime was deleted before parity
-   fixtures or an importer were captured. Recover evidence from Git history at
-   `53284074db`, or record an explicit accepted-discard decision.
-6. **Backup, restore, corruption, restart, and rollback drills** establish that
+5. **Backup, restore, corruption, restart, and rollback drills** establish that
    local ownership is meaningful during failure, not only during normal use.
-7. **Compose and root-image cutover** remove the final ambiguity about which
+6. **Compose and root-image cutover** remove the final ambiguity about which
    runtime operators are expected to deploy.
 
 Close these risks in order unless the user chooses a different priority. A
@@ -167,12 +174,16 @@ agents receive one consistent set of intentions rather than divergent copies.
 
 ## Production Cutover Meaning
 
+Historical Node state and all state in the pre-ledger Go schema are accepted
+discards. The memory-ledger release starts with a fresh SQLite database and has
+no migration, import, export, translation, or compatibility path.
+
 Production cutover is complete only when the retained behaviors have focused
 tests and live local-model proof, HTTP and Telegram enforce the one-owner
-admission boundary, reminder delivery is crash-safe and idempotent, historical
-Node state has a tested import or explicit discard decision, recovery and image
-rollback drills pass, and the documented deployment uses the standalone Go
-image.
+admission boundary, reminder delivery is crash-safe and idempotent, recovery
+and image rollback drills pass, and the documented deployment uses the
+standalone Go image. Historical Node and pre-ledger Go state continuity is
+explicitly outside this cutover and requires no importer or parity proof.
 
 The removal of Node and unsupported cloud/platform surfaces is already
 complete. It narrows the system; it does not waive the remaining safety and
