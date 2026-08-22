@@ -18,6 +18,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "chat" {
+		if err := runChatCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			log.Fatalf("Chat command failed: %v", err)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "trace" {
 		if err := runTraceCommand(os.Args[2:]); err != nil {
 			log.Fatalf("Trace command failed: %v", err)

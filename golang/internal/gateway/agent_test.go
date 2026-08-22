@@ -1275,24 +1275,26 @@ func TestAgentRejectsCanceledContextBeforeTurn(t *testing.T) {
 	}
 }
 
-func TestAgentStopsAfterMaximumToolRounds(t *testing.T) {
-	responses := make([]providers.GenerateResponse, maxToolRounds)
-	for index := range responses {
-		responses[index] = providers.GenerateResponse{Message: providers.Message{
+func TestAgentContinuesBeyondFourToolRounds(t *testing.T) {
+	const toolRounds = 6
+	responses := make([]providers.GenerateResponse, 0, toolRounds+1)
+	for index := 0; index < toolRounds; index++ {
+		responses = append(responses, providers.GenerateResponse{Message: providers.Message{
 			Role: providers.RoleAssistant,
 			ToolCalls: []providers.ToolCall{{
 				ID: "list-" + string(rune('a'+index)), Type: "function",
 				Function: providers.FunctionCall{Name: "list_reminders", Arguments: `{}`},
 			}},
-		}}
+		}})
 	}
+	responses = append(responses, providers.GenerateResponse{Message: providers.Message{Role: providers.RoleAssistant, Content: "finished"}})
 	provider := &scriptedProvider{responses: responses}
 	agent, _ := newTestAgent(t, provider, nil, "")
 	reply, err := chat(agent, context.Background(), "cli", "user-1", "keep listing")
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if len(provider.requests) != maxToolRounds || !strings.Contains(reply, "safety limit") {
+	if len(provider.requests) != toolRounds+1 || reply != "finished" {
 		t.Fatalf("requests=%d reply=%q", len(provider.requests), reply)
 	}
 }

@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	maxToolRounds       = 4
 	defaultMaxTokens    = 4_096
 	reminderMaxTokens   = 512
 	modelRequestTimeout = 5 * time.Minute
@@ -395,7 +394,7 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 	memoryMutationSucceeded := false
 	memoryMutationFailed := false
 	memoryToolUsed := false
-	for round := 0; round < maxToolRounds; round++ {
+	for round := 0; ; round++ {
 		resp, llmEventID, err := a.generate(ctx, traceID, round+1, "chat", &providers.GenerateRequest{
 			Model:      "default",
 			Messages:   messages,
@@ -532,22 +531,6 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		return prepared, nil
 	}
 
-	reply := "I couldn't complete that request because the tool workflow exceeded its safety limit."
-	transformJSON := `[{"name":"tool_round_safety_limit","before":"","after":"I couldn't complete that request because the tool workflow exceeded its safety limit."}]`
-	outputEventID, err := a.store.RecordResponseOutput(ctx, traceID, "safety_limit", nil, "", transformJSON, reply)
-	if err != nil {
-		return prepared, err
-	}
-	prepared.TraceID = traceID
-	prepared.OutputEventID = outputEventID
-	prepared.ChannelID = input.ChannelID
-	prepared.SenderID = input.SenderID
-	prepared.Content = reply
-	prepared.StartHistoryID, prepared.Chunks, err = a.prepareCurrentExchange(ctx, input.ChannelID, input.SenderID, reply)
-	if err != nil {
-		return prepared, fmt.Errorf("index completed exchange: %w", err)
-	}
-	return prepared, nil
 }
 
 func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {

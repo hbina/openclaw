@@ -14,6 +14,39 @@ curl -fsS http://127.0.0.1:8080/health
 curl -fsS http://127.0.0.1:8081/health
 ```
 
+## Terminal chat
+
+Use the running Gateway's canonical chat path without sending a Telegram
+message:
+
+```bash
+./openclaw chat "List my open tasks"
+printf 'What do you remember about my preferences?\n' | ./openclaw chat
+./openclaw chat --sender-id debugging --json "List my reminders"
+```
+
+The command connects to `http://127.0.0.1:18789` by default. Set
+`OPENCLAW_GATEWAY_URL` or pass `--url` before the message when the Gateway uses
+a different address. `--timeout` defaults to `10m`.
+
+For a Docker deployment, run the same binary inside the active container:
+
+```bash
+docker exec openclaw-go ./openclaw chat "List my open tasks"
+printf 'List my reminders\n' | docker exec -i openclaw-go ./openclaw chat
+```
+
+Human-readable output writes the reply to stdout and the response trace ID to
+stderr. Pass `--json` to emit both fields as one JSON object on stdout, then use
+the trace ID with `openclaw trace show` when diagnosing a turn.
+
+All terminal turns use the `cli` channel. The default sender ID is `cli-user`,
+so separate invocations continue that CLI conversation; `--sender-id` selects a
+different CLI conversation key and never impersonates Telegram history. The
+command requires a running Gateway and does not open SQLite or start a second
+agent. Keep the Gateway loopback-bound or otherwise protected because `/chat`
+does not yet enforce admission or request limits.
+
 ## Fresh-state cutover
 
 The revisioned memory ledger changes the canonical schema. Use a new empty
