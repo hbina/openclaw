@@ -36,7 +36,7 @@ const reminderHeader = "⏰ **Reminder!** ⏰\n\n"
 
 const chatInstructions = `Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
 When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
-You may store one concise profile, durable, or daily memory when persistence is material to the current response. Profile covers enduring owner identity, preferences, and relationships; durable covers reusable facts, decisions, and project context; daily covers episodic context likely to matter soon. Never store credentials, secrets, greetings, speculation, or routine transient details. A separate curator also reviews the completed exchange.
+You may store one concise profile, durable, or daily memory when persistence is material to the current response. Profile covers enduring owner identity, preferences, and relationships; durable covers reusable facts, decisions, and project context; daily covers episodic context likely to matter soon.
 Search memory when a past owner fact could improve the answer. Update the existing Memory ID when a remembered fact changes; remove memory only when the owner explicitly asks to forget it.
 Use the specific reminder tool only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
 Never claim a reminder changed unless its tool result succeeded.
@@ -226,7 +226,6 @@ func (a *Agent) contextualMessages(
 	current providers.Message,
 	definitions []providers.ToolDefinition,
 	maxOutputTokens int,
-	strictRecall bool,
 ) ([]providers.Message, error) {
 	history, err := a.store.GetConversationHistory(ctx, channelID, senderID)
 	if err != nil {
@@ -248,7 +247,7 @@ func (a *Agent) contextualMessages(
 		var keywords []string
 		if a.modelMemory {
 			var planErr error
-			planned, keywords, planErr = a.planRecall(ctx, traceID, query, historyMessages)
+			planned, keywords, _, planErr = a.planRecall(ctx, traceID, query, historyMessages)
 			if planErr != nil {
 				return nil, fmt.Errorf("plan recall: %w", planErr)
 			}
@@ -270,12 +269,14 @@ func (a *Agent) contextualMessages(
 		for _, item := range retrieval.Matches {
 			selectedConversationIDs = append(selectedConversationIDs, fmt.Sprintf("%d:%d", item.StartHistoryID, item.EndHistoryID))
 		}
-		if a.modelMemory {
+		if a.modelMemory && (len(memoryMatches) > 0 || len(retrieval.Matches) > 0) {
 			var rerankErr error
 			archive, selectedMemoryIDs, selectedConversationIDs, rerankErr = a.rerankRecallDetailed(ctx, traceID, query, memoryMatches, retrieval.Matches)
 			if rerankErr != nil {
 				return nil, fmt.Errorf("rerank recall: %w", rerankErr)
 			}
+		} else if a.modelMemory {
+			archive = ""
 		}
 		detail := state.RAGTrace{
 			Outcome: retrieval.Outcome, EmbeddingQuery: retrieval.EmbeddingQuery,
@@ -370,7 +371,6 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		providers.Message{Role: providers.RoleUser, Content: renderedInbound},
 		definitions,
 		defaultMaxTokens,
-		false,
 	)
 	if err != nil {
 		return prepared, err
@@ -468,14 +468,6 @@ func (a *Agent) PrepareChat(ctx context.Context, input ChatInput) (prepared Prep
 		if reply == "" {
 			return prepared, fmt.Errorf("agent generation returned neither content nor tool calls")
 		}
-		curated := false
-		if a.modelMemory {
-			curated, err = a.curateMemories(ctx, traceID, historyID, input.ChannelID, input.SenderID, renderedInbound, reply)
-			if err != nil {
-				return prepared, fmt.Errorf("curate memory: %w", err)
-			}
-		}
-		memoryMutationSucceeded = memoryMutationSucceeded || curated
 		before := reply
 		reply = qualifyPersistedIDLabelsForTools(reply, taskToolUsed, reminderToolUsed, memoryToolUsed)
 		if reply != before {
@@ -600,12 +592,6 @@ func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) er
 		_ = a.store.FinishTrace(context.Background(), traceID, "failed", "generation", renderErr)
 		return fmt.Errorf("render reminder %d: %w", reminder.ID, renderErr)
 	}
-	if a.modelMemory {
-		if _, err := a.curateMemories(ctx, traceID, 0, reminder.ChannelID, reminder.SenderID, rendered, body); err != nil {
-			_ = a.store.FinishTrace(context.Background(), traceID, "failed", "memory_curate", err)
-			return fmt.Errorf("curate reminder memory: %w", err)
-		}
-	}
 	sourceType := "llm"
 	sourceContent := body
 	notification := reminderHeader + strings.TrimSpace(body)
@@ -661,7 +647,6 @@ func (a *Agent) renderReminder(ctx context.Context, traceID int64, reminder stat
 		providers.Message{Role: providers.RoleUser, Content: rendered},
 		nil,
 		reminderMaxTokens,
-		true,
 	)
 	if err != nil {
 		return "", 0, err

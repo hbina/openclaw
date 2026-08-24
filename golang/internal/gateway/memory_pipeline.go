@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -31,46 +33,68 @@ var recallSelectDefinition = internalDefinition("select_recall_evidence", "Selec
   "required":["memory_ids","conversation_ids"]
 }`)
 
-func (a *Agent) planRecall(ctx context.Context, traceID int64, query string, recent []providers.Message) (string, []string, error) {
+func (a *Agent) planRecall(ctx context.Context, traceID int64, query string, recent []providers.Message) (string, []string, bool, error) {
+	rawQuery := strings.TrimSpace(query)
 	payload, err := json.Marshal(map[string]any{"current_request": query, "recent_messages": recent})
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 	response, llmEventID, err := a.generate(ctx, traceID, 1, "recall_plan", &providers.GenerateRequest{
 		Model: "default", MaxTokens: 256, ToolChoice: "required", Tools: []providers.ToolDefinition{recallPlanDefinition},
 		Messages: []providers.Message{
-			{Role: providers.RoleSystem, Content: "Formulate a concise semantic search query and literal keywords for the owner's local memories and prior conversations. Resolve pronouns from recent context. Always call plan_recall."},
+			{Role: providers.RoleSystem, Content: "You are an internal recall planner, not the owner-facing assistant. Formulate a concise semantic search query and literal keywords for the owner's local memories and prior conversations. Resolve pronouns from recent context. Return no prose. Always call plan_recall exactly once."},
 			{Role: providers.RoleUser, Content: string(payload)},
 		},
 	})
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 	call, err := requireInternalTool(response, "plan_recall")
 	if err != nil {
-		return "", nil, err
+		reason := state.RecallPlanExpectedSingleCall
+		if response != nil && len(response.Message.ToolCalls) == 1 && strings.TrimSpace(response.Message.Content) == "" {
+			reason = state.RecallPlanInvalidCall
+		}
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, reason)
 	}
 	var plan struct {
-		SemanticQuery string   `json:"semantic_query"`
-		Keywords      []string `json:"keywords"`
+		SemanticQuery *string   `json:"semantic_query"`
+		Keywords      *[]string `json:"keywords"`
 	}
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &plan); err != nil {
-		return "", nil, fmt.Errorf("decode recall plan: %w", err)
+	decoder := json.NewDecoder(strings.NewReader(call.Function.Arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&plan); err != nil || plan.Keywords == nil {
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, state.RecallPlanMalformedArguments)
 	}
-	plan.SemanticQuery = strings.TrimSpace(plan.SemanticQuery)
-	if plan.SemanticQuery == "" {
-		return "", nil, fmt.Errorf("recall planner returned an empty query")
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, state.RecallPlanMalformedArguments)
 	}
-	if len(plan.Keywords) > 12 {
-		return "", nil, fmt.Errorf("recall planner returned too many keywords")
+	if plan.SemanticQuery == nil {
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, state.RecallPlanEmptyQuery)
 	}
-	for index := range plan.Keywords {
-		plan.Keywords[index] = strings.TrimSpace(plan.Keywords[index])
+	semanticQuery := strings.TrimSpace(*plan.SemanticQuery)
+	if semanticQuery == "" {
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, state.RecallPlanEmptyQuery)
+	}
+	keywords := *plan.Keywords
+	if len(keywords) > 12 {
+		return a.fallbackRecallPlan(ctx, traceID, llmEventID, rawQuery, state.RecallPlanTooManyKeywords)
+	}
+	for index := range keywords {
+		keywords[index] = strings.TrimSpace(keywords[index])
 	}
 	if err := a.recordInternalDecision(ctx, traceID, llmEventID, "internal", "recall", response.Message, call); err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
-	return plan.SemanticQuery, plan.Keywords, nil
+	return semanticQuery, keywords, false, nil
+}
+
+func (a *Agent) fallbackRecallPlan(ctx context.Context, traceID, llmEventID int64, rawQuery string, reason state.RecallPlanContractReason) (string, []string, bool, error) {
+	if err := a.store.FailRecallPlanCall(ctx, llmEventID, reason); err != nil {
+		return "", nil, false, fmt.Errorf("record recall planner fallback: %w", err)
+	}
+	log.Printf("Recall planner fallback for trace %d: %s", traceID, reason)
+	return rawQuery, nil, true, nil
 }
 
 func (a *Agent) retrieveUnified(ctx context.Context, query string, keywords []string, recent []conversationExchange, base []providers.Message, definitions []providers.ToolDefinition, maxOutput int) (RAGRetrievalResult, []state.MemorySearchResult, error) {
@@ -260,95 +284,6 @@ func requireInternalTool(response *providers.GenerateResponse, name string) (pro
 		return providers.ToolCall{}, fmt.Errorf("model returned invalid internal tool call")
 	}
 	return call, nil
-}
-
-func memoryToolDefinitions() []providers.ToolDefinition {
-	definitions := tools.Definitions(nil)
-	var result []providers.ToolDefinition
-	for _, definition := range definitions {
-		if definition.Function.Name == "store_memory" || definition.Function.Name == "update_memory" {
-			result = append(result, definition)
-		}
-	}
-	return result
-}
-
-var finishCurationDefinition = internalDefinition("finish_memory_curation", "Finish memory curation when no further fact should be stored or revised.", `{
-  "type":"object","additionalProperties":false,"properties":{}
-}`)
-
-func (a *Agent) curateMemories(ctx context.Context, traceID, sourceHistoryID int64, channelID, senderID, ownerMessage, draft string) (bool, error) {
-	active, err := a.store.ListMemories(ctx, state.MemoryFilter{Status: state.MemoryActive, Limit: 100})
-	if err != nil {
-		return false, fmt.Errorf("load memories for curation: %w", err)
-	}
-	input, err := json.Marshal(map[string]any{"owner_message": ownerMessage, "assistant_draft": draft, "active_memories": active})
-	if err != nil {
-		return false, err
-	}
-	messages := []providers.Message{
-		{Role: providers.RoleSystem, Content: `Curate useful local memory after this exchange. Store concise standalone facts. Use profile for enduring owner identity/preferences/relationships, durable for reusable facts/decisions/project context, and daily for episodic context likely to matter soon. Prefer updating an existing memory when a fact changed. Never store secrets, credentials, greetings, routine execution, assistant speculation, or facts found only in recalled context. Do not delete memories. Call one tool at a time. Call finish_memory_curation immediately when nothing else should change.`},
-		{Role: providers.RoleUser, Content: string(input)},
-	}
-	definitions := append(memoryToolDefinitions(), finishCurationDefinition)
-	mutated := false
-	for round := 1; round <= 5; round++ {
-		available := definitions
-		if round == 5 {
-			available = []providers.ToolDefinition{finishCurationDefinition}
-		}
-		response, llmEventID, err := a.generate(ctx, traceID, round, "memory_curate", &providers.GenerateRequest{Model: "default", Messages: messages, Tools: available, ToolChoice: "required", MaxTokens: 384})
-		if err != nil {
-			return mutated, err
-		}
-		if response == nil || len(response.Message.ToolCalls) != 1 || strings.TrimSpace(response.Message.Content) != "" {
-			return mutated, fmt.Errorf("memory curator did not return exactly one tool call")
-		}
-		call := response.Message.ToolCalls[0]
-		if call.Type != "function" || call.ID == "" {
-			return mutated, fmt.Errorf("memory curator returned an invalid tool call")
-		}
-		assistantMessage := response.Message
-		assistantMessage.Role = providers.RoleAssistant
-		encodedCall, err := json.Marshal(assistantMessage)
-		if err != nil {
-			return mutated, err
-		}
-		if err := a.store.SaveConversationMessageAudience(ctx, channelID, senderID, "assistant", state.ContentToolCall, state.AudienceInternal, string(encodedCall)); err != nil {
-			return mutated, err
-		}
-		messages = append(messages, assistantMessage)
-		if call.Function.Name != "finish_memory_curation" && call.Function.Name != "store_memory" && call.Function.Name != "update_memory" {
-			return mutated, fmt.Errorf("memory curator attempted unsupported tool %q", call.Function.Name)
-		}
-		toolEventID, err := a.store.StartToolExecution(ctx, traceID, llmEventID, call.ID, call.Function.Name, call.Function.Arguments)
-		if err != nil {
-			return mutated, err
-		}
-		if call.Function.Name == "finish_memory_curation" {
-			result := tools.Result{ToolCallID: call.ID, Name: call.Function.Name, Content: `{"finished":true}`}
-			encodedResult, _ := json.Marshal(result)
-			if err := a.store.WithTx(ctx, func(tx *state.Tx) error {
-				if err := tx.SaveConversationMessageAudience(ctx, channelID, senderID, "tool", state.ContentToolResult, state.AudienceInternal, string(encodedResult)); err != nil {
-					return err
-				}
-				return tx.FinishToolExecution(ctx, toolEventID, string(encodedResult), false, false)
-			}); err != nil {
-				return mutated, err
-			}
-			return mutated, nil
-		}
-		result, err := a.tools.ExecuteAndRecord(ctx, tools.Context{ChannelID: channelID, SenderID: senderID, TraceEventID: toolEventID, ResponseTraceID: traceID, SourceHistoryID: sourceHistoryID, Audience: state.AudienceInternal}, call)
-		if err != nil {
-			return mutated, err
-		}
-		if result.IsError {
-			return mutated, fmt.Errorf("memory curator %s failed: %s", call.Function.Name, result.Content)
-		}
-		mutated = true
-		messages = append(messages, result.Message())
-	}
-	return mutated, fmt.Errorf("memory curator exceeded its mutation limit")
 }
 
 func (a *Agent) prepareCurrentExchange(ctx context.Context, channelID, senderID, reply string) (int64, []state.ConversationChunk, error) {

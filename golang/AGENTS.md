@@ -60,10 +60,12 @@ and enable testing, not to reopen the product to hosted services.
   use them reliably. Schema elegance or breadth is less important than
   predictable calls under the actual local model.
 - **Contextual reminders expose no public tools.** A due reminder uses persona,
-  model-planned recall, and the internal memory curator, but cannot acquire new
-  owner-facing capabilities while firing. Required-stage failure prevents
-  delivery and leaves the reminder due; the exact successful exchange and its
-  vectors commit together.
+  and the shared recall path, but cannot acquire new owner-facing capabilities
+  or mutate memory while firing. A contract-invalid recall plan falls back to
+  the trimmed reminder text; required retrieval, selection for nonempty
+  candidates, generation, indexing, or delivery failure prevents completion
+  and leaves the reminder due. The exact successful exchange and its vectors
+  commit together.
 
 ## Implementation Values
 

@@ -53,23 +53,35 @@ stops recall and removes its FTS/vector rows while retaining local audit
 history. Daily memories are retrieved on demand; a bounded set of active
 profile and durable memories is included on every model turn.
 
-Every chat and reminder uses a quality-first local-model pipeline. A dedicated
-chat-model pass plans the query, SQLite FTS5 and EmbeddingGemma retrieve memory
-and conversation candidates, and another chat-model pass selects the evidence.
-The main assistant then responds. A final bounded curator pass may proactively
-store or revise useful memories, but cannot delete them. SQLite validates every
-proposal and remains the state authority.
+Every chat and reminder uses the same quality-first local-model pipeline. A
+dedicated chat-model pass normally rewrites the query. If its HTTP-successful
+output is ordinary text or otherwise violates the `plan_recall` contract, the
+runtime records that optional event as failed and retrieves with the trimmed
+current chat message or reminder text and no explicit keywords. Provider,
+SQLite, embedding, and cancellation failures are not planner fallbacks.
+
+SQLite FTS5 and EmbeddingGemma retrieval remains required for both memory and
+conversation candidates. No confident matches is a successful empty result;
+the bounded active profile/durable core is still retained. When either
+candidate set is nonempty, another chat-model pass must select valid evidence;
+there is no score-ranked selection fallback. The main assistant then responds.
+During chats, that same main assistant may use the validated memory tools when
+persistence is material to its response. There is no separate post-response
+curator model. Reminder rendering exposes no tools and does not mutate memory.
+SQLite validates every proposal and remains the state authority.
 
 Complete transcript exchanges are embedded synchronously before delivery and
 committed with the exact delivered transcript. There is no background indexer,
-pending index state, retry worker, or retrieval fallback.
+pending index state, retry worker, embedding fallback, or retrieval-result
+fallback. Raw-query use replaces only invalid model query rewriting.
 
 When a reminder fires, its stored text is used as a semantic recall query. The
 agent combines relevant archived context with the recent conversation, current
 local time, and configured persona, then asks the local chat model for a
 concise notification body. Reminder rendering exposes no public tools. The
-runtime adds the fixed reminder heading. Recall, generation, curation, or
-indexing failure prevents delivery and leaves the reminder due.
+runtime adds the fixed reminder heading. Required embedding, retrieval,
+evidence-selection, generation, indexing, or delivery failure
+prevents completion and leaves the reminder due.
 
 Successful reminder notifications are stored as a structured scheduled event
 and the exact assistant text sent to the channel. That exchange participates

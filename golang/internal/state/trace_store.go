@@ -11,6 +11,16 @@ import (
 
 const maxTraceErrorBytes = 64 << 10
 
+type RecallPlanContractReason string
+
+const (
+	RecallPlanExpectedSingleCall RecallPlanContractReason = "expected exactly one structured plan_recall call"
+	RecallPlanInvalidCall        RecallPlanContractReason = "invalid plan_recall tool call"
+	RecallPlanMalformedArguments RecallPlanContractReason = "malformed plan_recall arguments"
+	RecallPlanEmptyQuery         RecallPlanContractReason = "empty semantic query"
+	RecallPlanTooManyKeywords    RecallPlanContractReason = "too many keywords"
+)
+
 type TraceInput struct {
 	TriggerType       string
 	ChannelID         string
@@ -211,6 +221,24 @@ func (s *Store) FinishLLMCall(ctx context.Context, eventID int64, responseJSON s
 		}
 		return nil
 	})
+}
+
+// FailRecallPlanCall records a contract-invalid planner response without
+// changing the exact request or response retained in llm_calls. Only the
+// fixed reasons declared above are accepted so model or owner content cannot
+// be copied into the trace error.
+func (s *Store) FailRecallPlanCall(ctx context.Context, eventID int64, reason RecallPlanContractReason) error {
+	switch reason {
+	case RecallPlanExpectedSingleCall, RecallPlanInvalidCall, RecallPlanMalformedArguments,
+		RecallPlanEmptyQuery, RecallPlanTooManyKeywords:
+	default:
+		return fmt.Errorf("unsupported recall plan contract reason")
+	}
+	return s.updateOne(ctx, `UPDATE trace_events
+		SET status = 'failed', error = ?, completed_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = 'succeeded'
+		AND EXISTS (SELECT 1 FROM llm_calls WHERE event_id = trace_events.id AND purpose = 'recall_plan')`,
+		"fail recall plan LLM event", "recall planner contract: "+string(reason), eventID)
 }
 
 func (s *Store) StartToolExecution(ctx context.Context, traceID, llmEventID int64, callID, name, arguments string) (int64, error) {

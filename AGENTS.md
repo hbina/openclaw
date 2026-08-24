@@ -97,10 +97,14 @@ broader platform surface is not the goal of this fork.
 - Reminder completion follows successful channel delivery. Failed sends must
   remain retryable; recurring advancement or one-shot deletion before delivery
   would silently lose reminders.
-- Recall, curation, generation, and synchronous indexing are required delivery
-  stages. The operator owns both local model servers, so the runtime fails
-  explicitly instead of silently changing behavior. A failed reminder remains
-  due and retryable; stored text is not a generation fallback.
+- Embedding retrieval, evidence selection when candidates exist, generation,
+  and synchronous indexing are required delivery stages. Recall
+  query rewriting is optional: a contract-invalid planner response uses the
+  trimmed current chat message or reminder text with no explicit keywords.
+  Empty retrieval is a successful result. Provider, SQLite, embedding, and
+  cancellation failures still fail explicitly because the operator owns both
+  local model servers. A failed reminder remains due and retryable; stored text
+  is not a generation fallback.
 - Secrets are operational inputs, not application state or documentation.
   Credentials must never be printed, committed, copied into images, or exposed
   in reports.
@@ -110,7 +114,7 @@ broader platform surface is not the goal of this fork.
 The retained Go runtime supports local chat and structured single-item tools,
 owner-global tasks and reminders, one-shot and recurring schedules, a
 revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
-proactive model curation, synchronous derived indexing, required persona
+main-assistant memory tools, synchronous derived indexing, required persona
 configuration, contextual reminders, structured transcripts, Telegram text
 delivery, HTTP endpoints, and a standalone image without Node or hosted-model
 dependencies.

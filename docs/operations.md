@@ -75,9 +75,10 @@ human-readable only:
 ```
 
 `memory search` uses the local chat model to plan and rerank hybrid FTS5/vector
-results. `memory reindex` embeds every active memory and completed conversation
-before replacing all derived rows in one transaction. A failure leaves the
-previous derived index intact.
+results. It remains a strict standalone maintenance command and does not use
+the chat/reminder planner fallback. `memory reindex` embeds every active memory
+and completed conversation before replacing all derived rows in one
+transaction. A failure leaves the previous derived index intact.
 
 There are deliberately no memory import, export, JSON-output, background
 repair, or filesystem-synchronization commands.
@@ -112,8 +113,9 @@ Inspect recent traces locally:
 2. Verify both local model endpoints.
 3. Build an immutable candidate image.
 4. Point it at a fresh persistent data directory and preserved configuration.
-5. Prove startup readiness, a real HTTP turn, a Telegram turn, proactive
-   memory capture, hybrid recall, tasks, reminders, and restart persistence.
+5. Prove startup readiness, a real HTTP turn, a Telegram turn, memory capture
+   through the main assistant tools, hybrid recall, tasks, reminders, and
+   restart persistence.
 6. Verify that model or embedding failure prevents delivery and leaves a due
    reminder retryable.
 7. Retain one known-good SQLite backup and image rollback target.

@@ -23,9 +23,11 @@ Historical Node application state is deliberately not imported or read by the
 Go runtime, and no backward-compatibility path is supported.
 
 Memory is a revisioned SQLite ledger with profile, durable, and daily records,
-FTS5 plus vector retrieval, local-model query planning/reranking, and a
-post-response local-model curator. The ledger cutover requires a fresh Go
-database; existing Go state is also deliberately not migrated.
+FTS5 plus vector retrieval, optional local-model query rewriting, required
+local-model evidence selection for nonempty candidates, and memory tools in the
+main assistant loop. There is no separate post-response curator. The ledger
+cutover requires a fresh Go database; existing Go state is also deliberately
+not migrated.
 
 ## Documentation
 

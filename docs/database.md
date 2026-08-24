@@ -77,7 +77,7 @@ Append-only structured transcript and source of truth for conversation recall.
 | `sender_id` | Source conversation routing key. |
 | `role` | Provider role such as `user`, `assistant`, or `tool`. |
 | `content_type` | `text`, `inbound_message`, `scheduled_reminder`, `tool_call`, or `tool_result`. |
-| `audience` | `conversation` for owner-visible replay or `internal` for curator audit calls. |
+| `audience` | `conversation` for owner-visible replay or `internal` for recall-planning and evidence-selection audit calls. |
 | `content` | Plain text or the structured JSON payload for the content type. |
 | `created_at` | Timestamp used when rendering historical conversation documents. |
 
@@ -132,7 +132,9 @@ outcomes, not credentials or transport authorization headers.
   records memory/revision IDs plus keyword, vector, and combined scores.
 - `llm_calls` records each tool-loop or reminder-model round, including the
   sanitized request body actually sent and the response body returned by the
-  local OpenAI-compatible server.
+  local OpenAI-compatible server. A contract-invalid optional `recall_plan`
+  call is marked failed while retaining that exact request and response; its
+  parent response trace may still complete after raw-query retrieval.
 - `tool_executions` relates exact model call ids, arguments, results, errors,
   and mutation outcomes to their LLM round.
 - `response_outputs` keeps raw model content, ordered application
