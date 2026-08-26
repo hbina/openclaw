@@ -23,8 +23,6 @@ type AgentsConfig struct {
 }
 
 type AgentDefaults struct {
-	Soul          string `json:"soul"`
-	Identity      string `json:"identity"`
 	HistorySearch struct {
 		MinScore float64 `json:"minScore"`
 	} `json:"historySearch"`
@@ -87,14 +85,6 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := decodeStrictJSON(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
-	}
-	cfg.Agents.Defaults.Soul = strings.TrimSpace(cfg.Agents.Defaults.Soul)
-	if cfg.Agents.Defaults.Soul == "" {
-		return nil, fmt.Errorf("agents.defaults.soul must be a non-empty string")
-	}
-	cfg.Agents.Defaults.Identity = strings.TrimSpace(cfg.Agents.Defaults.Identity)
-	if cfg.Agents.Defaults.Identity == "" {
-		return nil, fmt.Errorf("agents.defaults.identity must be a non-empty string")
 	}
 	if cfg.Agents.Defaults.HistorySearch.MinScore == 0 {
 		cfg.Agents.Defaults.HistorySearch.MinScore = 0.35

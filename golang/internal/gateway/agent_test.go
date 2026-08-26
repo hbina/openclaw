@@ -115,7 +115,7 @@ func (c *recordingChannel) SendMessage(_ context.Context, recipientID, content s
 	return channels.DeliveryReceipt{MessageID: "test-message"}, nil
 }
 
-func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, soul string) (*Agent, *state.Store) {
+func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, _ ...string) (*Agent, *state.Store) {
 	t.Helper()
 	store, err := state.NewStore(filepath.Join(t.TempDir(), "agent.sqlite"))
 	if err != nil {
@@ -127,12 +127,7 @@ func newTestAgent(t *testing.T, prov providers.Provider, ch *recordingChannel, s
 	if ch != nil {
 		registry.Register(ch)
 	}
-	if soul == "" {
-		soul = "Be helpful."
-	}
 	cfg := &config.Config{}
-	cfg.Agents.Defaults.Soul = soul
-	cfg.Agents.Defaults.Identity = "Your name is Test."
 	agent := NewAgent(prov, registry, store, cfg, time.UTC, &fakeEmbedder{})
 	return agent, store
 }
@@ -148,7 +143,7 @@ func chat(agent *Agent, ctx context.Context, channelID, senderID, content string
 func TestAgentHandlesMessage(t *testing.T) {
 	provider := &recordingProvider{}
 	channel := &recordingChannel{}
-	agent, _ := newTestAgent(t, provider, channel, "Be concise and direct.")
+	agent, _ := newTestAgent(t, provider, channel)
 
 	err := agent.HandleMessage(context.Background(), &channels.Message{
 		ChannelID: channel.ID(),
@@ -183,11 +178,13 @@ func TestAgentHandlesMessage(t *testing.T) {
 	if !strings.Contains(sys, "user-1") || !strings.Contains(sys, channel.ID()) {
 		t.Fatalf("system prompt missing routing identity: %q", sys)
 	}
-	if !strings.Contains(sys, "Be concise and direct.") {
-		t.Fatalf("system prompt missing soul: %q", sys)
+	for _, want := range []string{"Communicate clearly, neutrally, and directly.", "Do not adopt a personal name", "Do not claim feelings"} {
+		if !strings.Contains(sys, want) {
+			t.Fatalf("system prompt missing fixed neutral behavior %q: %s", want, sys)
+		}
 	}
-	if !strings.Contains(sys, "Soul:\nBe concise and direct.\n\nIdentity:\nYour name is Test.\n") {
-		t.Fatalf("system prompt missing exact persona sections: %q", sys)
+	if strings.Contains(sys, "Soul:") || strings.Contains(sys, "Identity:") {
+		t.Fatalf("system prompt still exposes configurable persona sections: %q", sys)
 	}
 }
 
@@ -219,8 +216,6 @@ func TestAgentHistoryCarriedForward(t *testing.T) {
 func TestAgentRendersAndPersistsTelegramReplyContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reply.sqlite")
 	cfg := &config.Config{}
-	cfg.Agents.Defaults.Soul = "Be helpful."
-	cfg.Agents.Defaults.Identity = "Your name is Test."
 
 	store, err := state.NewStore(path)
 	if err != nil {
@@ -409,23 +404,18 @@ func TestAgentDoesNotSummarizeOrTrimLargeHistory(t *testing.T) {
 	}
 }
 
-func TestAgentUsesStartupPersonaSnapshot(t *testing.T) {
+func TestAgentUsesFixedNeutralBehavior(t *testing.T) {
 	provider := &recordingProvider{}
 	store := newTestStoreForAgent(t)
 	cfg := &config.Config{}
-	cfg.Agents.Defaults.Soul = "Be warm and direct."
-	cfg.Agents.Defaults.Identity = "Your name is Jet."
 	agent := NewAgent(provider, channels.NewRegistry(), store, cfg, time.UTC, &fakeEmbedder{})
-	cfg.Agents.Defaults.Soul = "Changed after startup."
-	cfg.Agents.Defaults.Identity = "Your name is Other."
 	ctx := context.Background()
 	if _, err := chat(agent, ctx, "cli", "user-1", "Who are you?"); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	systemPrompt := provider.request.Messages[0].Content
-	if !strings.Contains(systemPrompt, "Soul:\nBe warm and direct.\n\nIdentity:\nYour name is Jet.\n") ||
-		strings.Contains(systemPrompt, "Changed after startup") || strings.Contains(systemPrompt, "Your name is Other") {
-		t.Fatalf("system prompt did not preserve startup persona: %q", systemPrompt)
+	if !strings.Contains(systemPrompt, neutralAssistantBehavior) || strings.Contains(systemPrompt, "Soul:") || strings.Contains(systemPrompt, "Identity:") {
+		t.Fatalf("system prompt does not enforce fixed neutral behavior: %q", systemPrompt)
 	}
 }
 
@@ -485,10 +475,10 @@ func addDueReminderForTest(t *testing.T, store *state.Store, channelID, senderID
 
 func TestAgentDeliversContextualReminderAndRecordsExchange(t *testing.T) {
 	provider := &scriptedProvider{responses: []providers.GenerateResponse{{
-		Message: providers.Message{Role: providers.RoleAssistant, Content: "Warmly remember to bring the charger for today's workday. 🦞"},
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "Bring the phone charger to work."},
 	}}}
 	channel := &recordingChannel{}
-	agent, store := newTestAgent(t, provider, channel, "Be warm and familiar.")
+	agent, store := newTestAgent(t, provider, channel)
 	for _, exchange := range []struct{ user, assistant string }{
 		{"first question", "first answer"},
 		{"I am heading to work tomorrow.", "Your desk setup is nearly ready."},
@@ -501,7 +491,7 @@ func TestAgentDeliversContextualReminderAndRecordsExchange(t *testing.T) {
 	if err := agent.DeliverReminder(context.Background(), reminder); err != nil {
 		t.Fatalf("DeliverReminder: %v", err)
 	}
-	wantNotification := reminderHeader + "Warmly remember to bring the charger for today's workday. 🦞"
+	wantNotification := reminderHeader + "Bring the phone charger to work."
 	if channel.recipient != "owner" || channel.content != wantNotification {
 		t.Fatalf("delivery recipient=%q content=%q", channel.recipient, channel.content)
 	}
@@ -516,7 +506,7 @@ func TestAgentDeliversContextualReminderAndRecordsExchange(t *testing.T) {
 		t.Fatalf("reminder message count = %d, want system + two recent exchanges + event", len(request.Messages))
 	}
 	system := request.Messages[0].Content
-	for _, want := range []string{"Be warm and familiar.", "Your name is Test.", "A stored reminder is now due", "Return only the notification body"} {
+	for _, want := range []string{"Communicate clearly, neutrally, and directly.", "Do not adopt a personal name", "A stored reminder is now due", "concise, neutral notification body", "Return only the notification body"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("reminder system prompt missing %q: %s", want, system)
 		}

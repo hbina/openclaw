@@ -10,7 +10,7 @@ provides it.
 
 Reminder delivery sends a text message to the stored numeric Telegram sender
 id. The notification body is rendered by the local chat model using the
-configured persona, recent conversation, and semantic recall, without tools.
+fixed neutral behavior, recent conversation, and semantic recall, without tools.
 If contextual rendering is unavailable, the stored reminder text is sent
 under the same fixed heading. Successful deliveries are stored as structured
 conversation exchanges. One-shot reminders are deleted after successful

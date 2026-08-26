@@ -21,7 +21,7 @@ and enable testing, not to reopen the product to hosted services.
 
 ## Architectural Rationale
 
-- **Configuration is strict and startup-loaded.** Invalid model, persona, or
+- **Configuration is strict and startup-loaded.** Invalid model, retrieval, or
   storage configuration should fail before the assistant accepts work. Hidden
   defaults and late fallbacks turn operator mistakes into inconsistent runtime
   behavior.
@@ -59,13 +59,17 @@ and enable testing, not to reopen the product to hosted services.
 - **Tool schemas remain simple and strict.** The deployed local Gemma model must
   use them reliably. Schema elegance or breadth is less important than
   predictable calls under the actual local model.
-- **Contextual reminders expose no public tools.** A due reminder uses persona,
-  and the shared recall path, but cannot acquire new owner-facing capabilities
-  or mutate memory while firing. A contract-invalid recall plan falls back to
-  the trimmed reminder text; required retrieval, selection for nonempty
-  candidates, generation, indexing, or delivery failure prevents completion
-  and leaves the reminder due. The exact successful exchange and its vectors
-  commit together.
+- **Assistant behavior is fixed and non-relational.** Chat and reminder prompts
+  require neutral, direct language and prohibit a name, character, backstory,
+  emotional relationship, or social role. Configuration and tools must not
+  reopen personality customization.
+- **Contextual reminders expose no public tools.** A due reminder uses the fixed
+  neutral behavior and shared recall path, but cannot acquire new owner-facing
+  capabilities or mutate memory while firing. A contract-invalid recall plan
+  falls back to the trimmed reminder text; required retrieval, selection for
+  nonempty candidates, generation, indexing, or delivery failure prevents
+  completion and leaves the reminder due. The exact successful exchange and its
+  vectors commit together.
 
 ## Implementation Values
 
@@ -91,7 +95,7 @@ behavior, and meaningful failures. Concurrency-sensitive changes also need race
 evidence. Build and static-analysis success establish basic integrity, but they
 do not prove user-visible model behavior.
 
-Provider, retrieval, reminder-delivery, persona, state, and channel changes
+Provider, retrieval, reminder-delivery, prompt-behavior, state, and channel changes
 need proportional proof against the configured local servers or real delivery
 boundary. Mocked HTTP is useful for deterministic failure coverage; it cannot
 establish parity with the deployed local model.

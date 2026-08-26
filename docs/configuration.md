@@ -12,8 +12,6 @@ Node runtime, cause startup to fail.
 {
   "agents": {
     "defaults": {
-      "soul": "Required operator-owned behavior instructions.",
-      "identity": "Required operator-owned identity.",
       "historySearch": {
         "minScore": 0.35
       }
@@ -66,6 +64,7 @@ enable the hosted OpenAI service. The runtime deliberately sends chat model id
 }
 ```
 
-Persona strings are global and loaded only at startup. Edit
-`agents.defaults.soul` or `identity` and restart; there is no chat mutation
-tool or persona table.
+Assistant behavior is fixed, neutral, direct, and non-relational. Personality
+and identity customization are unsupported: `agents.defaults.soul` and
+`agents.defaults.identity` are rejected as unknown keys. Remove both keys from
+existing configuration before starting this release.

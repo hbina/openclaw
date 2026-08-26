@@ -3,7 +3,8 @@
 This branch is a slim, Docker-first personal assistant. The retained
 runtime is Go, serves one trusted owner per deployment, uses Telegram for text
 messages, and keeps tasks, reminders, durable memory, structured transcripts,
-and a derived retrieval index in one SQLite database.
+and a derived retrieval index in one SQLite database. Its interaction style is
+fixed, neutral, and non-relational rather than operator-customizable.
 
 Every generated reply and contextual reminder has an always-on local
 provenance trace covering accepted input, selected recall, model/tool rounds,

@@ -21,7 +21,7 @@ func TestReminderPollInterval(t *testing.T) {
 }
 
 func TestGatewayChatReturnsCompletedTraceID(t *testing.T) {
-	agent, store := newTestAgent(t, &recordingProvider{}, nil, "Be concise.")
+	agent, store := newTestAgent(t, &recordingProvider{}, nil)
 	gateway := NewGateway(agent, channels.NewRegistry(), store)
 	request := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"sender_id":"owner","message":"hello"}`))
 	response := httptest.NewRecorder()

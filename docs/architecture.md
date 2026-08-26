@@ -47,14 +47,14 @@ memory tools when persistence is material to the response. There is no second
 post-response curator pass. Reminder rendering exposes no tools and therefore
 does not mutate memory.
 
-When a reminder is due, the agent loads the same persona, recent exchanges,
-and semantic conversation recall used for an inbound turn. It asks the local
-chat model for a concise notification body without exposing public tools, adds
-the fixed reminder heading, synchronously embeds the completed exchange, and
-sends the result. Provider, embedding, SQLite, retrieval, required selection,
-generation, indexing, or delivery failure prevents completion and
-leaves the reminder due. Successful deliveries commit transcript and vectors
-together.
+When a reminder is due, the agent applies the same fixed neutral behavior,
+recent exchanges, and semantic conversation recall used for an inbound turn.
+It asks the local chat model for a concise, neutral notification body without
+exposing public tools, adds the fixed reminder heading, synchronously embeds the
+completed exchange, and sends the result. Provider, embedding, SQLite,
+retrieval, required selection, generation, indexing, or delivery failure
+prevents completion and leaves the reminder due. Successful deliveries commit
+transcript and vectors together.
 
 Deleted Node source in Git history may be consulted only as behavioral
 evidence. Historical Node application state is deliberately discarded at Go

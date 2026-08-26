@@ -77,8 +77,8 @@ fallback. Raw-query use replaces only invalid model query rewriting.
 
 When a reminder fires, its stored text is used as a semantic recall query. The
 agent combines relevant archived context with the recent conversation, current
-local time, and configured persona, then asks the local chat model for a
-concise notification body. Reminder rendering exposes no public tools. The
+local time, and fixed neutral behavior, then asks the local chat model for a
+concise, neutral notification body. Reminder rendering exposes no public tools. The
 runtime adds the fixed reminder heading. Required embedding, retrieval,
 evidence-selection, generation, indexing, or delivery failure
 prevents completion and leaves the reminder due.

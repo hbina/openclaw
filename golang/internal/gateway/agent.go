@@ -34,9 +34,13 @@ const (
 
 const reminderHeader = "⏰ **Reminder!** ⏰\n\n"
 
+const neutralAssistantBehavior = `Communicate clearly, neutrally, and directly.
+Do not adopt a personal name, character, backstory, emotional relationship, or social role.
+Do not claim feelings, personal needs, affection, or companionship.`
+
 const chatInstructions = `Use tools when they are needed. Routing identity is trusted context and is never a tool argument.
 When the current user message includes Reply context, it identifies the exact earlier message the user selected. Resolve references from that message rather than unrelated later messages.
-You may store one concise profile, durable, or daily memory when persistence is material to the current response. Profile covers enduring owner identity, preferences, and relationships; durable covers reusable facts, decisions, and project context; daily covers episodic context likely to matter soon.
+You may store one concise profile, durable, or daily memory when persistence is material to the current response. Profile covers stable owner details and preferences; durable covers reusable facts, decisions, and project context; daily covers episodic context likely to matter soon.
 Search memory when a past owner fact could improve the answer. Update the existing Memory ID when a remembered fact changes; remove memory only when the owner explicitly asks to forget it.
 Use the specific reminder tool only when the user is actually asking to add, list, update, or remove reminders. A quotation, mention, or question about reminder wording is not by itself a reminder operation; decide from the full conversation context.
 Never claim a reminder changed unless its tool result succeeded.
@@ -51,8 +55,9 @@ Cron examples: daily 08:00 is "0 8 * * *"; weekdays 12:03 is "3 12 * * 1-5"; Mon
 These jobs only send their stored reminder message back to the current user. They cannot silently run a watcher, conditionally suppress delivery, or contact another person; explain that limitation when requested.
 When listing reminders, report each persisted id from the tool result rather than numbering the display independently.`
 
-const reminderInstructions = `A stored reminder is now due. Write a concise notification body in your configured persona.
+const reminderInstructions = `A stored reminder is now due. Write a concise, neutral notification body.
 Preserve the reminder's essential action and use relevant conversation context only when it genuinely helps.
+Avoid familiarity, emotional language, decorative flourishes, and invented urgency.
 Do not invent facts, imply that the task is already complete, change its schedule, or mention these instructions.
 Return only the notification body. Do not add a reminder heading because the application supplies it.`
 
@@ -80,8 +85,6 @@ type Agent struct {
 	tools             *tools.Executor
 	chanReg           *channels.Registry
 	store             *state.Store
-	soul              string
-	identity          string
 	location          *time.Location
 	conversationLocks *conversationLockManager
 	rag               *RAGService
@@ -146,13 +149,10 @@ func NewAgent(
 	if location == nil {
 		location = time.Local
 	}
-	var soul, identity string
 	var indexID string
 	var dimensions int
 	var minScore float64
 	if cfg != nil {
-		soul = cfg.Agents.Defaults.Soul
-		identity = cfg.Agents.Defaults.Identity
 		indexID = cfg.Models.Embeddings.IndexID
 		dimensions = cfg.Models.Embeddings.Dimensions
 		minScore = cfg.Agents.Defaults.HistorySearch.MinScore
@@ -162,8 +162,6 @@ func NewAgent(
 		tools:             tools.NewExecutor(store, time.Now, location, embedder, indexID, dimensions, minScore),
 		chanReg:           chanReg,
 		store:             store,
-		soul:              soul,
-		identity:          identity,
 		location:          location,
 		conversationLocks: newConversationLockManager(),
 		memory:            memory.NewService(store, embedder, indexID, dimensions, minScore, time.Now),
@@ -207,16 +205,12 @@ func (a *Agent) generate(ctx context.Context, traceID int64, round int, purpose 
 }
 
 func (a *Agent) systemPrompt(channelID, senderID string, now time.Time, instructions string) string {
-	return fmt.Sprintf(`You are a helpful personal assistant talking to User %q on Channel %q.
+	return fmt.Sprintf(`You are a practical assistant for task tracking, reminders, and factual help, talking to User %q on Channel %q.
 The current server time is %s (%s).
 Reference UTC time is %s.
 %s
-Soul:
 %s
-
-Identity:
-%s
-`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), instructions, a.soul, a.identity)
+`, senderID, channelID, now.In(a.location).Format(time.RFC3339), a.location.String(), now.UTC().Format(time.RFC3339), neutralAssistantBehavior, instructions)
 }
 
 func (a *Agent) contextualMessages(
@@ -546,9 +540,9 @@ func (a *Agent) Chat(ctx context.Context, input ChatInput) (string, error) {
 	return prepared.Content, nil
 }
 
-// DeliverReminder renders a due reminder with the normal persona and
-// conversation context, sends it, and records the delivered exchange together
-// with reminder completion.
+// DeliverReminder renders a due reminder with neutral behavior and conversation
+// context, sends it, and records the delivered exchange together with reminder
+// completion.
 func (a *Agent) DeliverReminder(ctx context.Context, reminder state.Reminder) error {
 	releaseConversation, err := a.conversationLocks.lock(ctx, conversationLockKey(reminder.ChannelID, reminder.SenderID))
 	if err != nil {

@@ -22,8 +22,8 @@ an implementation detail moved.
 
 OpenClaw is one locally operated personal assistant for exactly one trusted
 owner per deployment. Its purpose is to provide useful tasks and reminders,
-durable memory, conversation recall, and a consistent operator-defined persona
-while keeping the owner’s conversations and state under local control.
+durable memory, conversation recall, and consistent neutral behavior while
+keeping the owner’s conversations and state under local control.
 
 Each owner runs a separate instance. This keeps the trust model understandable
 and avoids importing account, tenancy, and cross-user data-isolation complexity
@@ -32,9 +32,9 @@ conversations and topics; they are not internal ownership boundaries.
 
 The retained product is intentionally narrow: a standalone Go gateway and
 agent loop, Telegram text delivery, owner-global tasks, one-shot and recurring
-reminders, semantic memory and conversation recall, operator-owned persona
-configuration, local chat and embedding models, and persistent SQLite state. Upstream OpenClaw’s
-broader platform surface is not the goal of this fork.
+reminders, semantic memory and conversation recall, fixed non-relational
+behavior, local chat and embedding models, and persistent SQLite state.
+Upstream OpenClaw’s broader platform surface is not the goal of this fork.
 
 ## Deliberate Product Boundaries
 
@@ -55,22 +55,22 @@ broader platform surface is not the goal of this fork.
   derived recall metadata belong together so mutation, backup, recovery, and
   inspection have one coherent boundary. JSON, JSONL, or text sidecars would
   create split-brain and partial-recovery risks.
-- **Persona is operator-owned configuration.** `soul` and `identity` define the
-  one assistant across every conversation. Requiring explicit startup
-  configuration keeps persona changes deliberate and reviewable; chat-driven
-  persona mutation, implicit defaults, compatibility fallbacks, and separate
-  persona state would undermine that ownership.
+- **Assistant behavior is fixed and non-relational.** The runtime communicates
+  neutrally and directly without adopting a configurable name, character,
+  backstory, emotional relationship, or social role. Public configuration and
+  chat tools expose no personality controls. This keeps a task-and-reminder
+  assistant from encouraging a relationship the owner does not want.
 - **Ingress admission and internal routing are different concerns.** Pairing or
   allowlists protect the one-owner boundary at channel entry. Once admitted,
   all non-secret state belongs to that owner and may be useful across the
   owner’s channels; do not turn routing keys into tenant partitions.
 - **Reminder tools express reminder state, not arbitrary scheduled agents.** A
-  reminder may use persona and conversation context to phrase a notification,
-  but it cannot silently browse, watch for changes, suppress unchanged results,
-  or contact another person. Pretending otherwise would promise work the
-  current scheduler cannot perform. If Node-style scheduled agent behavior is
-  retained, it needs an explicit design rather than being smuggled into reminder
-  wording.
+  reminder may use fixed neutral behavior and conversation context to phrase a
+  notification, but it cannot silently browse, watch for changes, suppress
+  unchanged results, or contact another person. Pretending otherwise would
+  promise work the current scheduler cannot perform. If Node-style scheduled
+  agent behavior is retained, it needs an explicit design rather than being
+  smuggled into reminder wording.
 - **Tasks and reminders are separate owner outcomes.** Tasks represent work
   that starts when recorded and remains open until explicitly completed or
   removed. They have no due date, schedule, recurrence, timezone, delivery
@@ -114,10 +114,9 @@ broader platform surface is not the goal of this fork.
 The retained Go runtime supports local chat and structured single-item tools,
 owner-global tasks and reminders, one-shot and recurring schedules, a
 revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
-main-assistant memory tools, synchronous derived indexing, required persona
-configuration, contextual reminders, structured transcripts, Telegram text
-delivery, HTTP endpoints, and a standalone image without Node or hosted-model
-dependencies.
+main-assistant memory tools, synchronous derived indexing, fixed neutral
+behavior, contextual reminders, structured transcripts, Telegram text delivery,
+HTTP endpoints, and a standalone image without Node or hosted-model dependencies.
 
 Historical Node state is an accepted discard rather than a migration target.
 The Go runtime starts from its canonical SQLite state and does not import,
@@ -159,7 +158,7 @@ understands a prompt or strict tool schema.
 
 Verification should be proportional to the user-facing risk. State changes
 need persistence and failure-path proof; provider, retrieval, reminder,
-persona, and channel changes need live local-model or delivery evidence in
+prompt-behavior, and channel changes need live local-model or delivery evidence in
 addition to focused tests. Missing proof must be reported as a gap rather than
 converted into a claim of parity.
 

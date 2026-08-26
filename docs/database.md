@@ -110,8 +110,8 @@ of `conversation_history.id`. It is intentionally not a foreign key because
 the index is disposable and rebuilt explicitly. Uniqueness is enforced
 for model/version/source range/part.
 
-There are no `agent_state`, `conversation_compactions`, or persona tables.
-Persona remains operator-owned configuration.
+There are no `agent_state`, `conversation_compactions`, or personality tables.
+Assistant behavior is fixed in the runtime and is neither configured nor stored.
 
 ## Response provenance
 
