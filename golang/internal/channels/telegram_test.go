@@ -1,10 +1,43 @@
 package channels
 
 import (
+	"context"
 	"testing"
 
 	tele "gopkg.in/telebot.v3"
 )
+
+func TestTelegramAdapterRejectsUnconfiguredOwner(t *testing.T) {
+	for _, owner := range []string{"", "not-numeric", "0", "-1"} {
+		if _, err := NewTelegramAdapter("unused", owner); err == nil {
+			t.Fatalf("owner %q was accepted", owner)
+		}
+	}
+}
+
+func TestTelegramOwnerAdmissionPrecedesHandler(t *testing.T) {
+	ownerID := "100"
+	called := 0
+	handler := func(_ context.Context, msg *Message) error {
+		called++
+		if msg.SenderID != ownerID {
+			t.Fatalf("handler received sender %q", msg.SenderID)
+		}
+		return nil
+	}
+	if err := handleTelegramText(context.Background(), &tele.Message{ID: 1, Sender: &tele.User{ID: 999}, Text: "plant this"}, 200, ownerID, handler); err != nil {
+		t.Fatal(err)
+	}
+	if called != 0 {
+		t.Fatalf("handler called %d times for rejected sender", called)
+	}
+	if err := handleTelegramText(context.Background(), &tele.Message{ID: 2, Sender: &tele.User{ID: 100}, Text: "hello"}, 200, ownerID, handler); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("handler called %d times, want 1", called)
+	}
+}
 
 func TestTelegramInboundMessageWithoutReply(t *testing.T) {
 	message := &tele.Message{

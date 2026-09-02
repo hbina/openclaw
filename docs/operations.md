@@ -72,6 +72,10 @@ human-readable only:
 ./openclaw memory search --database /data/openclaw-agent.sqlite --config-dir /config \
   --query "How should I format answers?" --max-results 5
 ./openclaw memory reindex --database /data/openclaw-agent.sqlite --config-dir /config
+./openclaw memory maintenance status --database /data/openclaw-agent.sqlite
+./openclaw memory maintenance preview --database /data/openclaw-agent.sqlite --config-dir /config
+./openclaw memory maintenance run --database /data/openclaw-agent.sqlite --config-dir /config
+./openclaw memory maintenance candidates --database /data/openclaw-agent.sqlite --run-id 7
 ```
 
 `memory search` uses the local chat model to plan and rerank hybrid FTS5/vector
@@ -80,8 +84,18 @@ the chat/reminder planner fallback. `memory reindex` embeds every active memory
 and completed conversation before replacing all derived rows in one
 transaction. A failure leaves the previous derived index intact.
 
+`memory maintenance preview` runs extraction, deterministic gates, hybrid
+comparison, and consolidation without changing memory or advancing the durable
+checkpoint. `memory maintenance run` applies accepted adds and updates and
+advances only past a fully terminal bounded batch. `status` and `candidates`
+expose the durable schedule, lease, checkpoint, run failure, evidence, scores,
+and decision state. The scheduled worker and manual commands share one SQLite
+lease, so an overlapping invocation fails instead of duplicating work.
+
 There are deliberately no memory import, export, JSON-output, background
-repair, or filesystem-synchronization commands.
+index repair, or filesystem-synchronization commands. Background consolidation
+is not index repair: every accepted mutation writes its revision and complete
+derived index atomically.
 
 ## Backup and inspection
 
@@ -94,10 +108,10 @@ sqlite3 /path/to/openclaw-agent.sqlite \
 sqlite3 /path/to/openclaw-agent.sqlite.backup "PRAGMA integrity_check;"
 ```
 
-Keep the backup outside the image. Memories, revisions, tasks, reminders,
-transcripts, and traces are authoritative. FTS5 tables, memory vectors, and
-conversation chunks are derived and rebuilt only with the explicit offline
-`memory reindex` command.
+Keep the backup outside the image. Memories, revisions, maintenance runs and
+checkpoints, tasks, reminders, transcripts, and traces are authoritative. FTS5
+tables, memory vectors, and conversation chunks are derived and rebuilt only
+with the explicit offline `memory reindex` command.
 
 Inspect recent traces locally:
 
@@ -114,10 +128,31 @@ Inspect recent traces locally:
 3. Build an immutable candidate image.
 4. Point it at a fresh persistent data directory and preserved configuration.
 5. Prove startup readiness, a real HTTP turn, a Telegram turn, memory capture
-   through the main assistant tools, hybrid recall, tasks, reminders, and
+   through the main assistant tools, a maintenance preview and apply, hybrid
+   recall, rejection of a non-owner Telegram sender, tasks, reminders, and
    restart persistence.
 6. Verify that model or embedding failure prevents delivery and leaves a due
    reminder retryable.
 7. Retain one known-good SQLite backup and image rollback target.
 
-The repository deployment helper is `scripts/deploy-go-test.sh`.
+The native systemd fresh-state helper is `scripts/reset-go-test-state.py`. The
+Docker fresh-state helper is invoked with an explicitly named retained runtime:
+
+```bash
+scripts/deploy-go-docker.py cutover --yes \
+  --previous-container PREVIOUS_CONTAINER
+```
+
+It runs verification before stopping anything, builds an immutable candidate,
+archives the complete pre-ledger Go data directory, starts the candidate with a
+new empty directory on loopback port `18792`, performs schema, HTTP, restart,
+SQLite backup, and restore-rehearsal checks, and retains the stopped previous
+container. A failure automatically restores the old directory and restarts the
+previous container. Successful output includes an exact `rollback` command.
+Both helpers require explicit `--yes` confirmation. Live owner/non-owner
+Telegram acceptance remains a manual cutover gate because the same bot token
+must not have two long-poll consumers.
+
+The legacy `scripts/deploy-go-test.sh` entry point is now only a compatibility
+wrapper for this fresh-state tool; its former in-place schema transition has
+been removed.

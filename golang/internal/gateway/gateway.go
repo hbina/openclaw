@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openclaw/openclaw/go/internal/channels"
+	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/state"
 )
 
@@ -17,18 +19,24 @@ const reminderPollInterval = time.Minute
 
 // Gateway exposes the HTTP health and orchestration endpoints.
 type Gateway struct {
-	agent   *Agent
-	chanReg *channels.Registry
-	store   *state.Store
-	server  *http.Server
+	agent             *Agent
+	chanReg           *channels.Registry
+	store             *state.Store
+	maintainer        *memory.Maintainer
+	maintenanceCancel context.CancelFunc
+	maintenanceDone   chan struct{}
+	server            *http.Server
 }
 
-func NewGateway(agent *Agent, chanReg *channels.Registry, store *state.Store) *Gateway {
+func NewGateway(agent *Agent, chanReg *channels.Registry, store *state.Store, maintainers ...*memory.Maintainer) *Gateway {
 	mux := http.NewServeMux()
 	g := &Gateway{
 		agent:   agent,
 		chanReg: chanReg,
 		store:   store,
+	}
+	if len(maintainers) > 0 {
+		g.maintainer = maintainers[0]
 	}
 
 	mux.HandleFunc("/healthz", g.healthCheck)
@@ -64,6 +72,15 @@ func (g *Gateway) Start(ctx context.Context) error {
 
 	// Start Reminder Loop
 	go g.startReminderLoop(ctx)
+	if g.maintainer != nil {
+		maintenanceCtx, cancel := context.WithCancel(ctx)
+		g.maintenanceCancel = cancel
+		g.maintenanceDone = make(chan struct{})
+		go func() {
+			defer close(g.maintenanceDone)
+			g.maintainer.RunLoop(maintenanceCtx)
+		}()
+	}
 
 	return nil
 }
@@ -94,17 +111,27 @@ func (g *Gateway) startReminderLoop(ctx context.Context) {
 
 func (g *Gateway) Stop(ctx context.Context) error {
 	log.Println("Stopping Gateway...")
+	if g.maintenanceCancel != nil {
+		g.maintenanceCancel()
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	// Stop channels
 	if err := g.chanReg.StopAll(ctx); err != nil {
 		log.Printf("Error stopping channels: %v", err)
 	}
 
-	// Give the HTTP server a brief period to shutdown gracefully
-	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	return g.server.Shutdown(shutdownCtx)
+	serverErr := g.server.Shutdown(shutdownCtx)
+	if g.maintenanceDone != nil {
+		select {
+		case <-g.maintenanceDone:
+		case <-shutdownCtx.Done():
+			return errors.Join(serverErr, fmt.Errorf("memory maintenance did not stop before shutdown deadline: %w", shutdownCtx.Err()))
+		}
+	}
+	return serverErr
 }
 
 func (g *Gateway) healthCheck(w http.ResponseWriter, r *http.Request) {

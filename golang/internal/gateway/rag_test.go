@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -126,6 +127,46 @@ func TestRAGIndexesAndRecallsAcrossOwnerConversations(t *testing.T) {
 	}
 	if !strings.Contains(retrieval.Matches[0].MessagesJSON, "Kyoto Station") || retrieval.EmbeddingQuery == "" {
 		t.Fatalf("retrieval provenance = %#v", retrieval)
+	}
+}
+
+func TestRAGRecallSurvivesRestartAndDifferentConversationKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "recall.sqlite")
+	store, err := state.NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedExchange(t, store, "telegram", "old-topic", "I am planning Kyoto travel.", "Use trains from Kyoto Station.")
+	service := NewRAGService(store, &fakeEmbedder{}, &fakePromptSizer{contextSize: 10_000}, "embeddinggemma-test", 3, 0.35)
+	if err := service.IndexOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := state.NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	service = NewRAGService(reopened, &fakeEmbedder{}, &fakePromptSizer{contextSize: 10_000}, "embeddinggemma-test", 3, 0.35)
+	retrieval, err := service.RetrieveDetailed(
+		context.Background(),
+		"What did we decide about transportation in Japan?",
+		nil,
+		[]providers.Message{
+			{Role: providers.RoleSystem, Content: "system"},
+			{Role: providers.RoleUser, Content: "A new CLI conversation asks about transportation in Japan."},
+		},
+		nil,
+		defaultMaxTokens,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrieval.Outcome != "selected" || !strings.Contains(retrieval.Archive, "Kyoto Station") {
+		t.Fatalf("restart recall=%#v", retrieval)
 	}
 }
 

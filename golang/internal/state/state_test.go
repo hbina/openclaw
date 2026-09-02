@@ -550,7 +550,7 @@ func TestConversationIndexGapValidation(t *testing.T) {
 
 func TestFreshDatabaseUsesOnlyCanonicalTables(t *testing.T) {
 	store := newTestStore(t)
-	for _, table := range []string{"memories", "memory_revisions", "memory_embeddings", "memory_fts", "memory_rag_matches", "reminders", "tasks", "conversation_history", "conversation_chunks", "response_traces", "trace_events", "rag_retrievals", "rag_matches", "llm_calls", "tool_executions", "response_outputs", "delivery_attempts"} {
+	for _, table := range []string{"memories", "memory_revisions", "memory_embeddings", "memory_fts", "memory_rag_matches", "memory_maintenance_state", "memory_maintenance_runs", "memory_candidates", "reminders", "tasks", "conversation_history", "conversation_chunks", "response_traces", "trace_events", "rag_retrievals", "rag_matches", "llm_calls", "tool_executions", "response_outputs", "delivery_attempts"} {
 		if !databaseTableExists(t, store, table) {
 			t.Errorf("fresh database is missing %s", table)
 		}

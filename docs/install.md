@@ -47,3 +47,16 @@ docker run -d \
 
 Keep the Gateway on loopback or another trusted network until HTTP
 authentication and request limits are implemented.
+
+For a guarded transition from an existing container, use the repository's
+fresh-state helper rather than pointing Go at an older database:
+
+```bash
+scripts/deploy-go-docker.py cutover --yes \
+  --previous-container PREVIOUS_CONTAINER
+```
+
+The helper retains the stopped previous container and prints the corresponding
+rollback command after all automated proof passes. Telegram owner and rejected
+non-owner delivery still require manual acceptance before declaring the
+cutover complete.

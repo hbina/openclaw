@@ -13,6 +13,7 @@ import (
 	"github.com/openclaw/openclaw/go/internal/channels"
 	"github.com/openclaw/openclaw/go/internal/config"
 	"github.com/openclaw/openclaw/go/internal/gateway"
+	"github.com/openclaw/openclaw/go/internal/memory"
 	"github.com/openclaw/openclaw/go/internal/providers"
 	"github.com/openclaw/openclaw/go/internal/state"
 )
@@ -109,11 +110,20 @@ func main() {
 	} else if gaps != 0 {
 		log.Fatalf("Conversation index readiness check failed: %d completed exchanges are unindexed; run memory reindex", gaps)
 	}
+	chatPriority := providers.NewPriorityGate()
+	embeddingPriority := providers.NewPriorityGate()
+	foregroundChat := providers.NewPriorityProvider(primaryProv, chatPriority, providers.ForegroundWork)
+	backgroundChat := providers.NewPriorityProvider(primaryProv, chatPriority, providers.BackgroundWork)
+	foregroundEmbedding := providers.NewPriorityEmbedder(embeddingProv, embeddingPriority, providers.ForegroundWork)
+	backgroundEmbedding := providers.NewPriorityEmbedder(embeddingProv, embeddingPriority, providers.BackgroundWork)
 
 	// 4. Channels
 	chanReg := channels.NewRegistry()
-	if cfg.Channels.Telegram.Enabled && sec.Channels.Telegram.BotToken != "" {
-		tg, err := channels.NewTelegramAdapter(sec.Channels.Telegram.BotToken)
+	if cfg.Channels.Telegram.Enabled {
+		if strings.TrimSpace(sec.Channels.Telegram.BotToken) == "" {
+			log.Fatal("Telegram is enabled but channels.telegram.botToken is missing from secrets.json")
+		}
+		tg, err := channels.NewTelegramAdapter(sec.Channels.Telegram.BotToken, cfg.Channels.Telegram.OwnerUserID)
 		if err != nil {
 			log.Fatalf("Failed to configure Telegram: %v", err)
 		}
@@ -125,14 +135,31 @@ func main() {
 	log.Printf("Using server timezone %s", serverTimezone.String())
 	rag := gateway.NewRAGService(
 		store,
-		embeddingProv,
-		primaryProv,
+		foregroundEmbedding,
+		foregroundChat,
 		cfg.Models.Embeddings.IndexID,
 		cfg.Models.Embeddings.Dimensions,
 		cfg.Agents.Defaults.HistorySearch.MinScore,
 	)
-	agent := gateway.NewAgent(primaryProv, chanReg, store, cfg, serverTimezone, embeddingProv, rag)
-	gw := gateway.NewGateway(agent, chanReg, store)
+	agent := gateway.NewAgent(foregroundChat, chanReg, store, cfg, serverTimezone, foregroundEmbedding, rag)
+	var memoryMaintainer *memory.Maintainer
+	if cfg.Agents.Defaults.MemoryMaintenance.Enabled {
+		maintenanceLocation, err := time.LoadLocation(cfg.Agents.Defaults.MemoryMaintenance.Timezone)
+		if err != nil {
+			log.Fatalf("Failed to load memory maintenance timezone: %v", err)
+		}
+		memoryService := memory.NewService(store, backgroundEmbedding, cfg.Models.Embeddings.IndexID, cfg.Models.Embeddings.Dimensions, cfg.Agents.Defaults.HistorySearch.MinScore, time.Now)
+		memoryMaintainer, err = memory.NewMaintainer(
+			store, memoryService, backgroundChat, cfg.Channels.Telegram.OwnerUserID,
+			cfg.Agents.Defaults.MemoryMaintenance.BatchSize,
+			cfg.Agents.Defaults.MemoryMaintenance.Schedule,
+			maintenanceLocation, time.Now,
+		)
+		if err != nil {
+			log.Fatalf("Failed to configure memory maintenance: %v", err)
+		}
+	}
+	gw := gateway.NewGateway(agent, chanReg, store, memoryMaintainer)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

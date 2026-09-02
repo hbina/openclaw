@@ -49,6 +49,12 @@ and enable testing, not to reopen the product to hosted services.
   history are sources of truth; FTS rows, embeddings, and chunks are rebuilt
   only by an explicit offline operation. Runtime fallback, background repair,
   and partially indexed states would make recall behavior unknowable.
+- **Background consolidation is not background index repair.** The native
+  maintenance worker may propose grounded memory adds or updates from admitted
+  owner transcripts, but an accepted mutation must synchronously commit its
+  immutable revision, FTS row, vector, candidate outcome, and provenance. The
+  worker cannot repair a partial index, delete memory, ingest HTTP or internal
+  events, or make its failure block owner replies.
 - **Recalled history is explicitly non-authoritative.** Retrieval provides
   relevant evidence, not new instructions. This distinction prevents archived
   requests and tool calls from becoming unintended current actions.

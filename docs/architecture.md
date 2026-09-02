@@ -19,6 +19,11 @@ flowchart TD
     AGENT --> MEMORY[Memory tools]
     MEMORY --> EMBED[Embedding llama-server]
     EMBED --> SQLITE[(SQLite ledger, revisions, FTS5, vectors, traces)]
+    COMMIT --> MAINTAIN[Bounded Go maintenance worker]
+    MAINTAIN --> GATE[Evidence and deterministic promotion gates]
+    GATE --> CONSOLIDATE[Local-model consolidation]
+    CONSOLIDATE --> MEMORY
+    MAINTAIN --> SQLITE
 ```
 
 `cmd/openclaw` loads strict configuration, opens SQLite, creates both local
@@ -28,6 +33,23 @@ index, registers Telegram when enabled, and starts the Gateway.
 The agent stores every inbound message, assistant message, tool call, and tool
 result as structured transcript rows. Task, reminder, and memory mutations and
 their corresponding tool-result rows commit in the same SQLite transaction.
+
+When enabled, one native Go maintenance worker performs a startup catch-up and
+then follows its configured timezone-aware cron schedule. A SQLite lease and a
+fixed per-run history watermark prevent overlapping or unbounded work. It reads
+only complete admitted Telegram owner exchanges; HTTP, reminders, tools,
+internal calls, quoted reply context, and recalled evidence cannot enter the
+automatic promotion path. Runs, checkpoints, evidence-bearing candidates,
+scores, decisions, and failures remain in SQLite. Background failure is
+retryable and does not block ordinary responses. Shared priority gates on the
+chat and embedding providers admit queued owner-facing work before the next
+background call, while allowing an already bounded maintenance call to finish.
+
+The worker is a curator, not an index repair path. Every accepted add or update
+creates an immutable revision and replaces its FTS/vector rows in the same
+transaction. Consolidation is kind-preserving, and a proposed update that
+would discard unrelated target facts becomes an audited review outcome rather
+than a mutation. It cannot delete memory or schedule arbitrary agent work.
 
 Tasks are one owner-global ledger with no routing or scheduling columns. Their
 start and completion timestamps record actual lifecycle events. Reminders are

@@ -17,16 +17,44 @@ observed/created/updated/deleted timestamps. The partial unique content-hash
 index makes exact active duplicates idempotent.
 
 `memory_revisions` is immutable audit history. Each row stores a revision
-number, content and hash, trusted origin class, chat/operator source class,
-optional source conversation and trace references, and creation time. Updating
-a memory advances the pointer in `memories`; removing one retains all
-revisions.
+number, content and hash, trusted origin class, chat/operator/maintenance
+source class, optional source conversation and trace references, and creation
+time. Updating a memory advances the pointer in `memories`; removing one
+retains all revisions.
 
 `memory_embeddings` contains the current active revision's packed vector,
 stable embedding index id, and dimensions. `memory_fts` is an FTS5 virtual
 table containing the same current active revision. Deleted memories have rows
 in neither derived table. Both indexes are replaced with the ledger mutation
 in the same transaction.
+
+## Memory maintenance
+
+Background consolidation state is canonical rather than an external job log:
+
+- `memory_maintenance_state` is a singleton containing the last terminally
+  processed history ID, recoverable worker lease, next due time, and last
+  successful run time.
+- `memory_maintenance_runs` records preview, manual apply, and scheduled runs,
+  their fixed source watermark and index contract, current stage, counts,
+  completion, and bounded failure reason.
+- `memory_candidates` records the proposed content and kind, exact evidence
+  history IDs, observation time, recurrence and cross-day counts, deterministic
+  trust/recency/novelty/contradiction scores, proposed action, target Memory ID,
+  and terminal decision. Secret-bearing proposals store a redacted marker
+  rather than copying sensitive text into this audit table.
+
+Only complete owner-visible text exchanges from the configured Telegram owner
+are eligible. A successful apply advances the checkpoint only after every
+candidate in the bounded batch has a terminal accepted or audited rejection
+outcome. Preview never advances it. A failed or cancelled run clears its lease
+but leaves the checkpoint unchanged for retry. An expired lease is reclaimed
+and its abandoned active run is marked failed.
+
+Candidates do not write memory tables directly. An accepted add or update uses
+the normal memory transaction, linking its latest evidence history ID in the
+immutable revision while the candidate retains the complete evidence set.
+Automatic deletion has no maintenance action.
 
 ## `reminders`
 

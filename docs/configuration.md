@@ -14,12 +14,19 @@ Node runtime, cause startup to fail.
     "defaults": {
       "historySearch": {
         "minScore": 0.35
+      },
+      "memoryMaintenance": {
+        "enabled": true,
+        "schedule": "0 3 * * *",
+        "timezone": "Asia/Kuala_Lumpur",
+        "batchSize": 24
       }
     }
   },
   "channels": {
     "telegram": {
-      "enabled": true
+      "enabled": true,
+      "ownerUserId": "123456789"
     }
   },
   "models": {
@@ -37,6 +44,18 @@ Node runtime, cause startup to fail.
   }
 }
 ```
+
+`channels.telegram.ownerUserId` is the single admitted Telegram owner. It is
+stored as a string to preserve the numeric identifier exactly. Updates from any
+other Telegram sender are discarded before the agent, transcript, tools, or
+memory pipeline is invoked. When Telegram is enabled, both this ID and the bot
+token in `secrets.json` are mandatory startup inputs; the runtime does not
+silently start without its admitted channel.
+
+`agents.defaults.memoryMaintenance` controls the native Go consolidation
+worker. `schedule` is a five-field cron expression interpreted in the named
+IANA `timezone`; `batchSize` bounds the number of complete owner exchanges in
+one run. The worker is disabled unless `enabled` is true.
 
 The `openai` name identifies the OpenAI-compatible wire protocol. It does not
 enable the hosted OpenAI service. The runtime deliberately sends chat model id

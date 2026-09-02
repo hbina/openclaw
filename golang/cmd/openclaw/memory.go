@@ -19,7 +19,7 @@ import (
 
 func runMemoryCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: openclaw memory <status|add|list|get|search|update|remove|reindex>")
+		return fmt.Errorf("usage: openclaw memory <status|add|list|get|search|update|remove|reindex|maintenance>")
 	}
 	switch args[0] {
 	case "status":
@@ -38,8 +38,119 @@ func runMemoryCommand(args []string) error {
 		return memoryRemove(args[1:], os.Stdout)
 	case "reindex":
 		return memoryReindex(args[1:], os.Stdout)
+	case "maintenance":
+		return memoryMaintenance(args[1:], os.Stdout)
 	default:
 		return fmt.Errorf("unknown memory command %q", args[0])
+	}
+}
+
+func memoryMaintenance(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: openclaw memory maintenance <status|preview|run|candidates>")
+	}
+	switch args[0] {
+	case "status":
+		set, database := commandFlags("maintenance status")
+		if err := set.Parse(args[1:]); err != nil {
+			return err
+		}
+		store, err := openCommandStore(*database)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		maintenanceState, latest, err := store.MaintenanceStatus(context.Background())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Memory maintenance checkpoint: history ID %d\n", maintenanceState.CheckpointHistoryID)
+		if maintenanceState.NextRunAt != nil {
+			fmt.Fprintf(out, "Next scheduled run: %s\n", maintenanceState.NextRunAt.UTC().Format(time.RFC3339))
+		}
+		if maintenanceState.LeaseOwner != "" {
+			fmt.Fprintln(out, "Worker lease: active")
+		}
+		if latest == nil {
+			fmt.Fprintln(out, "Latest run: none")
+			return nil
+		}
+		fmt.Fprintf(out, "Latest run: %d mode=%s status=%s stage=%s range=%d..%d processed=%d candidates=%d promoted=%d rejected=%d\n",
+			latest.ID, latest.Mode, latest.Status, latest.Stage, latest.CheckpointHistoryID,
+			latest.HighwaterHistoryID, latest.ProcessedHistoryID, latest.CandidateCount,
+			latest.PromotedCount, latest.RejectedCount)
+		if latest.Error != "" {
+			fmt.Fprintf(out, "Latest error: %s\n", latest.Error)
+		}
+		return nil
+	case "candidates":
+		set, database := commandFlags("maintenance candidates")
+		runID := set.Int64("run-id", 0, "maintenance run ID")
+		if err := set.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *runID <= 0 {
+			return fmt.Errorf("--run-id must be positive")
+		}
+		store, err := openCommandStore(*database)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		candidates, err := store.ListMaintenanceCandidates(context.Background(), *runID)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range candidates {
+			target := ""
+			if candidate.TargetMemoryID != nil {
+				target = fmt.Sprintf(" target=%d", *candidate.TargetMemoryID)
+			}
+			fmt.Fprintf(out, "Candidate %d [%s/%s] action=%s%s evidence=%v scores=trust:%.3f recency:%.3f novelty:%.3f contradiction:%.3f reason=%s\n%s\n",
+				candidate.ID, candidate.Kind, candidate.Status, candidate.ProposedAction,
+				target, candidate.EvidenceHistoryIDs, candidate.TrustScore, candidate.RecencyScore,
+				candidate.NoveltyScore, candidate.ContradictionScore, candidate.DecisionReason, candidate.Content)
+		}
+		return nil
+	case "preview", "run":
+		set, database := commandFlags("maintenance " + args[0])
+		configDir := set.String("config-dir", "", "configuration directory")
+		if err := set.Parse(args[1:]); err != nil {
+			return err
+		}
+		store, service, cfg, _, err := configuredMemoryFull(*database, *configDir)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		chat, err := configuredChat(*configDir, cfg)
+		if err != nil {
+			return err
+		}
+		location, err := time.LoadLocation(cfg.Agents.Defaults.MemoryMaintenance.Timezone)
+		if err != nil {
+			return err
+		}
+		maintainer, err := memory.NewMaintainer(store, service, chat, cfg.Channels.Telegram.OwnerUserID,
+			cfg.Agents.Defaults.MemoryMaintenance.BatchSize, cfg.Agents.Defaults.MemoryMaintenance.Schedule,
+			location, time.Now)
+		if err != nil {
+			return err
+		}
+		mode := state.MaintenanceApply
+		if args[0] == "preview" {
+			mode = state.MaintenancePreview
+		}
+		result, err := maintainer.Run(context.Background(), mode)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Maintenance run %d (%s) processed through history ID %d: %d candidates, %d promoted, %d rejected.\n",
+			result.RunID, result.Mode, result.ProcessedHistoryID, result.CandidateCount,
+			result.PromotedCount, result.RejectedCount)
+		return nil
+	default:
+		return fmt.Errorf("unknown memory maintenance command %q", args[0])
 	}
 }
 

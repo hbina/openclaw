@@ -90,3 +90,24 @@ func MarshalGenerateRequest(provider Provider, req *GenerateRequest) ([]byte, er
 type Provider interface {
 	Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error)
 }
+
+// IsLocalOpenAIProvider reports whether provider is the retained local
+// OpenAI-compatible client, possibly behind an in-process behavior-preserving
+// wrapper such as PriorityProvider.
+func IsLocalOpenAIProvider(provider Provider) bool {
+	for provider != nil {
+		if _, ok := provider.(*OpenAIClient); ok {
+			return true
+		}
+		wrapper, ok := provider.(interface{ unwrapProvider() Provider })
+		if !ok {
+			return false
+		}
+		next := wrapper.unwrapProvider()
+		if next == provider {
+			return false
+		}
+		provider = next
+	}
+	return false
+}

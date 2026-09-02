@@ -4,7 +4,9 @@ summary: Supported Telegram behavior and limitations
 ---
 
 Telegram is the only messaging channel. The adapter uses long polling and
-handles text updates. It records the numeric sender id as routing metadata and
+handles text updates from the one configured numeric owner user id. Other
+senders are discarded before agent handling or persistence. It records the
+admitted numeric sender id as routing metadata and
 preserves one level of reply context, including quoted text when Telegram
 provides it.
 
@@ -18,13 +20,11 @@ delivery, and recurring reminders advance only after successful delivery.
 
 Not yet implemented:
 
-- pairing or owner allowlists;
+- pairing beyond the one configured owner allowlist;
 - correct group and topic identity;
 - media, reactions, edits, or general thread handling;
 - multiple Telegram accounts;
 - durable delivery claims, leases, or idempotency.
 
-Until admission controls exist, possession of the bot username/token path may
-allow an unknown Telegram sender to interact with the assistant. Treat the
-current adapter as test-only unless network- and bot-level controls make that
-acceptable.
+The configured owner id is derived from Telegram ingress and is never accepted
+from model-controlled arguments or message text.

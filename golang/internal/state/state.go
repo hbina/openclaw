@@ -144,7 +144,7 @@ func (s *Store) initializeSchema() error {
 		content           TEXT NOT NULL,
 		content_hash      TEXT NOT NULL,
 		origin_class      TEXT NOT NULL CHECK (origin_class IN ('owner', 'agent', 'system', 'untrusted')),
-		source_kind       TEXT NOT NULL CHECK (source_kind IN ('chat', 'operator')),
+		source_kind       TEXT NOT NULL CHECK (source_kind IN ('chat', 'operator', 'maintenance')),
 		source_history_id INTEGER,
 		source_trace_id   INTEGER,
 		created_at        DATETIME NOT NULL,
@@ -207,6 +207,66 @@ func (s *Store) initializeSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_conversation_history_lookup
 		ON conversation_history(channel_id, sender_id, id);
+
+	CREATE TABLE IF NOT EXISTS memory_maintenance_state (
+		singleton_id          INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+		checkpoint_history_id INTEGER NOT NULL DEFAULT 0,
+		lease_owner           TEXT NOT NULL DEFAULT '',
+		lease_expires_at      DATETIME,
+		next_run_at           DATETIME,
+		last_success_at       DATETIME,
+		updated_at            DATETIME NOT NULL
+	);
+
+	INSERT OR IGNORE INTO memory_maintenance_state
+		(singleton_id, checkpoint_history_id, lease_owner, updated_at)
+		VALUES (1, 0, '', CURRENT_TIMESTAMP);
+
+	CREATE TABLE IF NOT EXISTS memory_maintenance_runs (
+		id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+		mode                  TEXT NOT NULL CHECK (mode IN ('preview', 'apply', 'scheduled')),
+		status                TEXT NOT NULL CHECK (status IN ('active', 'completed', 'failed', 'cancelled')),
+		stage                 TEXT NOT NULL,
+		owner_sender_id       TEXT NOT NULL,
+		checkpoint_history_id INTEGER NOT NULL,
+		highwater_history_id  INTEGER NOT NULL,
+		processed_history_id  INTEGER NOT NULL DEFAULT 0,
+		candidate_count       INTEGER NOT NULL DEFAULT 0,
+		promoted_count        INTEGER NOT NULL DEFAULT 0,
+		rejected_count        INTEGER NOT NULL DEFAULT 0,
+		embedding_model       TEXT NOT NULL,
+		dimensions            INTEGER NOT NULL,
+		index_version         INTEGER NOT NULL,
+		error                 TEXT NOT NULL DEFAULT '',
+		started_at            DATETIME NOT NULL,
+		completed_at          DATETIME
+	);
+
+	CREATE TABLE IF NOT EXISTS memory_candidates (
+		id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+		run_id                   INTEGER NOT NULL,
+		kind                     TEXT NOT NULL CHECK (kind IN ('profile', 'durable', 'daily')),
+		content                  TEXT NOT NULL,
+		content_hash             TEXT NOT NULL,
+		origin_class             TEXT NOT NULL CHECK (origin_class IN ('owner', 'agent')),
+		evidence_history_ids     TEXT NOT NULL,
+		observed_at              DATETIME NOT NULL,
+		recurrence_count         INTEGER NOT NULL,
+		distinct_day_count       INTEGER NOT NULL,
+		trust_score              REAL NOT NULL,
+		recency_score            REAL NOT NULL,
+		novelty_score            REAL NOT NULL DEFAULT 0,
+		contradiction_score      REAL NOT NULL DEFAULT 0,
+		proposed_action          TEXT NOT NULL CHECK (proposed_action IN ('pending', 'noop', 'add', 'update', 'review', 'reject')),
+		target_memory_id         INTEGER,
+		status                   TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'failed')),
+		decision_reason          TEXT NOT NULL DEFAULT '',
+		created_at               DATETIME NOT NULL,
+		resolved_at              DATETIME,
+		FOREIGN KEY (run_id) REFERENCES memory_maintenance_runs(id),
+		FOREIGN KEY (target_memory_id) REFERENCES memories(id),
+		UNIQUE (run_id, content_hash, evidence_history_ids)
+	);
 
 	CREATE TABLE IF NOT EXISTS conversation_chunks (
 		id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -368,6 +428,12 @@ func (s *Store) initializeSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_memory_embeddings_model
 		ON memory_embeddings(embedding_model, dimensions);
 
+	CREATE INDEX IF NOT EXISTS idx_memory_maintenance_runs_time
+		ON memory_maintenance_runs(started_at DESC, id DESC);
+
+	CREATE INDEX IF NOT EXISTS idx_memory_candidates_run
+		ON memory_candidates(run_id, id);
+
 	CREATE INDEX IF NOT EXISTS idx_response_traces_time
 		ON response_traces(started_at DESC, id DESC);
 
@@ -420,6 +486,22 @@ func (s *Store) validateCanonicalSchema() error {
 		},
 		"conversation_history": {
 			"id", "channel_id", "sender_id", "role", "content_type", "audience", "content", "created_at",
+		},
+		"memory_maintenance_state": {
+			"singleton_id", "checkpoint_history_id", "lease_owner", "lease_expires_at",
+			"next_run_at", "last_success_at", "updated_at",
+		},
+		"memory_maintenance_runs": {
+			"id", "mode", "status", "stage", "owner_sender_id", "checkpoint_history_id",
+			"highwater_history_id", "processed_history_id", "candidate_count", "promoted_count",
+			"rejected_count", "embedding_model", "dimensions", "index_version", "error",
+			"started_at", "completed_at",
+		},
+		"memory_candidates": {
+			"id", "run_id", "kind", "content", "content_hash", "origin_class",
+			"evidence_history_ids", "observed_at", "recurrence_count", "distinct_day_count",
+			"trust_score", "recency_score", "novelty_score", "contradiction_score",
+			"proposed_action", "target_memory_id", "status", "decision_reason", "created_at", "resolved_at",
 		},
 		"conversation_chunks": {
 			"id", "start_history_id", "end_history_id", "part_index", "content_hash",
@@ -541,7 +623,7 @@ func (s *Store) validateCanonicalSchema() error {
 	if normalizedIndexSQL != expectedTaskIndexSQL {
 		return fmt.Errorf("task duplicate-prevention index does not match the canonical definition; rebuild the database")
 	}
-	for _, name := range []string{"idx_memories_active_content", "idx_memories_active_kind", "idx_memory_embeddings_model", "idx_response_traces_time", "idx_response_traces_route", "idx_response_traces_external_message", "idx_trace_events_trace", "idx_delivery_provider_message"} {
+	for _, name := range []string{"idx_memories_active_content", "idx_memories_active_kind", "idx_memory_embeddings_model", "idx_memory_maintenance_runs_time", "idx_memory_candidates_run", "idx_response_traces_time", "idx_response_traces_route", "idx_response_traces_external_message", "idx_trace_events_trace", "idx_delivery_provider_message"} {
 		var count int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&count); err != nil {
 			return fmt.Errorf("inspect canonical provenance index %s: %w", name, err)

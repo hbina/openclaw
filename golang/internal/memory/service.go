@@ -54,6 +54,10 @@ func NewService(store *state.Store, embedder providers.Embedder, indexID string,
 }
 
 func (service *Service) PrepareWrite(ctx context.Context, kind state.MemoryKind, content string, provenance Provenance) (state.MemoryWrite, error) {
+	return service.PrepareWriteObservedAt(ctx, kind, content, provenance, service.now())
+}
+
+func (service *Service) PrepareWriteObservedAt(ctx context.Context, kind state.MemoryKind, content string, provenance Provenance, observedAt time.Time) (state.MemoryWrite, error) {
 	content = strings.TrimSpace(content)
 	if !state.ValidMemoryKind(kind) {
 		return state.MemoryWrite{}, fmt.Errorf("kind must be profile, durable, or daily")
@@ -63,6 +67,9 @@ func (service *Service) PrepareWrite(ctx context.Context, kind state.MemoryKind,
 	}
 	if provenance.Origin == "" || provenance.Source == "" {
 		return state.MemoryWrite{}, fmt.Errorf("memory provenance is required")
+	}
+	if observedAt.IsZero() {
+		return state.MemoryWrite{}, fmt.Errorf("memory observation time is required")
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 	vectors, err := service.embedder.Embed(requestCtx, []string{"title: memory | text: " + content})
@@ -76,7 +83,8 @@ func (service *Service) PrepareWrite(ctx context.Context, kind state.MemoryKind,
 	return state.MemoryWrite{
 		Kind: kind, Content: content, OriginClass: provenance.Origin, SourceKind: provenance.Source,
 		SourceHistoryID: provenance.SourceHistoryID, SourceTraceID: provenance.SourceTraceID,
-		EmbeddingModel: service.indexID, Dimensions: service.dimensions, Embedding: vector.Pack(vectors[0]), Now: service.now(),
+		EmbeddingModel: service.indexID, Dimensions: service.dimensions, Embedding: vector.Pack(vectors[0]),
+		ObservedAt: observedAt, Now: service.now(),
 	}, nil
 }
 

@@ -167,7 +167,7 @@ func NewAgent(
 		memory:            memory.NewService(store, embedder, indexID, dimensions, minScore, time.Now),
 		embedder:          embedder,
 	}
-	_, agent.modelMemory = provider.(*providers.OpenAIClient)
+	agent.modelMemory = providers.IsLocalOpenAIProvider(provider)
 	if len(ragServices) > 0 {
 		agent.rag = ragServices[0]
 	}

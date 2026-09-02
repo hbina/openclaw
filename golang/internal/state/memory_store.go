@@ -40,8 +40,9 @@ const (
 type MemorySource string
 
 const (
-	MemorySourceChat     MemorySource = "chat"
-	MemorySourceOperator MemorySource = "operator"
+	MemorySourceChat        MemorySource = "chat"
+	MemorySourceOperator    MemorySource = "operator"
+	MemorySourceMaintenance MemorySource = "maintenance"
 )
 
 type Memory struct {
@@ -72,6 +73,7 @@ type MemoryWrite struct {
 	EmbeddingModel  string
 	Dimensions      int
 	Embedding       []byte
+	ObservedAt      time.Time
 	Now             time.Time
 }
 
@@ -123,9 +125,13 @@ func (tx *Tx) StoreMemory(ctx context.Context, input MemoryWrite) (Memory, bool,
 		return Memory{}, false, err
 	}
 	now := input.Now.UTC()
+	observedAt := input.ObservedAt.UTC()
+	if input.ObservedAt.IsZero() {
+		observedAt = now
+	}
 	result, err := tx.tx.ExecContext(ctx, `
 		INSERT INTO memories (kind, status, current_content_hash, observed_at, created_at, updated_at)
-		VALUES (?, 'active', ?, ?, ?, ?)`, input.Kind, hash, now, now, now)
+		VALUES (?, 'active', ?, ?, ?, ?)`, input.Kind, hash, observedAt, now, now)
 	if err != nil {
 		if existing, lookupErr := getMemoryByHash(ctx, tx.tx, hash); lookupErr == nil {
 			return existing, false, nil
@@ -168,6 +174,10 @@ func (tx *Tx) UpdateMemory(ctx context.Context, id int64, input MemoryWrite) (Me
 		input.Kind = current.Kind
 	}
 	now := input.Now.UTC()
+	observedAt := input.ObservedAt.UTC()
+	if input.ObservedAt.IsZero() {
+		observedAt = now
+	}
 	revisionID, err := insertMemoryRevision(ctx, tx.tx, id, current.RevisionNumber+1, hash, input, now)
 	if err != nil {
 		return Memory{}, err
@@ -177,7 +187,7 @@ func (tx *Tx) UpdateMemory(ctx context.Context, id int64, input MemoryWrite) (Me
 	}
 	if _, err := tx.tx.ExecContext(ctx, `
 		UPDATE memories SET kind=?, current_revision_id=?, current_content_hash=?, observed_at=?, updated_at=?
-		WHERE id=? AND status='active'`, input.Kind, revisionID, hash, now, now, id); err != nil {
+		WHERE id=? AND status='active'`, input.Kind, revisionID, hash, observedAt, now, id); err != nil {
 		return Memory{}, fmt.Errorf("update current memory revision: %w", err)
 	}
 	return getMemory(ctx, tx.tx, id)

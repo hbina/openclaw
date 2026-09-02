@@ -70,10 +70,25 @@ persistence is material to its response. There is no separate post-response
 curator model. Reminder rendering exposes no tools and does not mutate memory.
 SQLite validates every proposal and remains the state authority.
 
+The optional native Go memory-maintenance worker performs a separate bounded
+background consolidation pass over complete admitted Telegram owner
+exchanges. It extracts candidates with exact history evidence IDs, applies
+deterministic provenance, recurrence, recency, novelty, contradiction, secret,
+and event-type gates, then compares qualified candidates with active memory.
+Accepted adds or updates use the same revision and index transaction as
+foreground memory tools. Automatic consolidation cannot change a candidate's
+kind, update a different-kind target, or erase most substantive terms from a
+multi-fact target; ambiguous or lossy rewrites are retained as audited review
+outcomes without mutating memory. Unauthenticated HTTP, rejected Telegram senders,
+reminders, tools, internal model calls, and recalled context are not promotion
+sources. Automatic deletion is not supported.
+
 Complete transcript exchanges are embedded synchronously before delivery and
 committed with the exact delivered transcript. There is no background indexer,
 pending index state, retry worker, embedding fallback, or retrieval-result
-fallback. Raw-query use replaces only invalid model query rewriting.
+fallback. The consolidation worker does not repair indexes: each accepted
+memory mutation synchronously commits its new FTS/vector rows. Raw-query use
+replaces only invalid model query rewriting.
 
 When a reminder fires, its stored text is used as a semantic recall query. The
 agent combines relevant archived context with the recent conversation, current

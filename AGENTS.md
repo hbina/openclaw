@@ -114,7 +114,8 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
 The retained Go runtime supports local chat and structured single-item tools,
 owner-global tasks and reminders, one-shot and recurring schedules, a
 revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
-main-assistant memory tools, synchronous derived indexing, fixed neutral
+main-assistant memory tools, provenance-gated native background consolidation,
+synchronous derived indexing, fixed neutral
 behavior, contextual reminders, structured transcripts, Telegram text delivery,
 HTTP endpoints, and a standalone image without Node or hosted-model dependencies.
 
@@ -131,7 +132,8 @@ work is prioritized by the user harm it prevents:
    access and unbounded resource use at the exposed gateway.
 2. **Telegram owner admission and correct conversation behavior** prevent
    strangers or ambiguous routing from entering the trusted-owner context.
-   Pairing and allowlists, DM/group identity, media, threads, reactions,
+   One configured numeric owner allowlist is enforced before agent handling.
+   Pairing beyond that allowlist, DM/group identity, media, threads, reactions,
    multi-account expectations, and live credential-backed proof remain
    unresolved parts of that boundary.
 3. **Durable reminder claims and delivery idempotency** prevent duplicate or

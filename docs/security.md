@@ -20,7 +20,8 @@ Known high-priority gaps:
 
 - `/chat` has no authentication, request-size limit, rate limit, safe-bind
   policy, or stable error envelope;
-- Telegram has no pairing or owner allowlist;
+- Telegram has one startup-validated numeric owner allowlist but no pairing,
+  group/topic identity policy, or live credential-backed acceptance proof;
 - reminder delivery has no durable claim/lease or delivery-idempotency token;
 - backup/restore is an operator procedure, not an in-product command;
 - live Telegram delivery still needs credential-backed acceptance proof.

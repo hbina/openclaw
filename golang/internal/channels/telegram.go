@@ -11,10 +11,16 @@ import (
 )
 
 type TelegramAdapter struct {
-	bot *tele.Bot
+	bot         *tele.Bot
+	ownerUserID string
 }
 
-func NewTelegramAdapter(token string) (*TelegramAdapter, error) {
+func NewTelegramAdapter(token, ownerUserID string) (*TelegramAdapter, error) {
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	ownerID, err := strconv.ParseInt(ownerUserID, 10, 64)
+	if err != nil || ownerID <= 0 {
+		return nil, fmt.Errorf("telegram owner user id must be a positive integer")
+	}
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -25,7 +31,7 @@ func NewTelegramAdapter(token string) (*TelegramAdapter, error) {
 		return nil, fmt.Errorf("failed to initialize telegram bot: %w", err)
 	}
 
-	return &TelegramAdapter{bot: b}, nil
+	return &TelegramAdapter{bot: b, ownerUserID: ownerUserID}, nil
 }
 
 func (t *TelegramAdapter) ID() string {
@@ -34,14 +40,7 @@ func (t *TelegramAdapter) ID() string {
 
 func (t *TelegramAdapter) Start(ctx context.Context, handler Handler) error {
 	t.bot.Handle(tele.OnText, func(c tele.Context) error {
-		msg, err := telegramInboundMessage(c.Message(), t.bot.Me.ID)
-		if err != nil {
-			return err
-		}
-		if err := handler(ctx, msg); err != nil {
-			return err
-		}
-		return nil
+		return handleTelegramText(ctx, c.Message(), t.bot.Me.ID, t.ownerUserID, handler)
 	})
 
 	go t.bot.Start()
@@ -53,6 +52,17 @@ func (t *TelegramAdapter) Start(ctx context.Context, handler Handler) error {
 	}()
 
 	return nil
+}
+
+func handleTelegramText(ctx context.Context, message *tele.Message, botID int64, ownerUserID string, handler Handler) error {
+	msg, err := telegramInboundMessage(message, botID)
+	if err != nil {
+		return err
+	}
+	if msg.SenderID != ownerUserID {
+		return nil
+	}
+	return handler(ctx, msg)
 }
 
 func telegramInboundMessage(message *tele.Message, botID int64) (*Message, error) {
