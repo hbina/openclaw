@@ -34,6 +34,21 @@ addresses. This keeps the unauthenticated CLI endpoint inside the local-machine
 trust boundary. `PORT` changes the loopback port; `OPENCLAW_HTTP_ADDR` may set a
 different loopback IP socket address.
 
+Runtime logs are written to standard error with UTC timestamps, levels, targets,
+and structured fields. By default OpenClaw emits debug-and-higher events while
+dependency crates emit warnings and errors. Logs include lifecycle, request,
+trace, retrieval, model, tool, delivery, reminder, Telegram, and maintenance
+metadata, but exclude message bodies, model payloads, responses, and
+credentials. Override the filter with standard `RUST_LOG` directives:
+
+```bash
+# Less output.
+RUST_LOG=info cargo run --locked
+
+# Include the most detailed OpenClaw events.
+RUST_LOG='warn,openclaw=trace' cargo run --locked
+```
+
 Useful operator commands include:
 
 ```bash

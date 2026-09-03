@@ -3,12 +3,13 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{debug, error, info, trace, warn};
 
 const MAX_TELEGRAM_RESPONSE_BYTES: usize = 16 << 20;
 
@@ -80,6 +81,7 @@ impl Registry {
     }
 
     pub fn register(&mut self, channel: Arc<dyn Channel>) {
+        debug!(channel = channel.id(), "registering channel");
         self.channels.insert(channel.id().to_owned(), channel);
     }
 
@@ -91,8 +93,11 @@ impl Registry {
     }
 
     pub async fn start_all(&self, handler: Handler) -> Result<(), ChannelError> {
+        debug!(channel_count = self.channels.len(), "starting channels");
         for channel in self.channels.values() {
+            debug!(channel = channel.id(), "starting channel");
             channel.start(Arc::clone(&handler)).await?;
+            info!(channel = channel.id(), "channel started");
         }
         Ok(())
     }
@@ -100,10 +105,15 @@ impl Registry {
     pub async fn stop_all(&self) -> Result<(), ChannelError> {
         let mut first_error = None;
         for channel in self.channels.values() {
-            if let Err(error) = channel.stop().await
-                && first_error.is_none()
-            {
-                first_error = Some(error);
+            debug!(channel = channel.id(), "stopping channel");
+            match channel.stop().await {
+                Ok(()) => info!(channel = channel.id(), "channel stopped"),
+                Err(error) => {
+                    error!(channel = channel.id(), error = %error, "channel failed to stop");
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -151,6 +161,8 @@ impl TelegramAdapter {
         method: &str,
         payload: serde_json::Value,
     ) -> Result<T, ChannelError> {
+        let started = Instant::now();
+        trace!(method, "Telegram API request started");
         let mut response = client
             .post(format!("{api_base}{method}"))
             .json(&payload)
@@ -184,6 +196,13 @@ impl TelegramAdapter {
             }
             body.extend_from_slice(&chunk);
         }
+        trace!(
+            method,
+            status = status.as_u16(),
+            response_bytes = body.len(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "Telegram API request completed"
+        );
         let result: TelegramResponse<T> = serde_json::from_slice(&body).map_err(|error| {
             ChannelError::Operation(format!("telegram {method} response was invalid: {error}"))
         })?;
@@ -207,9 +226,11 @@ impl TelegramAdapter {
         handler: Handler,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
+        info!(bot_id, "Telegram polling worker started");
         let mut offset = 0_i64;
         loop {
             if *shutdown.borrow() {
+                info!("Telegram polling worker stopping");
                 return;
             }
             let request = Self::call::<Vec<TelegramUpdate>>(
@@ -223,40 +244,63 @@ impl TelegramAdapter {
                 }),
             );
             let updates = tokio::select! {
-                _ = shutdown.changed() => return,
+                _ = shutdown.changed() => {
+                    info!("Telegram polling worker stopping");
+                    return;
+                },
                 result = request => match result {
                     Ok(updates) => updates,
                     Err(error) => {
-                        eprintln!("Telegram polling error: {error}");
+                        warn!(error = %error, "Telegram polling failed; retrying");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
                 }
             };
+            if !updates.is_empty() {
+                debug!(update_count = updates.len(), "Telegram updates received");
+            }
             for update in updates {
                 offset = offset.max(update.update_id + 1);
                 let Some(message) = update.message else {
+                    trace!(
+                        update_id = update.update_id,
+                        "ignoring Telegram update without a message"
+                    );
                     continue;
                 };
                 let Some(text) = message.text.as_deref() else {
+                    trace!(
+                        message_id = message.message_id,
+                        "ignoring non-text Telegram message"
+                    );
                     continue;
                 };
                 let Ok(inbound) = telegram_inbound_message(&message, text, bot_id) else {
+                    warn!(
+                        message_id = message.message_id,
+                        "ignoring malformed Telegram message"
+                    );
                     continue;
                 };
                 if inbound.sender_id != owner_user_id {
+                    warn!(sender_id = %inbound.sender_id, message_id = %inbound.message_id, "rejected Telegram message from non-owner");
                     continue;
                 }
+                info!(message_id = %inbound.message_id, message_bytes = inbound.content.len(), "accepted Telegram owner message");
                 let handling = handler(inbound);
                 tokio::select! {
                     changed = shutdown.changed() => {
                         if changed.is_err() || *shutdown.borrow() {
+                            info!("Telegram polling worker stopping");
                             return;
                         }
                     }
                     result = handling => {
                         if let Err(error) = result {
-                            eprintln!("Telegram message handling failed: {error}");
+                            error!(error = %error, "Telegram message handling failed");
+                        } else {
+                            info!("Telegram message handling completed");
                         }
                     }
                 }
@@ -282,6 +326,7 @@ impl Channel for TelegramAdapter {
                 "telegram channel is already started".into(),
             ));
         }
+        debug!("validating Telegram bot credentials");
         let me: TelegramUser =
             Self::call(&self.client, &self.api_base, "getMe", serde_json::json!({})).await?;
         let (sender, receiver) = tokio::sync::watch::channel(false);
@@ -303,10 +348,12 @@ impl Channel for TelegramAdapter {
             .lock()
             .map_err(|_| ChannelError::Operation("telegram worker lock poisoned".into()))? =
             Some(worker);
+        info!(bot_id = me.id, "Telegram adapter started");
         Ok(())
     }
 
     async fn stop(&self) -> Result<(), ChannelError> {
+        debug!("stopping Telegram adapter");
         if let Some(sender) = self
             .shutdown
             .lock()
@@ -325,6 +372,7 @@ impl Channel for TelegramAdapter {
                 .await
                 .map_err(|error| ChannelError::Operation(error.to_string()))?;
         }
+        info!("Telegram adapter stopped");
         Ok(())
     }
 
@@ -336,6 +384,11 @@ impl Channel for TelegramAdapter {
         let recipient = recipient_id
             .parse::<i64>()
             .map_err(|_| ChannelError::Operation("invalid Telegram recipient ID".into()))?;
+        debug!(
+            recipient_id,
+            message_bytes = content.len(),
+            "sending Telegram message"
+        );
         let sent: TelegramMessage = Self::call(
             &self.client,
             &self.api_base,
@@ -343,6 +396,11 @@ impl Channel for TelegramAdapter {
             serde_json::json!({"chat_id": recipient, "text": content}),
         )
         .await?;
+        info!(
+            recipient_id,
+            message_id = sent.message_id,
+            "Telegram message sent"
+        );
         Ok(DeliveryReceipt {
             message_id: sent.message_id.to_string(),
         })

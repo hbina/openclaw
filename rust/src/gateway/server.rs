@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use serde::Deserialize;
 use serde_json::json;
@@ -9,6 +13,7 @@ use tokio::{
     sync::{Semaphore, watch},
     task::JoinSet,
 };
+use tracing::{debug, error, info, warn};
 
 use crate::{
     channels::{ChannelError, Handler, Registry},
@@ -74,6 +79,7 @@ impl Gateway {
             return Err(GatewayError::UnsafeBind(address));
         }
         let listener = TcpListener::bind(address).await?;
+        info!(%address, max_connections = MAX_CONNECTIONS, "HTTP gateway listening");
         let agent = Arc::clone(&self.agent);
         let handler: Handler = Arc::new(move |message| {
             let agent = Arc::clone(&agent);
@@ -85,6 +91,7 @@ impl Gateway {
             })
         });
         self.channels.start_all(handler).await?;
+        debug!("configured channels started");
 
         let reminder_gateway = Arc::clone(&self);
         let reminder_shutdown = shutdown.clone();
@@ -106,7 +113,9 @@ impl Gateway {
                 }
                 accepted = listener.accept() => {
                     let (stream, peer) = accepted?;
+                    debug!(%peer, "HTTP connection accepted");
                     let Ok(permit) = Arc::clone(&self.connection_limit).try_acquire_owned() else {
+                        warn!(%peer, max_connections = MAX_CONNECTIONS, "HTTP connection rejected because gateway is busy");
                         connections.spawn(async move {
                             let mut stream = stream;
                             let _ = write_error(&mut stream, 503, "busy", "gateway is busy", None).await;
@@ -116,25 +125,29 @@ impl Gateway {
                     let gateway = Arc::clone(&self);
                     connections.spawn(async move {
                         let _permit = permit;
-                        if let Err(error) = tokio::time::timeout(
+                        match tokio::time::timeout(
                             REQUEST_TIMEOUT,
                             gateway.handle_connection(stream, peer),
                         ).await {
-                            eprintln!("HTTP request timed out: {error}");
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => warn!(%peer, error = %error, "HTTP connection failed"),
+                            Err(error) => warn!(%peer, error = %error, "HTTP request timed out"),
                         }
                     });
                 }
                 Some(result) = connections.join_next(), if !connections.is_empty() => {
                     if let Err(error) = result {
-                        eprintln!("HTTP connection task failed: {error}");
+                        error!(error = %error, "HTTP connection task failed");
                     }
                 }
             }
         }
+        info!("HTTP gateway stopping");
         if tokio::time::timeout(SHUTDOWN_TIMEOUT, &mut reminder_task)
             .await
             .is_err()
         {
+            warn!("reminder worker did not stop before deadline; aborting it");
             reminder_task.abort();
             let _ = reminder_task.await;
         }
@@ -143,18 +156,28 @@ impl Gateway {
                 .await
                 .is_err()
         {
+            warn!("memory maintenance worker did not stop before deadline; aborting it");
             task.abort();
             let _ = task.await;
         }
         self.channels.stop_all().await?;
-        let _ = tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
+        if tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
             while connections.join_next().await.is_some() {}
         })
-        .await;
+        .await
+        .is_err()
+        {
+            warn!("HTTP connections did not drain before shutdown deadline");
+        }
+        info!("HTTP gateway stopped");
         Ok(())
     }
 
     async fn reminder_loop(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
+        debug!(
+            poll_interval_seconds = REMINDER_POLL_INTERVAL.as_secs(),
+            "reminder worker started"
+        );
         let mut interval = tokio::time::interval(REMINDER_POLL_INTERVAL);
         interval.tick().await;
         loop {
@@ -167,13 +190,18 @@ impl Gateway {
                 _ = interval.tick() => {
                     match self.store.fetch_due_reminders() {
                         Ok(reminders) => {
+                            debug!(due_count = reminders.len(), "due reminder poll completed");
                             for reminder in reminders {
+                                let reminder_id = reminder.id;
+                                info!(reminder_id, "delivering due reminder");
                                 if let Err(error) = self.agent.deliver_reminder(&reminder).await {
-                                    eprintln!("Failed to deliver reminder {}: {error}", reminder.id);
+                                    error!(reminder_id, error = %error, "due reminder delivery failed");
+                                } else {
+                                    info!(reminder_id, "due reminder delivered");
                                 }
                             }
                         }
-                        Err(error) => eprintln!("Failed to fetch due reminders: {error}"),
+                        Err(error) => error!(error = %error, "failed to fetch due reminders"),
                     }
                 }
             }
@@ -185,7 +213,9 @@ impl Gateway {
         mut stream: TcpStream,
         peer: SocketAddr,
     ) -> Result<(), std::io::Error> {
+        let started = Instant::now();
         if !peer.ip().is_loopback() {
+            warn!(%peer, "rejected non-loopback HTTP client");
             return write_error(
                 &mut stream,
                 403,
@@ -198,16 +228,32 @@ impl Gateway {
         let request = match read_request(&mut stream).await {
             Ok(request) => request,
             Err(error) => {
+                warn!(
+                    %peer,
+                    status = error.status,
+                    code = error.code,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "rejected malformed HTTP request"
+                );
                 return write_error(&mut stream, error.status, error.code, error.message, None)
                     .await;
             }
         };
+        debug!(
+            %peer,
+            method = %request.method,
+            path = %request.path,
+            body_bytes = request.body.len(),
+            "HTTP request received"
+        );
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/healthz") => {
+                debug!(%peer, elapsed_ms = started.elapsed().as_millis(), "health check succeeded");
                 write_response(&mut stream, 200, "text/plain; charset=utf-8", b"OK", None).await
             }
             ("POST", "/chat") => self.handle_chat(&mut stream, &request.body).await,
             (_, "/healthz" | "/chat") => {
+                warn!(%peer, method = %request.method, path = %request.path, "HTTP method not allowed");
                 write_error(
                     &mut stream,
                     405,
@@ -217,14 +263,22 @@ impl Gateway {
                 )
                 .await
             }
-            _ => write_error(&mut stream, 404, "not_found", "endpoint not found", None).await,
+            _ => {
+                debug!(%peer, method = %request.method, path = %request.path, "HTTP endpoint not found");
+                write_error(&mut stream, 404, "not_found", "endpoint not found", None).await
+            }
         }
     }
 
     async fn handle_chat(&self, stream: &mut TcpStream, body: &[u8]) -> Result<(), std::io::Error> {
+        let started = Instant::now();
         let request: ChatRequest = match strict_json(body) {
             Ok(request) => request,
             Err(_) => {
+                warn!(
+                    body_bytes = body.len(),
+                    "rejected chat request with invalid JSON"
+                );
                 return write_error(
                     stream,
                     400,
@@ -237,6 +291,10 @@ impl Gateway {
         };
         let message = request.message.trim();
         if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
+            warn!(
+                message_bytes = message.len(),
+                "rejected chat request with invalid message length"
+            );
             return write_error(
                 stream,
                 400,
@@ -252,6 +310,10 @@ impl Gateway {
             request.sender_id.trim()
         };
         if sender.len() > MAX_SENDER_BYTES {
+            warn!(
+                sender_bytes = sender.len(),
+                "rejected chat request with invalid sender length"
+            );
             return write_error(
                 stream,
                 400,
@@ -261,6 +323,7 @@ impl Gateway {
             )
             .await;
         }
+        info!(sender_id = %sender, message_bytes = message.len(), "HTTP chat generation started");
         let prepared = match self
             .agent
             .prepare_chat_with_trace(ChatInput {
@@ -274,7 +337,13 @@ impl Gateway {
         {
             Ok(prepared) => prepared,
             Err(error) => {
-                eprintln!("Chat generation failed: {}", error.source);
+                error!(
+                    trace_id = ?error.trace_id,
+                    sender_id = %sender,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    error = %error.source,
+                    "HTTP chat generation failed"
+                );
                 return write_error(
                     stream,
                     500,
@@ -285,6 +354,13 @@ impl Gateway {
                 .await;
             }
         };
+        info!(
+            trace_id = prepared.trace_id,
+            sender_id = %sender,
+            elapsed_ms = started.elapsed().as_millis(),
+            response_bytes = prepared.content.len(),
+            "HTTP chat generation completed"
+        );
         self.deliver_http(stream, prepared).await
     }
 
@@ -302,6 +378,7 @@ impl Gateway {
         ) {
             Ok(id) => id,
             Err(error) => {
+                error!(trace_id = prepared.trace_id, error = %error, "failed to prepare HTTP delivery");
                 let _ = self.store.finish_trace(
                     prepared.trace_id,
                     "failed",
@@ -318,7 +395,12 @@ impl Gateway {
                 .await;
             }
         };
+        debug!(
+            trace_id = prepared.trace_id,
+            delivery_id, "HTTP delivery prepared"
+        );
         if let Err(error) = self.store.mark_delivery_attempting(delivery_id) {
+            error!(trace_id = prepared.trace_id, delivery_id, error = %error, "failed to mark HTTP delivery attempt");
             let _ = self.store.finish_trace(
                 prepared.trace_id,
                 "failed",
@@ -345,11 +427,16 @@ impl Gateway {
         )
         .await
         {
+            warn!(trace_id = prepared.trace_id, delivery_id, error = %error, "writing HTTP response failed");
             let _ = self
                 .store
                 .fail_delivery(prepared.trace_id, delivery_id, &error.to_string());
             return Err(error);
         }
+        info!(
+            trace_id = prepared.trace_id,
+            delivery_id, "HTTP response written"
+        );
         if let Err(error) = self.store.complete_delivery_indexed(
             prepared.trace_id,
             delivery_id,
@@ -360,9 +447,11 @@ impl Gateway {
             prepared.start_history_id,
             &prepared.chunks,
         ) {
-            eprintln!(
-                "Trace {} response was written but finalization failed: {error}",
-                prepared.trace_id
+            error!(trace_id = prepared.trace_id, delivery_id, error = %error, "HTTP response was written but finalization failed");
+        } else {
+            debug!(
+                trace_id = prepared.trace_id,
+                delivery_id, "HTTP delivery and conversation index finalized"
             );
         }
         Ok(())

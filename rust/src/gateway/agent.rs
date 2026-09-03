@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, LazyLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Local, SecondsFormat, Utc};
@@ -10,6 +10,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use thiserror::Error;
+use tracing::{debug, error, info, warn};
 
 use crate::{
     channels::{ChannelError, Registry, ReplyContext},
@@ -243,6 +244,7 @@ impl Agent {
         purpose: &str,
         mut request: GenerateRequest,
     ) -> Result<(GenerateResponse, i64), AgentError> {
+        let started = Instant::now();
         let wire = self.provider.marshal_generate_request(&request)?;
         request.wire_json = wire.clone();
         let event_id = self.store.start_llm_call(
@@ -253,6 +255,17 @@ impl Agent {
                 AgentError::Validation(format!("model request JSON is not UTF-8: {error}"))
             })?,
         )?;
+        debug!(
+            trace_id,
+            event_id,
+            round,
+            purpose,
+            message_count = request.messages.len(),
+            tool_count = request.tools.len(),
+            max_output_tokens = request.max_tokens,
+            request_bytes = wire.len(),
+            "model generation started"
+        );
         let generated =
             tokio::time::timeout(MODEL_REQUEST_TIMEOUT, self.provider.generate(&mut request)).await;
         match generated {
@@ -273,6 +286,18 @@ impl Agent {
                     &response.finish_reason,
                     None,
                 )?;
+                info!(
+                    trace_id,
+                    event_id,
+                    round,
+                    purpose,
+                    status = response.http_status,
+                    finish_reason = %response.finish_reason,
+                    tool_call_count = response.message.tool_calls.len(),
+                    response_bytes = response_json.len(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "model generation completed"
+                );
                 Ok((response, event_id))
             }
             Ok(Err(error)) => {
@@ -284,11 +309,29 @@ impl Agent {
                     "",
                     Some(&error.to_string()),
                 )?;
+                error!(
+                    trace_id,
+                    event_id,
+                    round,
+                    purpose,
+                    status,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    error = %error,
+                    "model generation failed"
+                );
                 Err(error.into())
             }
             Err(_) => {
                 self.store
                     .finish_llm_call(event_id, "", 0, "", Some("model request timed out"))?;
+                error!(
+                    trace_id,
+                    event_id,
+                    round,
+                    purpose,
+                    timeout_seconds = MODEL_REQUEST_TIMEOUT.as_secs(),
+                    "model generation timed out"
+                );
                 Err(AgentError::Timeout)
             }
         }
@@ -323,6 +366,15 @@ impl Agent {
     ) -> Result<Vec<Message>, AgentError> {
         let history = self.store.get_conversation_history(channel_id, sender_id)?;
         let (recent_exchanges, history_messages) = recent_conversation(&history)?;
+        debug!(
+            trace_id,
+            channel_id,
+            sender_id,
+            stored_turn_count = history.len(),
+            recent_exchange_count = recent_exchanges.len(),
+            recent_message_count = history_messages.len(),
+            "recent conversation context loaded"
+        );
         let recent_turns: Vec<_> = recent_exchanges
             .iter()
             .flat_map(|exchange| exchange.turns.iter().cloned())
@@ -333,6 +385,7 @@ impl Agent {
         base.push(current);
 
         let Some(rag) = &self.rag else {
+            debug!(trace_id, "RAG is disabled; using recent context only");
             self.store
                 .record_rag_trace(trace_id, &empty_rag_trace("disabled"), None)?;
             return Ok(base);
@@ -342,6 +395,13 @@ impl Agent {
         } else {
             (query.trim().to_owned(), Vec::new())
         };
+        debug!(
+            trace_id,
+            model_planned = self.model_memory,
+            semantic_query_chars = planned_query.chars().count(),
+            keyword_count = keywords.len(),
+            "recall query prepared"
+        );
         let retrieval = match rag
             .retrieve_detailed(
                 &planned_query,
@@ -354,6 +414,7 @@ impl Agent {
         {
             Ok(result) => result,
             Err(error) => {
+                error!(trace_id, error = %error, "conversation retrieval failed");
                 self.store.record_rag_trace(
                     trace_id,
                     &empty_rag_trace("failed"),
@@ -362,7 +423,21 @@ impl Agent {
                 return Err(error.into());
             }
         };
+        debug!(
+            trace_id,
+            outcome = %retrieval.outcome,
+            candidate_count = retrieval.candidate_count,
+            excluded_count = retrieval.excluded_count,
+            qualified_count = retrieval.qualified_count,
+            conversation_match_count = retrieval.matches.len(),
+            "conversation retrieval completed"
+        );
         let memories = self.memory.search(&planned_query, &keywords, 20).await?;
+        debug!(
+            trace_id,
+            memory_candidate_count = memories.len(),
+            "memory retrieval completed"
+        );
         let (selected_archive, selected_memory_ids, selected_conversation_ids) =
             if self.model_memory && (!memories.is_empty() || !retrieval.matches.is_empty()) {
                 self.rerank_recall(trace_id, query, &memories, &retrieval.matches)
@@ -395,6 +470,12 @@ impl Agent {
                         .collect(),
                 )
             };
+        debug!(
+            trace_id,
+            selected_memory_count = selected_memory_ids.len(),
+            selected_conversation_count = selected_conversation_ids.len(),
+            "recall evidence selected"
+        );
         let mut archive = self.memory_core(rag).await?;
         append_section(&mut archive, &selected_archive);
         let memory_by_id: HashMap<_, _> =
@@ -446,10 +527,16 @@ impl Agent {
             excluded_count: retrieval.excluded_count,
             qualified_count: retrieval.qualified_count,
             rendered_archive: archive.clone(),
-            matches: matches,
-            memory_matches: memory_matches,
+            matches,
+            memory_matches,
         };
         self.store.record_rag_trace(trace_id, &detail, None)?;
+        debug!(
+            trace_id,
+            archive_bytes = archive.len(),
+            final_message_count = base.len() + usize::from(!archive.is_empty()),
+            "model context assembled and RAG trace recorded"
+        );
         Ok(insert_archive_message(&base, &archive))
     }
 
@@ -782,10 +869,24 @@ impl Agent {
         &self,
         input: ChatInput,
     ) -> Result<PreparedResponse, PrepareError> {
+        let lock_started = Instant::now();
+        debug!(
+            channel_id = %input.channel_id,
+            sender_id = %input.sender_id,
+            external_message_id = %input.message_id,
+            message_bytes = input.content.len(),
+            "waiting for conversation lock"
+        );
         let guard = self
             .conversation_locks
             .lock(&input.channel_id, &input.sender_id)
             .await;
+        debug!(
+            channel_id = %input.channel_id,
+            sender_id = %input.sender_id,
+            wait_ms = lock_started.elapsed().as_millis(),
+            "conversation lock acquired"
+        );
         let inbound = PersistedInboundMessage {
             content: input.content.clone(),
             reply: input.reply.clone(),
@@ -808,12 +909,20 @@ impl Agent {
                 trace_id: None,
                 source: error.into(),
             })?;
+        info!(
+            trace_id,
+            channel_id = %input.channel_id,
+            sender_id = %input.sender_id,
+            external_message_id = %input.message_id,
+            "chat response trace started"
+        );
         match self
             .prepare_chat_traced(input, inbound, inbound_json, trace_id, guard)
             .await
         {
             Ok(prepared) => Ok(prepared),
             Err(error) => {
+                error!(trace_id, error = %error, "chat response preparation failed");
                 let _ = self.store.finish_trace(
                     trace_id,
                     "failed",
@@ -855,6 +964,12 @@ impl Agent {
                 DEFAULT_MAX_TOKENS,
             )
             .await?;
+        debug!(
+            trace_id,
+            message_count = messages.len(),
+            tool_count = definitions.len(),
+            "chat model context ready"
+        );
         let history_id = self.store.save_conversation_message(
             &input.channel_id,
             &input.sender_id,
@@ -863,6 +978,7 @@ impl Agent {
             &inbound_json,
         )?;
         self.store.link_trace_inbound(trace_id, history_id)?;
+        debug!(trace_id, history_id, "inbound chat message persisted");
         let mut outcomes = MutationOutcomes::default();
         let base_tool_context = ToolContext {
             channel_id: input.channel_id.clone(),
@@ -873,6 +989,12 @@ impl Agent {
         };
 
         for round in 1.. {
+            debug!(
+                trace_id,
+                round,
+                message_count = messages.len(),
+                "starting chat agent round"
+            );
             let (response, llm_event_id) = self
                 .generate(
                     trace_id,
@@ -899,6 +1021,12 @@ impl Agent {
                     &serde_json::to_string(&assistant)?,
                 )?;
                 messages.push(assistant.clone());
+                debug!(
+                    trace_id,
+                    round,
+                    tool_call_count = assistant.tool_calls.len(),
+                    "executing model tool calls"
+                );
                 for call in &assistant.tool_calls {
                     let event_id = self.store.start_tool_execution(
                         trace_id,
@@ -907,6 +1035,14 @@ impl Agent {
                         &call.function.name,
                         &call.function.arguments,
                     )?;
+                    debug!(
+                        trace_id,
+                        llm_event_id,
+                        tool_event_id = event_id,
+                        tool_call_id = %call.id,
+                        tool = %call.function.name,
+                        "tool execution started"
+                    );
                     let context = ToolContext {
                         trace_event_id: event_id,
                         ..base_tool_context.clone()
@@ -914,6 +1050,14 @@ impl Agent {
                     let result = match self.tools.execute_and_record(&context, call).await {
                         Ok(result) => result,
                         Err(error) => {
+                            error!(
+                                trace_id,
+                                tool_event_id = event_id,
+                                tool_call_id = %call.id,
+                                tool = %call.function.name,
+                                error = %error,
+                                "tool execution failed"
+                            );
                             let _ = self.store.finish_tool_execution(
                                 event_id,
                                 "",
@@ -925,6 +1069,23 @@ impl Agent {
                         }
                     };
                     outcomes.observe(&call.function.name, result.is_error);
+                    if result.is_error {
+                        warn!(
+                            trace_id,
+                            tool_event_id = event_id,
+                            tool_call_id = %call.id,
+                            tool = %call.function.name,
+                            "tool returned an error result"
+                        );
+                    } else {
+                        info!(
+                            trace_id,
+                            tool_event_id = event_id,
+                            tool_call_id = %call.id,
+                            tool = %call.function.name,
+                            "tool execution completed"
+                        );
+                    }
                     messages.push(result.message());
                 }
                 continue;
@@ -968,6 +1129,13 @@ impl Agent {
             let (start_history_id, chunks) = self
                 .prepare_current_exchange(&input.channel_id, &input.sender_id, &reply)
                 .await?;
+            info!(
+                trace_id,
+                output_event_id,
+                response_bytes = reply.len(),
+                conversation_chunk_count = chunks.len(),
+                "chat response prepared"
+            );
             return Ok(PreparedResponse {
                 trace_id,
                 output_event_id,
@@ -1014,6 +1182,10 @@ impl Agent {
 
     pub async fn chat(&self, input: ChatInput) -> Result<String, AgentError> {
         let prepared = self.prepare_chat(input).await?;
+        debug!(
+            trace_id = prepared.trace_id,
+            "preparing internal chat delivery"
+        );
         let delivery_id = self
             .store
             .prepare_delivery(
@@ -1045,6 +1217,10 @@ impl Agent {
             .inspect_err(|error| {
                 self.fail_trace(prepared.trace_id, "delivery", &error.to_string());
             })?;
+        info!(
+            trace_id = prepared.trace_id,
+            delivery_id, "internal chat delivery completed"
+        );
         Ok(prepared.content.clone())
     }
 
@@ -1052,6 +1228,13 @@ impl Agent {
         &self,
         message: &crate::channels::Message,
     ) -> Result<(), AgentError> {
+        info!(
+            channel_id = %message.channel_id,
+            sender_id = %message.sender_id,
+            external_message_id = %message.message_id,
+            message_bytes = message.content.len(),
+            "channel message handling started"
+        );
         let prepared = self
             .prepare_chat(ChatInput {
                 channel_id: message.channel_id.clone(),
@@ -1110,10 +1293,23 @@ impl Agent {
             .inspect_err(|error| {
                 self.fail_trace(prepared.trace_id, "delivery", &error.to_string());
             })?;
+        info!(
+            trace_id = prepared.trace_id,
+            delivery_id,
+            channel_id = %message.channel_id,
+            external_delivery_id = %receipt.message_id,
+            "channel message delivery completed"
+        );
         Ok(())
     }
 
     pub async fn deliver_reminder(&self, reminder: &Reminder) -> Result<(), AgentError> {
+        info!(
+            reminder_id = reminder.id,
+            channel_id = %reminder.channel_id,
+            sender_id = %reminder.sender_id,
+            "reminder response preparation started"
+        );
         let _guard = self
             .conversation_locks
             .lock(&reminder.channel_id, &reminder.sender_id)
@@ -1132,12 +1328,31 @@ impl Agent {
             reminder_id: Some(reminder.id),
             input_json: payload.clone(),
         })?;
+        debug!(
+            trace_id,
+            reminder_id = reminder.id,
+            "reminder response trace started"
+        );
         match self
             .deliver_reminder_traced(reminder, scheduled, payload, trace_id)
             .await
         {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                info!(
+                    trace_id,
+                    reminder_id = reminder.id,
+                    "reminder response delivered and finalized"
+                );
+                Ok(())
+            }
             Err(error) => {
+                error!(
+                    trace_id,
+                    reminder_id = reminder.id,
+                    stage = error.stage,
+                    error = %error.source,
+                    "reminder response failed"
+                );
                 let _ = self.store.finish_trace(
                     trace_id,
                     "failed",

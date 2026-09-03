@@ -13,6 +13,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use thiserror::Error;
+use tracing::{debug, error, info};
 
 use crate::{
     memory::{MemoryError, Provenance, Service},
@@ -186,17 +187,19 @@ impl Maintainer {
     }
 
     pub async fn run_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
+        info!(schedule = %self.schedule, timezone = %self.timezone_name, "memory maintenance worker started");
         let now = Utc::now();
         match self.store.maintenance_status() {
             Ok((status, _)) if status.next_run_at.is_none_or(|next| next <= now) => {
+                info!("running overdue memory maintenance");
                 if let Err(error) = self.run(MaintenanceMode::Scheduled).await
                     && !matches!(error, MaintenanceError::State(StateError::MaintenanceBusy))
                 {
-                    eprintln!("Scheduled memory maintenance failed: {error}");
+                    error!(error = %error, "scheduled memory maintenance failed");
                 }
             }
             Err(error) => {
-                eprintln!("Memory maintenance status failed: {error}");
+                error!(error = %error, "reading memory maintenance status failed");
                 return;
             }
             _ => {}
@@ -206,23 +209,28 @@ impl Maintainer {
             let next = match next_scheduled_run(&self.schedule, &self.timezone_name, now) {
                 Ok(next) => next,
                 Err(error) => {
-                    eprintln!("Memory maintenance scheduling failed: {error}");
+                    error!(error = %error, "calculating memory maintenance schedule failed");
                     return;
                 }
             };
+            debug!(next_run_at = %next.to_rfc3339(), "next memory maintenance run scheduled");
             if let Err(error) = self.store.set_maintenance_next_run(next, now) {
-                eprintln!("Persisting next memory maintenance run failed: {error}");
+                error!(error = %error, "persisting next memory maintenance run failed");
             }
             let delay = (next - Utc::now()).to_std().unwrap_or_default();
             tokio::select! {
                 changed = shutdown.changed() => {
-                    if changed.is_err() || *shutdown.borrow() { return; }
+                    if changed.is_err() || *shutdown.borrow() {
+                        info!("memory maintenance worker stopping");
+                        return;
+                    }
                 }
                 _ = tokio::time::sleep(delay) => {
+                    info!("scheduled memory maintenance is due");
                     if let Err(error) = self.run(MaintenanceMode::Scheduled).await
                         && !matches!(error, MaintenanceError::State(StateError::MaintenanceBusy))
                     {
-                        eprintln!("Scheduled memory maintenance failed: {error}");
+                        error!(error = %error, "scheduled memory maintenance failed");
                     }
                 }
             }
@@ -230,6 +238,11 @@ impl Maintainer {
     }
 
     pub async fn run(&self, mode: MaintenanceMode) -> Result<MaintenanceResult, MaintenanceError> {
+        debug!(
+            ?mode,
+            batch_size = self.batch_size,
+            "starting memory maintenance run"
+        );
         let lease_owner = lease_owner();
         let run = self.store.start_maintenance_run(&MaintenanceRunStart {
             mode,
@@ -240,6 +253,13 @@ impl Maintainer {
             dimensions: self.service.dimensions(),
             now: Utc::now(),
         })?;
+        info!(
+            run_id = run.id,
+            ?mode,
+            checkpoint_history_id = run.checkpoint_history_id,
+            highwater_history_id = run.highwater_history_id,
+            "memory maintenance lease acquired"
+        );
         let guard = RunGuard {
             store: Arc::clone(&self.store),
             run_id: run.id,
@@ -251,6 +271,15 @@ impl Maintainer {
         match result {
             Ok(result) => {
                 guard.disarm();
+                info!(
+                    run_id = result.run_id,
+                    ?result.mode,
+                    processed_history_id = result.processed_history_id,
+                    candidate_count = result.candidate_count,
+                    promoted_count = result.promoted_count,
+                    rejected_count = result.rejected_count,
+                    "memory maintenance run completed"
+                );
                 Ok(result)
             }
             Err(error) => {
@@ -259,6 +288,7 @@ impl Maintainer {
                     .lock()
                     .expect("maintenance stage lock poisoned")
                     .clone();
+                error!(run_id = run.id, stage, error = %error, "memory maintenance run failed");
                 let next = (mode != MaintenanceMode::Preview)
                     .then(|| next_scheduled_run(&self.schedule, &self.timezone_name, Utc::now()))
                     .transpose()?;
@@ -299,6 +329,11 @@ impl Maintainer {
             run.highwater_history_id,
             self.batch_size,
         )?;
+        debug!(
+            run_id = run.id,
+            exchange_count = exchanges.len(),
+            "maintenance exchanges selected"
+        );
         if let Some(last) = exchanges.last() {
             result.processed_history_id = last.end_history_id;
         }
@@ -308,6 +343,7 @@ impl Maintainer {
         }
 
         guard.set_stage("extract");
+        debug!(run_id = run.id, "extracting memory maintenance candidates");
         self.store.refresh_maintenance_lease(
             lease_owner,
             LEASE_DURATION,
@@ -316,6 +352,11 @@ impl Maintainer {
             Utc::now(),
         )?;
         let proposals = self.extract_candidates(&exchanges).await?;
+        debug!(
+            run_id = run.id,
+            proposal_count = proposals.len(),
+            "memory maintenance candidates extracted"
+        );
         let evidence: HashMap<_, _> = exchanges
             .iter()
             .map(|item| (item.start_history_id, item.clone()))
