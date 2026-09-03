@@ -11,6 +11,7 @@ pnpm-lock.yaml
 bun.lock
 bun.lockb
 coverage
+rust/target/
 __openclaw_vitest__/
 __pycache__/
 *.pyc
