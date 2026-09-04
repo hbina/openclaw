@@ -25,8 +25,13 @@ const DEFAULT_LOG_FILTER: &str = "warn,openclaw=debug";
 async fn main() {
     init_logging();
     if let Err(error) = run().await {
-        error!(error = %error, "OpenClaw stopped with an error");
-        std::process::exit(1);
+        match error.downcast::<clap::Error>() {
+            Ok(error) => error.exit(),
+            Err(error) => {
+                error!(error = %error, "OpenClaw stopped with an error");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -58,12 +63,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         command = arguments.get(1).map_or("serve", String::as_str),
         "OpenClaw process started"
     );
-    if arguments.len() == 3 && arguments[1] == "--check-state" {
-        debug!(database = %arguments[2], "checking state schema");
-        Store::new(&arguments[2])?;
-        println!("State schema check passed");
-        return Ok(());
-    }
     if openclaw::cli::run(&arguments[1..]).await? {
         return Ok(());
     }

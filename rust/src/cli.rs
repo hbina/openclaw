@@ -1,8 +1,15 @@
-use std::{collections::HashMap, io::Read, path::Path, sync::Arc, time::Duration};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use chrono::{DateTime, SecondsFormat, Utc};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 use serde_json::json;
+use tracing::debug;
 use url::Url;
 
 const MAX_GATEWAY_RESPONSE_BYTES: usize = 1 << 20;
@@ -19,39 +26,339 @@ use crate::{
     },
 };
 
+#[derive(Debug, Parser)]
+#[command(
+    name = "openclaw",
+    version,
+    about = "Locally operated single-owner personal assistant",
+    args_conflicts_with_subcommands = true
+)]
+struct Cli {
+    /// Validate or initialize a SQLite state database and exit.
+    #[arg(long, value_name = "DATABASE", hide = true)]
+    check_state: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Send one chat request to a running gateway.
+    Chat(ChatArgs),
+    /// Check whether a running gateway is healthy.
+    Health(HealthArgs),
+    /// Inspect persisted response traces.
+    Trace(TraceArgs),
+    /// Inspect and maintain the memory ledger.
+    Memory(MemoryArgs),
+}
+
+#[derive(Debug, Args)]
+struct HealthArgs {
+    /// Base URL of the gateway.
+    #[arg(long, value_name = "URL")]
+    url: Option<String>,
+
+    /// Request timeout in seconds, or with an `s` or `m` suffix.
+    #[arg(long, value_parser = parse_duration, default_value = "5s")]
+    timeout: Duration,
+}
+
+#[derive(Debug, Args)]
+struct ChatArgs {
+    /// Base URL of the gateway.
+    #[arg(long, value_name = "URL")]
+    url: Option<String>,
+
+    /// Conversation sender key used by the local CLI route.
+    #[arg(long, default_value = "cli-user", value_parser = parse_nonempty)]
+    sender_id: String,
+
+    /// Request timeout in seconds, or with an `s` or `m` suffix.
+    #[arg(long, value_parser = parse_duration, default_value = "10m")]
+    timeout: Duration,
+
+    /// Print a JSON response containing the reply and trace ID.
+    #[arg(long)]
+    json: bool,
+
+    /// Message text. When omitted, the message is read from standard input.
+    #[arg(value_name = "MESSAGE")]
+    message: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct TraceArgs {
+    #[command(subcommand)]
+    command: TraceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum TraceCommand {
+    /// List response traces, newest first.
+    List(TraceListArgs),
+    /// Show one complete response trace.
+    Show(TraceShowArgs),
+}
+
+#[derive(Debug, Args)]
+struct TraceListArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Maximum number of traces to return.
+    #[arg(long, default_value_t = 20, value_parser = parse_trace_limit)]
+    limit: usize,
+
+    /// Filter by channel ID.
+    #[arg(long, default_value = "")]
+    channel: String,
+
+    /// Filter by sender ID.
+    #[arg(long, default_value = "")]
+    sender: String,
+
+    /// Filter by trace status.
+    #[arg(long, default_value = "")]
+    status: String,
+
+    /// Filter by external message ID.
+    #[arg(long, default_value = "")]
+    message_id: String,
+
+    /// Include only traces at or after this RFC3339 timestamp.
+    #[arg(long, value_parser = parse_rfc3339)]
+    since: Option<DateTime<Utc>>,
+
+    /// Print JSON instead of the human-readable table.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct TraceShowArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Trace ID to inspect.
+    #[arg(long, value_parser = parse_positive_i64)]
+    id: i64,
+
+    /// Print JSON instead of the human-readable report.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryArgs {
+    #[command(subcommand)]
+    command: MemoryCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryCommand {
+    /// Show active and deleted memory counts.
+    Status(DatabaseArg),
+    /// List memory records.
+    List(MemoryListArgs),
+    /// Show one memory record.
+    Get(MemoryIdArgs),
+    /// Add a memory record and its embedding.
+    Add(MemoryAddArgs),
+    /// Update a memory record and its embedding.
+    Update(MemoryUpdateArgs),
+    /// Mark a memory record as deleted.
+    Remove(MemoryIdArgs),
+    /// Search memory using the configured local models.
+    Search(MemorySearchArgs),
+    /// Rebuild memory and conversation indexes.
+    Reindex(ConfiguredMemoryArgs),
+    /// Inspect or run background memory consolidation.
+    Maintenance(MemoryMaintenanceArgs),
+}
+
+#[derive(Debug, Args)]
+struct DatabaseArg {
+    /// Path to the canonical SQLite database.
+    #[arg(long, value_name = "PATH")]
+    database: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct ConfiguredMemoryArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Directory containing openclaw.json and secrets.json.
+    #[arg(long, value_name = "DIR")]
+    config_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MemoryKindArg {
+    Profile,
+    Durable,
+    Daily,
+}
+
+impl From<MemoryKindArg> for MemoryKind {
+    fn from(value: MemoryKindArg) -> Self {
+        match value {
+            MemoryKindArg::Profile => Self::Profile,
+            MemoryKindArg::Durable => Self::Durable,
+            MemoryKindArg::Daily => Self::Daily,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MemoryStatusArg {
+    Active,
+    Deleted,
+    All,
+}
+
+impl From<MemoryStatusArg> for MemoryStatus {
+    fn from(value: MemoryStatusArg) -> Self {
+        match value {
+            MemoryStatusArg::Active => Self::Active,
+            MemoryStatusArg::Deleted => Self::Deleted,
+            MemoryStatusArg::All => Self::All,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct MemoryListArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Filter by memory kind.
+    #[arg(long, value_enum)]
+    kind: Option<MemoryKindArg>,
+
+    /// Filter by lifecycle status.
+    #[arg(long, value_enum, default_value_t = MemoryStatusArg::Active)]
+    status: MemoryStatusArg,
+
+    /// Maximum number of memories to return.
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+}
+
+#[derive(Debug, Args)]
+struct MemoryIdArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Memory ID.
+    #[arg(long, value_parser = parse_positive_i64)]
+    id: i64,
+}
+
+#[derive(Debug, Args)]
+struct MemoryAddArgs {
+    #[command(flatten)]
+    configured: ConfiguredMemoryArgs,
+
+    /// Memory category.
+    #[arg(long, value_enum)]
+    kind: MemoryKindArg,
+
+    /// Memory text to persist.
+    #[arg(long, value_parser = parse_nonempty)]
+    content: String,
+}
+
+#[derive(Debug, Args)]
+struct MemoryUpdateArgs {
+    #[command(flatten)]
+    configured: ConfiguredMemoryArgs,
+
+    /// Memory ID to update.
+    #[arg(long, value_parser = parse_positive_i64)]
+    id: i64,
+
+    /// Replacement category; defaults to the existing category.
+    #[arg(long, value_enum)]
+    kind: Option<MemoryKindArg>,
+
+    /// Replacement memory text.
+    #[arg(long, value_parser = parse_nonempty)]
+    content: String,
+}
+
+#[derive(Debug, Args)]
+struct MemorySearchArgs {
+    #[command(flatten)]
+    configured: ConfiguredMemoryArgs,
+
+    /// Query passed to local semantic and keyword recall.
+    #[arg(long, value_parser = parse_nonempty)]
+    query: String,
+
+    /// Maximum number of results.
+    #[arg(long, default_value_t = 5)]
+    max_results: usize,
+}
+
+#[derive(Debug, Args)]
+struct MemoryMaintenanceArgs {
+    #[command(subcommand)]
+    command: MemoryMaintenanceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryMaintenanceCommand {
+    /// Show maintenance checkpoint, lease, and latest-run state.
+    Status(DatabaseArg),
+    /// Extract and evaluate candidates without mutating memory.
+    Preview(ConfiguredMemoryArgs),
+    /// Run maintenance and apply accepted candidates.
+    Run(ConfiguredMemoryArgs),
+    /// List candidates recorded for one maintenance run.
+    Candidates(MaintenanceCandidatesArgs),
+}
+
+#[derive(Debug, Args)]
+struct MaintenanceCandidatesArgs {
+    #[command(flatten)]
+    database: DatabaseArg,
+
+    /// Maintenance run ID.
+    #[arg(long, value_parser = parse_positive_i64)]
+    run_id: i64,
+}
+
 pub async fn run(arguments: &[String]) -> Result<bool, Box<dyn std::error::Error>> {
-    let Some(command) = arguments.first().map(String::as_str) else {
-        return Ok(false);
-    };
-    match command {
-        "chat" => chat(&arguments[1..]).await?,
-        "health" => health(&arguments[1..]).await?,
-        "trace" => trace(&arguments[1..])?,
-        "memory" => memory(&arguments[1..]).await?,
-        _ => return Ok(false),
+    let cli = Cli::try_parse_from(
+        std::iter::once("openclaw").chain(arguments.iter().map(String::as_str)),
+    )?;
+    if let Some(database) = cli.check_state {
+        debug!(database = %database.display(), "checking state schema");
+        Store::new(database)?;
+        println!("State schema check passed");
+        return Ok(true);
+    }
+    match cli.command {
+        Some(Command::Chat(arguments)) => chat(arguments).await?,
+        Some(Command::Health(arguments)) => health(arguments).await?,
+        Some(Command::Trace(arguments)) => trace(arguments)?,
+        Some(Command::Memory(arguments)) => memory(arguments).await?,
+        None => return Ok(false),
     }
     Ok(true)
 }
 
-async fn health(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let parsed = ParsedArgs::parse(arguments, &[])?;
-    parsed.reject_unknown(&["url", "timeout"])?;
-    if !parsed.positionals.is_empty() {
-        return Err("health does not accept positional arguments".into());
-    }
-    let base = parsed
-        .option("url")
-        .map(str::to_owned)
+async fn health(arguments: HealthArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let base = arguments
+        .url
         .or_else(|| std::env::var("OPENCLAW_GATEWAY_URL").ok())
         .unwrap_or_else(|| "http://127.0.0.1:18789".into());
     let endpoint = gateway_endpoint(&base, "healthz")?;
-    let timeout = parsed
-        .option("timeout")
-        .map(parse_duration)
-        .transpose()?
-        .unwrap_or(Duration::from_secs(5));
     let response = reqwest::Client::builder()
-        .timeout(timeout)
+        .timeout(arguments.timeout)
         .build()?
         .get(endpoint)
         .send()
@@ -75,104 +382,27 @@ fn gateway_endpoint(base: &str, path: &str) -> Result<Url, Box<dyn std::error::E
     Ok(endpoint)
 }
 
-struct ParsedArgs {
-    options: HashMap<String, String>,
-    switches: Vec<String>,
-    positionals: Vec<String>,
-}
-
-impl ParsedArgs {
-    fn parse(arguments: &[String], boolean_flags: &[&str]) -> Result<Self, String> {
-        let mut result = Self {
-            options: HashMap::new(),
-            switches: Vec::new(),
-            positionals: Vec::new(),
-        };
-        let mut index = 0;
-        while index < arguments.len() {
-            let argument = &arguments[index];
-            if !argument.starts_with("--") {
-                result.positionals.push(argument.clone());
-                index += 1;
-                continue;
-            }
-            let name = argument.trim_start_matches("--");
-            if boolean_flags.contains(&name) {
-                result.switches.push(name.into());
-                index += 1;
-                continue;
-            }
-            let value = arguments
-                .get(index + 1)
-                .filter(|value| !value.starts_with("--"))
-                .ok_or_else(|| format!("--{name} requires a value"))?;
-            if result.options.insert(name.into(), value.clone()).is_some() {
-                return Err(format!("--{name} was provided more than once"));
-            }
-            index += 2;
-        }
-        Ok(result)
-    }
-
-    fn option(&self, name: &str) -> Option<&str> {
-        self.options.get(name).map(String::as_str)
-    }
-
-    fn required(&self, name: &str) -> Result<&str, String> {
-        self.option(name)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| format!("--{name} is required"))
-    }
-
-    fn enabled(&self, name: &str) -> bool {
-        self.switches.iter().any(|item| item == name)
-    }
-
-    fn reject_unknown(&self, allowed: &[&str]) -> Result<(), String> {
-        if let Some(name) = self
-            .options
-            .keys()
-            .find(|name| !allowed.contains(&name.as_str()))
-        {
-            return Err(format!("unknown option --{name}"));
-        }
-        Ok(())
-    }
-}
-
-async fn chat(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let parsed = ParsedArgs::parse(arguments, &["json"])?;
-    parsed.reject_unknown(&["url", "sender-id", "timeout"])?;
-    let sender = parsed.option("sender-id").unwrap_or("cli-user").trim();
-    if sender.is_empty() {
-        return Err("--sender-id must not be empty".into());
-    }
-    let message = if parsed.positionals.is_empty() {
+async fn chat(arguments: ChatArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let message = if arguments.message.is_empty() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input)?;
         input.trim().to_owned()
     } else {
-        parsed.positionals.join(" ").trim().to_owned()
+        arguments.message.join(" ").trim().to_owned()
     };
     if message.is_empty() {
         return Err("message is required as arguments or stdin".into());
     }
-    let base = parsed
-        .option("url")
-        .map(str::to_owned)
+    let base = arguments
+        .url
         .or_else(|| std::env::var("OPENCLAW_GATEWAY_URL").ok())
         .unwrap_or_else(|| "http://127.0.0.1:18789".into());
     let endpoint = gateway_endpoint(&base, "chat")?;
-    let timeout = parsed
-        .option("timeout")
-        .map(parse_duration)
-        .transpose()?
-        .unwrap_or(Duration::from_secs(10 * 60));
     let mut response = reqwest::Client::builder()
-        .timeout(timeout)
+        .timeout(arguments.timeout)
         .build()?
         .post(endpoint)
-        .json(&json!({"sender_id":sender,"message":message}))
+        .json(&json!({"sender_id":arguments.sender_id,"message":message}))
         .send()
         .await?;
     let status = response.status();
@@ -219,7 +449,7 @@ async fn chat(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if output.reply.trim().is_empty() {
         return Err("chat response contains an empty reply".into());
     }
-    if parsed.enabled("json") {
+    if arguments.json {
         println!(
             "{}",
             serde_json::to_string(&json!({"reply":output.reply,"trace_id":trace}))?
@@ -231,41 +461,19 @@ async fn chat(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn trace(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let (command, rest) = arguments
-        .split_first()
-        .ok_or("usage: openclaw trace list|show [options]")?;
-    let parsed = ParsedArgs::parse(rest, &["json"])?;
-    match command.as_str() {
-        "list" => {
-            parsed.reject_unknown(&[
-                "database",
-                "limit",
-                "channel",
-                "sender",
-                "status",
-                "message-id",
-                "since",
-            ])?;
-            let limit = parsed.option("limit").unwrap_or("20").parse::<usize>()?;
-            if !(1..=1000).contains(&limit) {
-                return Err("--limit must be between 1 and 1000".into());
-            }
-            let since = parsed
-                .option("since")
-                .map(DateTime::parse_from_rfc3339)
-                .transpose()?
-                .map(|value| value.with_timezone(&Utc));
-            let store = Store::open_read_only(parsed.required("database")?)?;
+fn trace(arguments: TraceArgs) -> Result<(), Box<dyn std::error::Error>> {
+    match arguments.command {
+        TraceCommand::List(arguments) => {
+            let store = Store::open_read_only(&arguments.database.database)?;
             let items = store.list_response_traces(&TraceFilter {
-                limit,
-                channel_id: parsed.option("channel").unwrap_or("").into(),
-                sender_id: parsed.option("sender").unwrap_or("").into(),
-                status: parsed.option("status").unwrap_or("").into(),
-                external_message_id: parsed.option("message-id").unwrap_or("").into(),
-                since,
+                limit: arguments.limit,
+                channel_id: arguments.channel,
+                sender_id: arguments.sender,
+                status: arguments.status,
+                external_message_id: arguments.message_id,
+                since: arguments.since,
             })?;
-            if parsed.enabled("json") {
+            if arguments.json {
                 println!("{}", serde_json::to_string_pretty(&items)?);
             } else {
                 println!("TRACE\tTIME\tTRIGGER\tROUTE\tSTATUS\tRESPONSE");
@@ -291,19 +499,14 @@ fn trace(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        "show" => {
-            parsed.reject_unknown(&["database", "id"])?;
-            let id = parsed.required("id")?.parse::<i64>()?;
-            if id < 1 {
-                return Err("--id must be positive".into());
-            }
-            let store = Store::open_read_only(parsed.required("database")?)?;
-            let report = store.get_trace_report(id)?;
+        TraceCommand::Show(arguments) => {
+            let store = Store::open_read_only(&arguments.database.database)?;
+            let report = store.get_trace_report(arguments.id)?;
             let value = json!({"trace":report.trace,"events":report.events});
-            if parsed.enabled("json") {
+            if arguments.json {
                 println!("{}", serde_json::to_string_pretty(&value)?);
             } else {
-                println!("Trace {id} ({})", value["trace"]["status"]);
+                println!("Trace {} ({})", arguments.id, value["trace"]["status"]);
                 println!(
                     "Route: {}/{}",
                     value["trace"]["channel_id"], value["trace"]["sender_id"]
@@ -319,75 +522,45 @@ fn trace(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        other => return Err(format!("unknown trace command {other:?}").into()),
     }
     Ok(())
 }
 
-async fn memory(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let (command, rest) = arguments.split_first().ok_or(
-        "usage: openclaw memory <status|add|list|get|search|update|remove|reindex|maintenance>",
-    )?;
-    if command == "maintenance" {
-        return memory_maintenance(rest).await;
-    }
-    let parsed = ParsedArgs::parse(rest, &[])?;
-    match command.as_str() {
-        "status" => {
-            parsed.reject_unknown(&["database"])?;
-            let store = open_store(&parsed)?;
+async fn memory(arguments: MemoryArgs) -> Result<(), Box<dyn std::error::Error>> {
+    match arguments.command {
+        MemoryCommand::Status(arguments) => {
+            let store = open_store(&arguments)?;
             let (active, deleted) = store.memory_counts()?;
             println!("Memory ledger: {active} active, {deleted} deleted");
         }
-        "list" => {
-            parsed.reject_unknown(&["database", "kind", "status", "limit"])?;
-            let store = open_store(&parsed)?;
-            let status = parse_status(parsed.option("status").unwrap_or("active"))?;
-            let kind = parsed.option("kind").map(parse_kind).transpose()?;
-            let limit = parsed.option("limit").unwrap_or("20").parse()?;
+        MemoryCommand::List(arguments) => {
+            let store = open_store(&arguments.database)?;
             for item in store.list_memories(MemoryFilter {
-                kind,
-                status,
-                limit,
+                kind: arguments.kind.map(Into::into),
+                status: arguments.status.into(),
+                limit: arguments.limit,
             })? {
                 print_memory(&item);
             }
         }
-        "get" => {
-            parsed.reject_unknown(&["database", "id"])?;
-            let store = open_store(&parsed)?;
-            print_memory(&store.get_memory(parsed.required("id")?.parse()?)?);
+        MemoryCommand::Get(arguments) => {
+            let store = open_store(&arguments.database)?;
+            print_memory(&store.get_memory(arguments.id)?);
         }
-        "remove" => {
-            parsed.reject_unknown(&["database", "id"])?;
-            let store = open_store(&parsed)?;
-            let id = parsed.required("id")?.parse()?;
-            let item = store.with_tx(|tx| tx.remove_memory(id, Utc::now()))?;
+        MemoryCommand::Remove(arguments) => {
+            let store = open_store(&arguments.database)?;
+            let item = store.with_tx(|tx| tx.remove_memory(arguments.id, Utc::now()))?;
             println!(
                 "Memory ID {} is deleted and no longer recalled; revisions remain available.",
                 item.id
             );
         }
-        "add" | "update" | "search" | "reindex" => {
-            configured_memory_command(command, &parsed).await?;
-        }
-        other => return Err(format!("unknown memory command {other:?}").into()),
-    }
-    Ok(())
-}
-
-async fn configured_memory_command(
-    command: &str,
-    parsed: &ParsedArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (store, service, config, embedder) = configured_memory(parsed)?;
-    match command {
-        "add" => {
-            parsed.reject_unknown(&["database", "config-dir", "kind", "content"])?;
+        MemoryCommand::Add(arguments) => {
+            let (store, service, _, _) = configured_memory(&arguments.configured)?;
             let write = service
                 .prepare_write(
-                    parse_kind(parsed.required("kind")?)?,
-                    parsed.required("content")?,
+                    arguments.kind.into(),
+                    &arguments.content,
                     operator_provenance(),
                 )
                 .await?;
@@ -401,26 +574,20 @@ async fn configured_memory_command(
                 item.content
             );
         }
-        "update" => {
-            parsed.reject_unknown(&["database", "config-dir", "id", "kind", "content"])?;
-            let id = parsed.required("id")?.parse()?;
-            let current = store.get_memory(id)?;
-            let kind = parsed
-                .option("kind")
-                .map(parse_kind)
-                .transpose()?
-                .unwrap_or(current.kind);
+        MemoryCommand::Update(arguments) => {
+            let (store, service, _, _) = configured_memory(&arguments.configured)?;
+            let current = store.get_memory(arguments.id)?;
+            let kind = arguments.kind.map(Into::into).unwrap_or(current.kind);
             let write = service
-                .prepare_write(kind, parsed.required("content")?, operator_provenance())
+                .prepare_write(kind, &arguments.content, operator_provenance())
                 .await?;
-            print_memory(&store.with_tx(|tx| tx.update_memory(id, &write))?);
+            print_memory(&store.with_tx(|tx| tx.update_memory(arguments.id, &write))?);
         }
-        "search" => {
-            parsed.reject_unknown(&["database", "config-dir", "query", "max-results"])?;
-            let chat = configured_chat(parsed.required("config-dir")?, &config)?;
-            let limit = parsed.option("max-results").unwrap_or("5").parse()?;
+        MemoryCommand::Search(arguments) => {
+            let (_, service, config, _) = configured_memory(&arguments.configured)?;
+            let chat = configured_chat(&arguments.configured.config_dir, &config)?;
             for (index, item) in service
-                .search_with_model(&chat, parsed.required("query")?, limit)
+                .search_with_model(&chat, &arguments.query, arguments.max_results)
                 .await?
                 .iter()
                 .enumerate()
@@ -435,10 +602,10 @@ async fn configured_memory_command(
                 );
             }
         }
-        "reindex" => {
-            parsed.reject_unknown(&["database", "config-dir"])?;
+        MemoryCommand::Reindex(arguments) => {
+            let (store, service, config, embedder) = configured_memory(&arguments)?;
             let memories = service.prepare_reindex().await?;
-            let chat = Arc::new(configured_chat(parsed.required("config-dir")?, &config)?);
+            let chat = Arc::new(configured_chat(&arguments.config_dir, &config)?);
             let sizer: Arc<dyn PromptSizer> = chat;
             let rag = RagService::new(
                 Arc::clone(&store),
@@ -456,20 +623,17 @@ async fn configured_memory_command(
                 conversations.len()
             );
         }
-        _ => unreachable!(),
+        MemoryCommand::Maintenance(arguments) => memory_maintenance(arguments).await?,
     }
     Ok(())
 }
 
-async fn memory_maintenance(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let (command, rest) = arguments
-        .split_first()
-        .ok_or("usage: openclaw memory maintenance <status|preview|run|candidates>")?;
-    let parsed = ParsedArgs::parse(rest, &[])?;
-    match command.as_str() {
-        "status" => {
-            parsed.reject_unknown(&["database"])?;
-            let store = open_store(&parsed)?;
+async fn memory_maintenance(
+    arguments: MemoryMaintenanceArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match arguments.command {
+        MemoryMaintenanceCommand::Status(arguments) => {
+            let store = open_store(&arguments)?;
             let (status, latest) = store.maintenance_status()?;
             println!(
                 "Memory maintenance checkpoint: history ID {}",
@@ -505,11 +669,9 @@ async fn memory_maintenance(arguments: &[String]) -> Result<(), Box<dyn std::err
                 println!("Latest run: none");
             }
         }
-        "candidates" => {
-            parsed.reject_unknown(&["database", "run-id"])?;
-            let store = open_store(&parsed)?;
-            let id = parsed.required("run-id")?.parse()?;
-            for item in store.list_maintenance_candidates(id)? {
+        MemoryMaintenanceCommand::Candidates(arguments) => {
+            let store = open_store(&arguments.database)?;
+            for item in store.list_maintenance_candidates(arguments.run_id)? {
                 println!(
                     "Candidate {} [{}/{}] action={}{} evidence={:?} scores=trust:{:.3} recency:{:.3} novelty:{:.3} contradiction:{:.3} reason={}\n{}",
                     item.id,
@@ -529,48 +691,52 @@ async fn memory_maintenance(arguments: &[String]) -> Result<(), Box<dyn std::err
                 );
             }
         }
-        "preview" | "run" => {
-            parsed.reject_unknown(&["database", "config-dir"])?;
-            let (store, service, config, _) = configured_memory(&parsed)?;
-            let chat: Arc<dyn Provider> =
-                Arc::new(configured_chat(parsed.required("config-dir")?, &config)?);
-            let maintainer = Maintainer::new(
-                Arc::clone(&store),
-                service,
-                chat,
-                &config.channels.telegram.owner_user_id,
-                config.agents.defaults.memory_maintenance.batch_size as usize,
-                &config.agents.defaults.memory_maintenance.schedule,
-                &config.agents.defaults.memory_maintenance.timezone,
-            )?;
-            let mode = if command == "preview" {
-                MaintenanceMode::Preview
-            } else {
-                MaintenanceMode::Apply
-            };
-            let result = maintainer.run(mode).await?;
-            println!(
-                "Maintenance run {} ({:?}) processed through history ID {}: {} candidates, {} promoted, {} rejected.",
-                result.run_id,
-                result.mode,
-                result.processed_history_id,
-                result.candidate_count,
-                result.promoted_count,
-                result.rejected_count
-            );
+        MemoryMaintenanceCommand::Preview(arguments) => {
+            run_memory_maintenance(&arguments, MaintenanceMode::Preview).await?
         }
-        other => return Err(format!("unknown memory maintenance command {other:?}").into()),
+        MemoryMaintenanceCommand::Run(arguments) => {
+            run_memory_maintenance(&arguments, MaintenanceMode::Apply).await?
+        }
     }
+    Ok(())
+}
+
+async fn run_memory_maintenance(
+    arguments: &ConfiguredMemoryArgs,
+    mode: MaintenanceMode,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (store, service, config, _) = configured_memory(arguments)?;
+    let chat: Arc<dyn Provider> = Arc::new(configured_chat(&arguments.config_dir, &config)?);
+    let maintainer = Maintainer::new(
+        Arc::clone(&store),
+        service,
+        chat,
+        &config.channels.telegram.owner_user_id,
+        config.agents.defaults.memory_maintenance.batch_size as usize,
+        &config.agents.defaults.memory_maintenance.schedule,
+        &config.agents.defaults.memory_maintenance.timezone,
+    )?;
+    let result = maintainer.run(mode).await?;
+    println!(
+        "Maintenance run {} ({:?}) processed through history ID {}: {} candidates, {} promoted, {} rejected.",
+        result.run_id,
+        result.mode,
+        result.processed_history_id,
+        result.candidate_count,
+        result.promoted_count,
+        result.rejected_count
+    );
     Ok(())
 }
 
 type ConfiguredMemory = (Arc<Store>, Arc<Service>, Config, Arc<dyn Embedder>);
 
-fn configured_memory(parsed: &ParsedArgs) -> Result<ConfiguredMemory, Box<dyn std::error::Error>> {
-    let store = Arc::new(Store::new(parsed.required("database")?)?);
-    let directory = parsed.required("config-dir")?;
-    let config = Config::load(Path::new(directory).join("openclaw.json"))?;
-    let secrets = Secrets::load(Path::new(directory).join("secrets.json")).unwrap_or_default();
+fn configured_memory(
+    arguments: &ConfiguredMemoryArgs,
+) -> Result<ConfiguredMemory, Box<dyn std::error::Error>> {
+    let store = Arc::new(Store::new(&arguments.database.database)?);
+    let config = Config::load(arguments.config_dir.join("openclaw.json"))?;
+    let secrets = Secrets::load(arguments.config_dir.join("secrets.json")).unwrap_or_default();
     let embedder: Arc<dyn Embedder> = Arc::new(EmbeddingClient::new(
         &secrets.models.embeddings.api_key,
         &config.models.embeddings.base_url,
@@ -588,18 +754,18 @@ fn configured_memory(parsed: &ParsedArgs) -> Result<ConfiguredMemory, Box<dyn st
 }
 
 fn configured_chat(
-    directory: &str,
+    directory: &Path,
     config: &Config,
 ) -> Result<OpenAiClient, Box<dyn std::error::Error>> {
-    let secrets = Secrets::load(Path::new(directory).join("secrets.json")).unwrap_or_default();
+    let secrets = Secrets::load(directory.join("secrets.json")).unwrap_or_default();
     Ok(OpenAiClient::new(
         &secrets.models.providers.openai.api_key,
         &config.models.providers.openai.base_url,
     )?)
 }
 
-fn open_store(parsed: &ParsedArgs) -> Result<Store, Box<dyn std::error::Error>> {
-    Ok(Store::new(parsed.required("database")?)?)
+fn open_store(arguments: &DatabaseArg) -> Result<Store, Box<dyn std::error::Error>> {
+    Ok(Store::new(&arguments.database)?)
 }
 
 fn operator_provenance() -> Provenance {
@@ -611,22 +777,39 @@ fn operator_provenance() -> Provenance {
     }
 }
 
-fn parse_kind(value: &str) -> Result<MemoryKind, String> {
-    match value {
-        "profile" => Ok(MemoryKind::Profile),
-        "durable" => Ok(MemoryKind::Durable),
-        "daily" => Ok(MemoryKind::Daily),
-        _ => Err("invalid --kind".into()),
+fn parse_nonempty(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        Err("value must not be empty".into())
+    } else {
+        Ok(value.into())
     }
 }
 
-fn parse_status(value: &str) -> Result<MemoryStatus, String> {
-    match value {
-        "active" => Ok(MemoryStatus::Active),
-        "deleted" => Ok(MemoryStatus::Deleted),
-        "all" => Ok(MemoryStatus::All),
-        _ => Err("invalid --status".into()),
+fn parse_positive_i64(value: &str) -> Result<i64, String> {
+    let value = value
+        .parse::<i64>()
+        .map_err(|_| "value must be a positive integer".to_owned())?;
+    if value < 1 {
+        return Err("value must be a positive integer".into());
     }
+    Ok(value)
+}
+
+fn parse_trace_limit(value: &str) -> Result<usize, String> {
+    let value = value
+        .parse::<usize>()
+        .map_err(|_| "value must be an integer between 1 and 1000".to_owned())?;
+    if !(1..=1000).contains(&value) {
+        return Err("value must be between 1 and 1000".into());
+    }
+    Ok(value)
+}
+
+fn parse_rfc3339(value: &str) -> Result<DateTime<Utc>, String> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|value| value.with_timezone(&Utc))
+        .map_err(|_| "value must be an RFC3339 timestamp".into())
 }
 
 fn kind_name(kind: MemoryKind) -> &'static str {
@@ -678,8 +861,10 @@ fn parse_duration(value: &str) -> Result<Duration, String> {
     if let Some(minutes) = value.strip_suffix('m') {
         return minutes
             .parse::<u64>()
-            .map(|value| Duration::from_secs(value * 60))
-            .map_err(|_| "invalid --timeout".into());
+            .ok()
+            .and_then(|value| value.checked_mul(60))
+            .map(Duration::from_secs)
+            .ok_or_else(|| "invalid --timeout".into());
     }
     value
         .parse::<u64>()
@@ -690,16 +875,65 @@ fn parse_duration(value: &str) -> Result<Duration, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::{CommandFactory, error::ErrorKind};
 
     #[test]
-    fn argument_parser_rejects_duplicates_and_missing_values() {
-        assert!(ParsedArgs::parse(&["--id".into()], &[]).is_err());
+    fn clap_command_tree_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn clap_parser_rejects_duplicates_missing_values_and_unknown_commands() {
+        assert!(Cli::try_parse_from(["openclaw", "trace", "show", "--id"]).is_err());
         assert!(
-            ParsedArgs::parse(&["--id".into(), "1".into(), "--id".into(), "2".into()], &[])
-                .is_err()
+            Cli::try_parse_from([
+                "openclaw",
+                "trace",
+                "show",
+                "--database",
+                "state.sqlite",
+                "--id",
+                "1",
+                "--id",
+                "2"
+            ])
+            .is_err()
         );
-        let parsed = ParsedArgs::parse(&["--json".into(), "hello".into()], &["json"]).unwrap();
-        assert!(parsed.enabled("json"));
-        assert_eq!(parsed.positionals, vec!["hello"]);
+        assert!(Cli::try_parse_from(["openclaw", "unknown"]).is_err());
+    }
+
+    #[test]
+    fn clap_parser_preserves_chat_arguments_and_defaults() {
+        let parsed = Cli::try_parse_from([
+            "openclaw",
+            "chat",
+            "--json",
+            "--sender-id",
+            "debugging",
+            "hello",
+            "there",
+        ])
+        .unwrap();
+        let Some(Command::Chat(chat)) = parsed.command else {
+            panic!("expected chat command");
+        };
+        assert!(chat.json);
+        assert_eq!(chat.sender_id, "debugging");
+        assert_eq!(chat.message, ["hello", "there"]);
+        assert_eq!(chat.timeout, Duration::from_secs(10 * 60));
+    }
+
+    #[test]
+    fn clap_parser_supports_server_default_help_and_hidden_state_check() {
+        assert!(Cli::try_parse_from(["openclaw"]).unwrap().command.is_none());
+        let help = Cli::try_parse_from(["openclaw", "memory", "--help"]).unwrap_err();
+        assert_eq!(help.kind(), ErrorKind::DisplayHelp);
+        let parsed =
+            Cli::try_parse_from(["openclaw", "--check-state", "/tmp/openclaw-state.sqlite"])
+                .unwrap();
+        assert_eq!(
+            parsed.check_state.as_deref(),
+            Some(Path::new("/tmp/openclaw-state.sqlite"))
+        );
     }
 }

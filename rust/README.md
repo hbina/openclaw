@@ -59,6 +59,12 @@ cargo run --locked -- memory status --database /path/to/openclaw-agent.sqlite
 cargo run --locked -- memory maintenance status --database /path/to/openclaw-agent.sqlite
 ```
 
+The command-line interface uses `clap`, so every command and nested subcommand
+provides generated usage, option descriptions, validation errors, and help. Use
+`cargo run --locked -- --help` for the top-level command tree or append `--help`
+to a command such as `memory maintenance --help`. `--version` prints the Rust
+package version.
+
 ## Container
 
 Build the standalone, non-root image from the repository root:
