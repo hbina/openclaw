@@ -47,10 +47,12 @@ Node runtime, cause startup to fail.
 
 `channels.telegram.ownerUserId` is the single admitted Telegram owner. It is
 stored as a string to preserve the numeric identifier exactly. Updates from any
-other Telegram sender are discarded before the agent, transcript, tools, or
-memory pipeline is invoked. When Telegram is enabled, both this ID and the bot
-token in `secrets.json` are mandatory startup inputs; the runtime does not
-silently start without its admitted channel.
+other Telegram sender, any non-private chat, or a private chat whose chat id
+does not equal this value are discarded before the agent, transcript, tools,
+or memory pipeline is invoked. The sender id establishes owner identity while
+the chat id supplies conversation and delivery routing. When Telegram is
+enabled, both this ID and the bot token in `secrets.json` are mandatory startup
+inputs; the runtime does not silently start without its admitted channel.
 
 `agents.defaults.memoryMaintenance` controls the native Go consolidation
 worker. `schedule` is a five-field cron expression interpreted in the named

@@ -16,6 +16,7 @@ pub struct ConversationTurn {
     pub id: i64,
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub role: String,
     pub content_type: String,
     pub audience: String,
@@ -28,6 +29,7 @@ impl Store {
         &self,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         role: &str,
         content_type: &str,
         content: &str,
@@ -36,6 +38,7 @@ impl Store {
             tx.save_conversation_message(
                 channel_id,
                 sender_id,
+                conversation_id,
                 role,
                 content_type,
                 AUDIENCE_CONVERSATION,
@@ -47,13 +50,13 @@ impl Store {
     pub fn get_conversation_history(
         &self,
         channel_id: &str,
-        sender_id: &str,
+        conversation_id: &str,
     ) -> Result<Vec<ConversationTurn>, StateError> {
         let connection = self.lock()?;
         collect_history(
             &connection,
-            "SELECT id, channel_id, sender_id, role, content_type, audience, content, created_at FROM conversation_history WHERE channel_id=?1 AND sender_id=?2 AND audience='conversation' ORDER BY id ASC",
-            params![channel_id, sender_id],
+            "SELECT id, channel_id, sender_id, conversation_id, role, content_type, audience, content, created_at FROM conversation_history WHERE channel_id=?1 AND conversation_id=?2 AND audience='conversation' ORDER BY id ASC",
+            params![channel_id, conversation_id],
         )
     }
 
@@ -61,17 +64,19 @@ impl Store {
         let connection = self.lock()?;
         collect_history(
             &connection,
-            "SELECT id, channel_id, sender_id, role, content_type, audience, content, created_at FROM conversation_history WHERE audience='conversation' ORDER BY id ASC",
+            "SELECT id, channel_id, sender_id, conversation_id, role, content_type, audience, content, created_at FROM conversation_history WHERE audience='conversation' ORDER BY id ASC",
             [],
         )
     }
 }
 
 impl StateTx<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub fn save_conversation_message(
         &self,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         role: &str,
         content_type: &str,
         audience: &str,
@@ -83,8 +88,8 @@ impl StateTx<'_> {
             )));
         }
         self.transaction.execute(
-            "INSERT INTO conversation_history (channel_id, sender_id, role, content_type, audience, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![channel_id, sender_id, role, content_type, audience, content],
+            "INSERT INTO conversation_history (channel_id, sender_id, conversation_id, role, content_type, audience, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![channel_id, sender_id, conversation_id, role, content_type, audience, content],
         )?;
         Ok(self.transaction.last_insert_rowid())
     }
@@ -102,7 +107,17 @@ fn collect_history<P: rusqlite::Params>(
     raw.into_iter().map(ConversationTurn::try_from).collect()
 }
 
-type RawTurn = (i64, String, String, String, String, String, String, String);
+type RawTurn = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
 
 fn raw_turn(row: &Row<'_>) -> rusqlite::Result<RawTurn> {
     Ok((
@@ -114,6 +129,7 @@ fn raw_turn(row: &Row<'_>) -> rusqlite::Result<RawTurn> {
         row.get(5)?,
         row.get(6)?,
         row.get(7)?,
+        row.get(8)?,
     ))
 }
 
@@ -125,11 +141,12 @@ impl TryFrom<RawTurn> for ConversationTurn {
             id: raw.0,
             channel_id: raw.1,
             sender_id: raw.2,
-            role: raw.3,
-            content_type: raw.4,
-            audience: raw.5,
-            content: raw.6,
-            created_at: decode_time(raw.7)?,
+            conversation_id: raw.3,
+            role: raw.4,
+            content_type: raw.5,
+            audience: raw.6,
+            content: raw.7,
+            created_at: decode_time(raw.8)?,
         })
     }
 }

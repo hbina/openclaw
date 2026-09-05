@@ -65,6 +65,7 @@ pub struct Reminder {
     pub id: i64,
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub message: String,
     pub schedule: ReminderSchedule,
     pub fire_at: DateTime<Utc>,
@@ -116,15 +117,17 @@ impl StateTx<'_> {
         &self,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         message: &str,
         schedule: &ReminderSchedule,
         fire_at: DateTime<Utc>,
     ) -> Result<i64, StateError> {
         self.transaction.execute(
-            "INSERT INTO reminders (channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1)",
+            "INSERT INTO reminders (channel_id, sender_id, conversation_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)",
             params![
                 channel_id,
                 sender_id,
+                conversation_id,
                 message,
                 encode_time(fire_at),
                 schedule.kind.as_str(),
@@ -278,6 +281,7 @@ impl Store {
             tx.save_conversation_message(
                 &reminder.channel_id,
                 &reminder.sender_id,
+                &reminder.conversation_id,
                 "user",
                 CONTENT_SCHEDULED_REMINDER,
                 AUDIENCE_CONVERSATION,
@@ -286,6 +290,7 @@ impl Store {
             tx.save_conversation_message(
                 &reminder.channel_id,
                 &reminder.sender_id,
+                &reminder.conversation_id,
                 "assistant",
                 CONTENT_TEXT,
                 AUDIENCE_CONVERSATION,
@@ -311,6 +316,7 @@ impl Store {
             let start_history_id = tx.save_conversation_message(
                 &reminder.channel_id,
                 &reminder.sender_id,
+                &reminder.conversation_id,
                 "user",
                 CONTENT_SCHEDULED_REMINDER,
                 AUDIENCE_CONVERSATION,
@@ -319,6 +325,7 @@ impl Store {
             let history_id = tx.save_conversation_message(
                 &reminder.channel_id,
                 &reminder.sender_id,
+                &reminder.conversation_id,
                 "assistant",
                 CONTENT_TEXT,
                 AUDIENCE_CONVERSATION,
@@ -345,10 +352,11 @@ impl Store {
     }
 }
 
-const REMINDER_COLUMNS: &str = "id, channel_id, sender_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled";
+const REMINDER_COLUMNS: &str = "id, channel_id, sender_id, conversation_id, message, fire_at, schedule_kind, every_ms, anchor_at, cron_expr, timezone, enabled";
 
 type RawReminder = (
     i64,
+    String,
     String,
     String,
     String,
@@ -374,6 +382,7 @@ fn raw_reminder(row: &Row<'_>) -> rusqlite::Result<RawReminder> {
         row.get(8)?,
         row.get(9)?,
         row.get(10)?,
+        row.get(11)?,
     ))
 }
 
@@ -381,22 +390,23 @@ impl TryFrom<RawReminder> for Reminder {
     type Error = StateError;
 
     fn try_from(raw: RawReminder) -> Result<Self, Self::Error> {
-        let fire_at = decode_time(raw.4)?;
+        let fire_at = decode_time(raw.5)?;
         Ok(Self {
             id: raw.0,
             channel_id: raw.1,
             sender_id: raw.2,
-            message: raw.3,
+            conversation_id: raw.3,
+            message: raw.4,
             schedule: ReminderSchedule {
-                kind: ScheduleKind::parse(&raw.5)?,
+                kind: ScheduleKind::parse(&raw.6)?,
                 at: Some(fire_at),
-                every_ms: raw.6,
-                anchor_at: raw.7.map(decode_time).transpose()?,
-                cron_expr: raw.8,
-                timezone: raw.9,
+                every_ms: raw.7,
+                anchor_at: raw.8.map(decode_time).transpose()?,
+                cron_expr: raw.9,
+                timezone: raw.10,
             },
             fire_at,
-            enabled: raw.10,
+            enabled: raw.11,
         })
     }
 }
@@ -798,6 +808,7 @@ mod tests {
                 tx.add_reminder(
                     "telegram",
                     "owner",
+                    "owner-chat",
                     "briefing",
                     &schedule,
                     now - Duration::hours(4),
@@ -841,7 +852,7 @@ mod tests {
         let now = Utc::now();
         let schedule = ReminderSchedule::at(now - Duration::minutes(1));
         let id = store
-            .with_tx(|tx| tx.add_reminder("telegram", "owner", "due", &schedule, now))
+            .with_tx(|tx| tx.add_reminder("telegram", "owner", "owner-chat", "due", &schedule, now))
             .unwrap();
         let reminder = store
             .with_tx(|tx| tx.get_reminder_for_user(id, "telegram", "owner"))

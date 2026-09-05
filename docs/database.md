@@ -64,7 +64,8 @@ Scheduled outbound reminder state.
 | --- | --- |
 | `id` | Autoincremented reminder identifier exposed by the reminder tool. |
 | `channel_id` | Delivery adapter and routing key, currently `telegram` or test-only `cli`. |
-| `sender_id` | Recipient/conversation routing key supplied by trusted ingress. |
+| `sender_id` | Admitted owner identity supplied by trusted ingress. |
+| `conversation_id` | Conversation route and delivery target supplied by trusted ingress. |
 | `message` | Reminder text. |
 | `fire_at` | Next due instant stored in UTC-compatible SQLite time form. |
 | `schedule_kind` | `at`, `every`, or `cron`. |
@@ -102,14 +103,15 @@ Append-only structured transcript and source of truth for conversation recall.
 | --- | --- |
 | `id` | Global autoincremented transcript sequence. |
 | `channel_id` | Source routing channel. |
-| `sender_id` | Source conversation routing key. |
+| `sender_id` | Admitted owner identity associated with the turn. |
+| `conversation_id` | Source conversation route used for ordered replay and locking. |
 | `role` | Provider role such as `user`, `assistant`, or `tool`. |
 | `content_type` | `text`, `inbound_message`, `scheduled_reminder`, `tool_call`, or `tool_result`. |
 | `audience` | `conversation` for owner-visible replay or `internal` for recall-planning and evidence-selection audit calls. |
 | `content` | Plain text or the structured JSON payload for the content type. |
 | `created_at` | Timestamp used when rendering historical conversation documents. |
 
-`channel_id, sender_id, id` is indexed for ordered route replay. Tool calls
+`channel_id, conversation_id, id` is indexed for ordered route replay. Tool calls
 and tool results are related through exact tool-call ids stored inside their
 JSON payloads. A `scheduled_reminder` row stores the reminder id, original
 message, and scheduled occurrence; its following assistant text row contains
@@ -148,9 +150,9 @@ an explicit future maintenance action. It records diagnostic inputs and
 outcomes, not credentials or transport authorization headers.
 
 - `response_traces` is the root record for one inbound chat or scheduled
-  reminder attempt. It stores the trusted route, original structured input,
-  external inbound id, optional reminder id, history link, lifecycle status,
-  and failure stage.
+  reminder attempt. It stores owner identity separately from the trusted
+  conversation route, plus the original structured input, external inbound id,
+  optional reminder id, history link, lifecycle status, and failure stage.
 - `trace_events` provides a stable sequence for the RAG, LLM, tool, output, and
   delivery stages. Independent conversations can interleave globally without
   losing their per-trace order.

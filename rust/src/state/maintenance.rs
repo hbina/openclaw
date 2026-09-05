@@ -166,10 +166,10 @@ impl Store {
                  WHERE u.channel_id='telegram' AND u.sender_id=?1 AND u.audience='conversation'
                    AND u.role='user' AND u.content_type IN ('text','inbound_message')
                    AND EXISTS (SELECT 1 FROM conversation_history a
-                     WHERE a.channel_id=u.channel_id AND a.sender_id=u.sender_id
+                     WHERE a.channel_id=u.channel_id AND a.conversation_id=u.conversation_id
                        AND a.audience='conversation' AND a.role='assistant' AND a.content_type='text'
                        AND a.id>u.id AND NOT EXISTS (SELECT 1 FROM conversation_history n
-                         WHERE n.channel_id=u.channel_id AND n.sender_id=u.sender_id
+                         WHERE n.channel_id=u.channel_id AND n.conversation_id=u.conversation_id
                            AND n.audience='conversation' AND n.role='user' AND n.id>u.id AND n.id<a.id))",
                 [&input.owner_sender_id],
                 |row| row.get(0),
@@ -260,10 +260,10 @@ impl Store {
         let mut statement = connection.prepare(
             "SELECT u.id,
                (SELECT MAX(a.id) FROM conversation_history a
-                WHERE a.channel_id=u.channel_id AND a.sender_id=u.sender_id
+                WHERE a.channel_id=u.channel_id AND a.conversation_id=u.conversation_id
                   AND a.audience='conversation' AND a.role='assistant' AND a.content_type='text'
                   AND a.id>u.id AND NOT EXISTS (SELECT 1 FROM conversation_history n
-                    WHERE n.channel_id=u.channel_id AND n.sender_id=u.sender_id
+                    WHERE n.channel_id=u.channel_id AND n.conversation_id=u.conversation_id
                       AND n.audience='conversation' AND n.role='user' AND n.id>u.id AND n.id<a.id)),
                u.content_type,u.content,u.created_at
              FROM conversation_history u
@@ -271,10 +271,10 @@ impl Store {
                AND u.role='user' AND u.content_type IN ('text','inbound_message')
                AND u.id>?2 AND u.id<=?3
                AND EXISTS (SELECT 1 FROM conversation_history a
-                 WHERE a.channel_id=u.channel_id AND a.sender_id=u.sender_id
+                 WHERE a.channel_id=u.channel_id AND a.conversation_id=u.conversation_id
                    AND a.audience='conversation' AND a.role='assistant' AND a.content_type='text'
                    AND a.id>u.id AND NOT EXISTS (SELECT 1 FROM conversation_history n
-                     WHERE n.channel_id=u.channel_id AND n.sender_id=u.sender_id
+                     WHERE n.channel_id=u.channel_id AND n.conversation_id=u.conversation_id
                        AND n.audience='conversation' AND n.role='user' AND n.id>u.id AND n.id<a.id))
              ORDER BY u.id ASC LIMIT ?4",
         )?;

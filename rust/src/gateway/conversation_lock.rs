@@ -33,8 +33,8 @@ impl ConversationLockManager {
         Self::default()
     }
 
-    pub async fn lock(&self, channel_id: &str, sender_id: &str) -> ConversationGuard {
-        let key = format!("{channel_id}\0{sender_id}");
+    pub async fn lock(&self, channel_id: &str, conversation_id: &str) -> ConversationGuard {
+        let key = format!("{channel_id}\0{conversation_id}");
         let token = {
             let mut entries = self
                 .inner

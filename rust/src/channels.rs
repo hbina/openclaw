@@ -7,11 +7,15 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
 const MAX_TELEGRAM_RESPONSE_BYTES: usize = 16 << 20;
+const MAX_TELEGRAM_TEXT_BYTES: usize = 16 << 10;
+const MAX_TELEGRAM_REPLY_BYTES: usize = 16 << 10;
+const MAX_TELEGRAM_QUOTE_BYTES: usize = 4 << 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -33,11 +37,14 @@ pub struct ReplyContext {
     pub content_unavailable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Message {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboundMessage {
     pub channel_id: String,
-    pub sender_id: String,
-    pub message_id: String,
+    pub update_id: i64,
+    pub message_id: i64,
+    pub chat_id: i64,
+    pub sender_id: i64,
+    pub timestamp: DateTime<Utc>,
     pub content: String,
     pub reply: Option<ReplyContext>,
 }
@@ -47,8 +54,11 @@ pub struct DeliveryReceipt {
     pub message_id: String,
 }
 
-pub type Handler =
-    Arc<dyn Fn(Message) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send + Sync>;
+pub type Handler = Arc<
+    dyn Fn(InboundMessage) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 #[async_trait]
 pub trait Channel: Send + Sync {
@@ -123,7 +133,7 @@ impl Registry {
 pub struct TelegramAdapter {
     client: reqwest::Client,
     api_base: String,
-    owner_user_id: String,
+    owner_user_id: i64,
     shutdown: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -135,21 +145,18 @@ impl TelegramAdapter {
                 "telegram bot token must not be empty".into(),
             ));
         }
-        let owner_user_id = owner_user_id.trim();
-        if owner_user_id
+        let owner_user_id = owner_user_id
+            .trim()
             .parse::<i64>()
             .ok()
             .filter(|id| *id > 0)
-            .is_none()
-        {
-            return Err(ChannelError::Operation(
-                "telegram owner user id must be a positive integer".into(),
-            ));
-        }
+            .ok_or_else(|| {
+                ChannelError::Operation("telegram owner user id must be a positive integer".into())
+            })?;
         Ok(Self {
             client: reqwest::Client::new(),
             api_base: format!("https://api.telegram.org/bot{}/", token.trim()),
-            owner_user_id: owner_user_id.into(),
+            owner_user_id,
             shutdown: Mutex::new(None),
             worker: Mutex::new(None),
         })
@@ -221,7 +228,7 @@ impl TelegramAdapter {
     async fn polling_loop(
         client: reqwest::Client,
         api_base: String,
-        owner_user_id: String,
+        owner_user_id: i64,
         bot_id: i64,
         handler: Handler,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
@@ -262,32 +269,27 @@ impl TelegramAdapter {
             }
             for update in updates {
                 offset = offset.max(update.update_id + 1);
-                let Some(message) = update.message else {
-                    trace!(
-                        update_id = update.update_id,
-                        "ignoring Telegram update without a message"
-                    );
-                    continue;
+                let inbound = match telegram_inbound_message(&update, bot_id, owner_user_id) {
+                    Ok(Some(inbound)) => inbound,
+                    Ok(None) => {
+                        trace!(
+                            update_id = update.update_id,
+                            "ignoring unsupported Telegram update"
+                        );
+                        continue;
+                    }
+                    Err(error) => {
+                        warn!(update_id = update.update_id, error = %error, "rejected Telegram message");
+                        continue;
+                    }
                 };
-                let Some(text) = message.text.as_deref() else {
-                    trace!(
-                        message_id = message.message_id,
-                        "ignoring non-text Telegram message"
-                    );
-                    continue;
-                };
-                let Ok(inbound) = telegram_inbound_message(&message, text, bot_id) else {
-                    warn!(
-                        message_id = message.message_id,
-                        "ignoring malformed Telegram message"
-                    );
-                    continue;
-                };
-                if inbound.sender_id != owner_user_id {
-                    warn!(sender_id = %inbound.sender_id, message_id = %inbound.message_id, "rejected Telegram message from non-owner");
-                    continue;
-                }
-                info!(message_id = %inbound.message_id, message_bytes = inbound.content.len(), "accepted Telegram owner message");
+                info!(
+                    update_id = inbound.update_id,
+                    message_id = inbound.message_id,
+                    chat_id = inbound.chat_id,
+                    message_bytes = inbound.content.len(),
+                    "accepted Telegram owner private message"
+                );
                 let handling = handler(inbound);
                 tokio::select! {
                     changed = shutdown.changed() => {
@@ -333,7 +335,7 @@ impl Channel for TelegramAdapter {
         let worker = tokio::spawn(Self::polling_loop(
             self.client.clone(),
             self.api_base.clone(),
-            self.owner_user_id.clone(),
+            self.owner_user_id,
             me.id,
             handler,
             receiver,
@@ -425,6 +427,24 @@ struct TelegramUser {
     id: i64,
 }
 
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum TelegramChatType {
+    Private,
+    Group,
+    Supergroup,
+    Channel,
+    #[serde(other)]
+    Unsupported,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramChat {
+    id: i64,
+    #[serde(rename = "type")]
+    kind: TelegramChatType,
+}
+
 #[derive(Deserialize)]
 struct TelegramQuote {
     text: String,
@@ -434,6 +454,8 @@ struct TelegramQuote {
 struct TelegramMessage {
     message_id: i64,
     from: Option<TelegramUser>,
+    chat: TelegramChat,
+    date: i64,
     text: Option<String>,
     caption: Option<String>,
     reply_to_message: Option<Box<TelegramMessage>>,
@@ -441,18 +463,44 @@ struct TelegramMessage {
 }
 
 fn telegram_inbound_message(
-    message: &TelegramMessage,
-    text: &str,
+    update: &TelegramUpdate,
     bot_id: i64,
-) -> Result<Message, ChannelError> {
+    owner_user_id: i64,
+) -> Result<Option<InboundMessage>, ChannelError> {
+    let Some(message) = update.message.as_ref() else {
+        return Ok(None);
+    };
+    let Some(text) = message.text.as_deref() else {
+        return Ok(None);
+    };
     let sender = message.from.as_ref().ok_or_else(|| {
         ChannelError::Operation("telegram text message is missing a sender".into())
     })?;
-    let mut inbound = Message {
+    if message.chat.kind != TelegramChatType::Private
+        || sender.id != owner_user_id
+        || message.chat.id != owner_user_id
+    {
+        return Err(ChannelError::Operation(
+            "telegram message did not satisfy the private owner chat contract".into(),
+        ));
+    }
+    let timestamp = DateTime::from_timestamp(message.date, 0)
+        .filter(|value| value.timestamp() > 0)
+        .ok_or_else(|| ChannelError::Operation("telegram message timestamp is invalid".into()))?;
+    let content = normalize_telegram_text(text, MAX_TELEGRAM_TEXT_BYTES, "message")?;
+    if content.trim().is_empty() {
+        return Err(ChannelError::Operation(
+            "telegram message text must not be empty".into(),
+        ));
+    }
+    let mut inbound = InboundMessage {
         channel_id: "telegram".into(),
-        sender_id: sender.id.to_string(),
-        message_id: message.message_id.to_string(),
-        content: text.into(),
+        update_id: update.update_id,
+        sender_id: sender.id,
+        chat_id: message.chat.id,
+        message_id: message.message_id,
+        timestamp,
+        content,
         reply: None,
     };
     if let Some(reply) = &message.reply_to_message {
@@ -461,56 +509,231 @@ fn telegram_inbound_message(
             Some(id) if id == sender.id => ReplyAuthor::User,
             _ => ReplyAuthor::Other,
         };
-        let body = reply
+        let raw_body = reply
             .text
             .as_deref()
             .or(reply.caption.as_deref())
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+            .unwrap_or("");
+        let body = normalize_telegram_text(raw_body, MAX_TELEGRAM_REPLY_BYTES, "reply")?;
+        let selected_text = normalize_telegram_text(
+            message
+                .quote
+                .as_ref()
+                .map(|quote| quote.text.as_str())
+                .unwrap_or(""),
+            MAX_TELEGRAM_QUOTE_BYTES,
+            "quote",
+        )?;
         inbound.reply = Some(ReplyContext {
             message_id: reply.message_id.to_string(),
             author,
-            content_unavailable: body.is_empty(),
+            content_unavailable: body.trim().is_empty(),
             body,
-            selected_text: message
-                .quote
-                .as_ref()
-                .map(|quote| quote.text.trim().to_owned())
-                .unwrap_or_default(),
+            selected_text,
         });
     }
-    Ok(inbound)
+    Ok(Some(inbound))
+}
+
+fn normalize_telegram_text(
+    value: &str,
+    max_bytes: usize,
+    field: &str,
+) -> Result<String, ChannelError> {
+    let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
+    if normalized.len() > max_bytes {
+        return Err(ChannelError::Operation(format!(
+            "telegram {field} exceeded {max_bytes} bytes"
+        )));
+    }
+    if normalized
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
+    {
+        return Err(ChannelError::Operation(format!(
+            "telegram {field} contained an unsafe control character"
+        )));
+    }
+    Ok(normalized)
 }
 
 #[cfg(test)]
 mod telegram_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn validates_owner_and_maps_reply_context() {
+    fn fixtures_enforce_private_owner_chat_and_map_reply_context() {
         assert!(TelegramAdapter::new("token", "not-an-id").is_err());
-        let message = TelegramMessage {
-            message_id: 9,
-            from: Some(TelegramUser { id: 42 }),
-            text: Some("What about this?".into()),
-            caption: None,
-            reply_to_message: Some(Box::new(TelegramMessage {
-                message_id: 7,
-                from: Some(TelegramUser { id: 100 }),
-                text: Some("Earlier answer".into()),
-                caption: None,
-                reply_to_message: None,
-                quote: None,
-            })),
-            quote: Some(TelegramQuote {
-                text: "answer".into(),
-            }),
-        };
-        let inbound = telegram_inbound_message(&message, "What about this?", 100).unwrap();
-        assert_eq!(inbound.sender_id, "42");
+        let updates: Vec<TelegramUpdate> =
+            serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
+
+        let inbound = telegram_inbound_message(&updates[0], 100, 42)
+            .unwrap()
+            .unwrap();
+        assert_eq!(inbound.update_id, 1001);
+        assert_eq!(inbound.message_id, 9);
+        assert_eq!(inbound.chat_id, 42);
+        assert_eq!(inbound.sender_id, 42);
+        assert_eq!(inbound.content, "What about this?\nThanks\n");
         let reply = inbound.reply.unwrap();
         assert_eq!(reply.author, ReplyAuthor::Assistant);
         assert_eq!(reply.selected_text, "answer");
+
+        assert!(
+            updates[1..8]
+                .iter()
+                .all(|update| telegram_inbound_message(update, 100, 42).is_err())
+        );
+        let handler_inputs: Vec<_> = updates[1..8]
+            .iter()
+            .filter_map(|update| telegram_inbound_message(update, 100, 42).ok().flatten())
+            .collect();
+        assert!(handler_inputs.is_empty());
+        assert!(
+            telegram_inbound_message(&updates[8], 100, 42)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn canonical_message_round_trips_and_serializes_deterministically() {
+        let updates: Vec<TelegramUpdate> =
+            serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
+        let inbound = telegram_inbound_message(&updates[0], 100, 42)
+            .unwrap()
+            .unwrap();
+        let encoded = serde_json::to_string(&inbound).unwrap();
+        assert_eq!(
+            serde_json::from_str::<InboundMessage>(&encoded).unwrap(),
+            inbound
+        );
+        assert_eq!(
+            encoded,
+            r#"{"channel_id":"telegram","update_id":1001,"message_id":9,"chat_id":42,"sender_id":42,"timestamp":"2026-09-05T00:00:00Z","content":"What about this?\nThanks\n","reply":{"message_id":"7","author":"assistant","body":"Earlier answer","selected_text":"answer"}}"#
+        );
+    }
+
+    #[test]
+    fn normalization_enforces_boundaries_and_preserves_unicode() {
+        assert_eq!(
+            normalize_telegram_text("a\r\nb\rc\t", 8, "message").unwrap(),
+            "a\nb\nc\t"
+        );
+        assert!(normalize_telegram_text("\0", 8, "message").is_err());
+        assert!(normalize_telegram_text("\u{7f}", 8, "message").is_err());
+        assert!(normalize_telegram_text("\u{85}", 8, "message").is_err());
+        assert_eq!(
+            normalize_telegram_text("👩‍💻 e\u{301} 漢字 مرحبا", 64, "message").unwrap(),
+            "👩‍💻 e\u{301} 漢字 مرحبا"
+        );
+        assert!(normalize_telegram_text(&"x".repeat(8), 8, "message").is_ok());
+        assert!(normalize_telegram_text(&"x".repeat(9), 8, "message").is_err());
+    }
+
+    #[test]
+    fn ingress_enforces_current_reply_and_quote_limits() {
+        let mut updates: Vec<TelegramUpdate> =
+            serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
+        let update = &mut updates[0];
+        let message = update.message.as_mut().unwrap();
+
+        message.text = Some("x".repeat(MAX_TELEGRAM_TEXT_BYTES));
+        assert!(telegram_inbound_message(update, 100, 42).is_ok());
+        update.message.as_mut().unwrap().text = Some("x".repeat(MAX_TELEGRAM_TEXT_BYTES + 1));
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+
+        let message = update.message.as_mut().unwrap();
+        message.text = Some("current".into());
+        message.reply_to_message.as_mut().unwrap().text =
+            Some("x".repeat(MAX_TELEGRAM_REPLY_BYTES));
+        assert!(telegram_inbound_message(update, 100, 42).is_ok());
+        update
+            .message
+            .as_mut()
+            .unwrap()
+            .reply_to_message
+            .as_mut()
+            .unwrap()
+            .text = Some("x".repeat(MAX_TELEGRAM_REPLY_BYTES + 1));
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+
+        let message = update.message.as_mut().unwrap();
+        message.reply_to_message.as_mut().unwrap().text = Some("reply".into());
+        message.quote.as_mut().unwrap().text = "x".repeat(MAX_TELEGRAM_QUOTE_BYTES);
+        assert!(telegram_inbound_message(update, 100, 42).is_ok());
+        update
+            .message
+            .as_mut()
+            .unwrap()
+            .quote
+            .as_mut()
+            .unwrap()
+            .text = "x".repeat(MAX_TELEGRAM_QUOTE_BYTES + 1);
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+    }
+
+    #[test]
+    fn ingress_rejects_empty_control_and_invalid_timestamp_content() {
+        let mut updates: Vec<TelegramUpdate> =
+            serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
+        let update = &mut updates[0];
+
+        update.message.as_mut().unwrap().text = Some(" \n\t".into());
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+        update.message.as_mut().unwrap().text = Some("unsafe\0text".into());
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+
+        let message = update.message.as_mut().unwrap();
+        message.text = Some("current".into());
+        message.reply_to_message.as_mut().unwrap().text = Some("unsafe\u{85}reply".into());
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+
+        let message = update.message.as_mut().unwrap();
+        message.reply_to_message.as_mut().unwrap().text = Some("reply".into());
+        message.quote.as_mut().unwrap().text = "unsafe\u{7f}quote".into();
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+
+        let message = update.message.as_mut().unwrap();
+        message.quote.as_mut().unwrap().text = "quote".into();
+        message.date = 0;
+        assert!(telegram_inbound_message(update, 100, 42).is_err());
+    }
+
+    #[test]
+    fn malformed_wire_fields_fail_before_admission() {
+        for raw in [
+            r#"{"update_id":1,"message":{"message_id":1,"from":{"id":42},"date":1,"text":"x"}}"#,
+            r#"{"update_id":1,"message":{"message_id":1,"from":{"id":42},"chat":{"id":42,"type":"private"},"text":"x"}}"#,
+            r#"{"message":{"message_id":1,"from":{"id":42},"chat":{"id":42,"type":"private"},"date":1,"text":"x"}}"#,
+        ] {
+            assert!(serde_json::from_str::<TelegramUpdate>(raw).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_chat_fixtures_never_invoke_the_agent_handler() {
+        let updates: Vec<TelegramUpdate> =
+            serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let handler: Handler = Arc::new(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(()) })
+        });
+
+        for update in &updates[1..8] {
+            if let Ok(Some(inbound)) = telegram_inbound_message(update, 100, 42) {
+                handler(inbound).await.unwrap();
+            }
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let admitted = telegram_inbound_message(&updates[0], 100, 42)
+            .unwrap()
+            .unwrap();
+        handler(admitted).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

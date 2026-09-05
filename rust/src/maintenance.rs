@@ -1294,10 +1294,17 @@ mod tests {
             "Dark roast coffee is my preference",
         ] {
             store
-                .save_conversation_message("telegram", "42", "user", CONTENT_TEXT, content)
+                .save_conversation_message("telegram", "42", "42", "user", CONTENT_TEXT, content)
                 .unwrap();
             store
-                .save_conversation_message("telegram", "42", "assistant", CONTENT_TEXT, "Noted")
+                .save_conversation_message(
+                    "telegram",
+                    "42",
+                    "42",
+                    "assistant",
+                    CONTENT_TEXT,
+                    "Noted",
+                )
                 .unwrap();
         }
         let service = Arc::new(Service::new(
@@ -1340,10 +1347,17 @@ mod tests {
             "Dark roast coffee is my preference",
         ] {
             store
-                .save_conversation_message("telegram", "42", "user", CONTENT_TEXT, content)
+                .save_conversation_message("telegram", "42", "42", "user", CONTENT_TEXT, content)
                 .unwrap();
             store
-                .save_conversation_message("telegram", "42", "assistant", CONTENT_TEXT, "Noted")
+                .save_conversation_message(
+                    "telegram",
+                    "42",
+                    "42",
+                    "assistant",
+                    CONTENT_TEXT,
+                    "Noted",
+                )
                 .unwrap();
         }
         let service = Arc::new(Service::new(
@@ -1381,10 +1395,17 @@ mod tests {
             "Dark roast coffee is my preference",
         ] {
             store
-                .save_conversation_message("telegram", "42", "user", CONTENT_TEXT, content)
+                .save_conversation_message("telegram", "42", "42", "user", CONTENT_TEXT, content)
                 .unwrap();
             store
-                .save_conversation_message("telegram", "42", "assistant", CONTENT_TEXT, "Noted")
+                .save_conversation_message(
+                    "telegram",
+                    "42",
+                    "42",
+                    "assistant",
+                    CONTENT_TEXT,
+                    "Noted",
+                )
                 .unwrap();
         }
         let service = Arc::new(Service::new(

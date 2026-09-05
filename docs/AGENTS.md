@@ -1,6 +1,6 @@
 # Documentation Intent
 
-This directory serves operators and maintainers of the retained Go
+This directory serves operators and maintainers of the canonical Rust
 reminder-assistant runtime. Its purpose is to explain user-visible behavior,
 operational consequences, and the reasoning behind important constraints.
 
@@ -12,10 +12,15 @@ code already describes implementation mechanics; avoid narrating functions,
 packages, or control flow unless an operator needs that model to make a safe
 decision.
 
-Describe only behavior supported by the current Go runtime and verified at the
+Describe only behavior supported by the current Rust runtime and verified at the
 appropriate boundary. Clearly mark limitations and unresolved work. Plans must
 not read like shipped features because operators make deployment and data
 decisions from these pages.
+
+Rust is the canonical and only production implementation. Documentation must
+not present the superseded Go tree as an alternate runtime, deployment path, or
+source of current behavior; it may be mentioned only as historical context when
+that distinction prevents operator confusion.
 
 The public documentation intentionally excludes deleted upstream Node,
 provider, plugin, channel, CLI, UI, and localization surfaces. Restoring those

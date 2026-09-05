@@ -386,7 +386,7 @@ fn complete_exchanges_by_route(turns: &[ConversationTurn]) -> Vec<ConversationEx
     let mut routes: HashMap<String, Vec<ConversationTurn>> = HashMap::new();
     let mut order = Vec::new();
     for turn in turns {
-        let key = format!("{}\0{}", turn.channel_id, turn.sender_id);
+        let key = format!("{}\0{}", turn.channel_id, turn.conversation_id);
         if !routes.contains_key(&key) {
             order.push(key.clone());
         }
@@ -564,10 +564,17 @@ mod tests {
             ("cli", "owner", "Current question", "Current answer"),
         ] {
             store
-                .save_conversation_message(channel, sender, "user", CONTENT_TEXT, user)
+                .save_conversation_message(channel, sender, sender, "user", CONTENT_TEXT, user)
                 .unwrap();
             store
-                .save_conversation_message(channel, sender, "assistant", CONTENT_TEXT, assistant)
+                .save_conversation_message(
+                    channel,
+                    sender,
+                    sender,
+                    "assistant",
+                    CONTENT_TEXT,
+                    assistant,
+                )
                 .unwrap();
         }
         let service = service(Arc::clone(&store));
@@ -602,6 +609,7 @@ mod tests {
                     id: 1,
                     channel_id: "telegram".into(),
                     sender_id: "owner".into(),
+                    conversation_id: "owner".into(),
                     role: "user".into(),
                     content_type: CONTENT_TEXT.into(),
                     audience: "conversation".into(),
@@ -612,6 +620,7 @@ mod tests {
                     id: 2,
                     channel_id: "telegram".into(),
                     sender_id: "owner".into(),
+                    conversation_id: "owner".into(),
                     role: "assistant".into(),
                     content_type: CONTENT_TEXT.into(),
                     audience: "conversation".into(),

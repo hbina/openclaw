@@ -35,6 +35,7 @@ pub struct TraceInput {
     pub trigger_type: String,
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub external_message_id: String,
     pub reminder_id: Option<i64>,
     pub input_json: String,
@@ -84,6 +85,7 @@ pub struct TraceSummary {
     pub trigger_type: String,
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub external_message_id: String,
     pub status: String,
     pub started_at: DateTime<Utc>,
@@ -111,11 +113,12 @@ impl Store {
     pub fn start_response_trace(&self, input: &TraceInput) -> Result<i64, StateError> {
         let connection = self.lock()?;
         connection.execute(
-            "INSERT INTO response_traces (trigger_type, channel_id, sender_id, external_message_id, reminder_id, input_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO response_traces (trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 input.trigger_type,
                 input.channel_id,
                 input.sender_id,
+                input.conversation_id,
                 input.external_message_id,
                 input.reminder_id,
                 input.input_json,
@@ -408,6 +411,7 @@ impl Store {
             provider_message_id,
             channel_id,
             sender_id,
+            sender_id,
             content,
             0,
             &[],
@@ -422,6 +426,7 @@ impl Store {
         provider_message_id: &str,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         content: &str,
         start_history_id: i64,
         chunks: &[ConversationChunk],
@@ -430,6 +435,7 @@ impl Store {
             let history_id = tx.save_conversation_message(
                 channel_id,
                 sender_id,
+                conversation_id,
                 "assistant",
                 CONTENT_TEXT,
                 "conversation",
@@ -466,7 +472,7 @@ impl Store {
         let since = filter.since.map(encode_time);
         let connection = self.lock()?;
         let mut statement = connection.prepare(
-            "SELECT DISTINCT t.id, t.trigger_type, t.channel_id, t.sender_id, t.external_message_id, t.status, t.started_at, t.completed_at, COALESCE(o.final_content, '')
+            "SELECT DISTINCT t.id, t.trigger_type, t.channel_id, t.sender_id, t.conversation_id, t.external_message_id, t.status, t.started_at, t.completed_at, COALESCE(o.final_content, '')
              FROM response_traces t
              LEFT JOIN trace_events e ON e.trace_id=t.id AND e.kind='output'
              LEFT JOIN response_outputs o ON o.event_id=e.id
@@ -497,8 +503,9 @@ impl Store {
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
                         row.get::<_, String>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, String>(9)?,
                     ))
                 },
             )?
@@ -510,11 +517,12 @@ impl Store {
                     trigger_type: item.1,
                     channel_id: item.2,
                     sender_id: item.3,
-                    external_message_id: item.4,
-                    status: item.5,
-                    started_at: decode_time(item.6)?,
-                    completed_at: item.7.map(decode_time).transpose()?,
-                    final_content: item.8,
+                    conversation_id: item.4,
+                    external_message_id: item.5,
+                    status: item.6,
+                    started_at: decode_time(item.7)?,
+                    completed_at: item.8.map(decode_time).transpose()?,
+                    final_content: item.9,
                 })
             })
             .collect()
@@ -524,41 +532,43 @@ impl Store {
         let connection = self.lock()?;
         let trace = connection
             .query_row(
-                "SELECT trigger_type, channel_id, sender_id, external_message_id, reminder_id, input_json, inbound_history_id, status, failure_stage, error, started_at, completed_at FROM response_traces WHERE id=?1",
+                "SELECT trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json, inbound_history_id, status, failure_stage, error, started_at, completed_at FROM response_traces WHERE id=?1",
                 [trace_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?, row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?, row.get::<_, String>(3)?,
-                        row.get::<_, Option<i64>>(4)?, row.get::<_, String>(5)?,
-                        row.get::<_, Option<i64>>(6)?, row.get::<_, String>(7)?,
+                        row.get::<_, String>(4)?, row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, String>(6)?, row.get::<_, Option<i64>>(7)?,
                         row.get::<_, String>(8)?, row.get::<_, String>(9)?,
-                        row.get::<_, String>(10)?, row.get::<_, Option<String>>(11)?,
+                        row.get::<_, String>(10)?, row.get::<_, String>(11)?,
+                        row.get::<_, Option<String>>(12)?,
                     ))
                 },
             )
             .optional()?
             .ok_or_else(|| StateError::Validation(format!("trace {trace_id} not found")))?;
-        let input = serde_json::from_str(&trace.5).unwrap_or(Value::String(trace.5));
+        let input = serde_json::from_str(&trace.6).unwrap_or(Value::String(trace.6));
         let mut trace_value = json!({
             "id": trace_id,
             "trigger_type": trace.0,
             "channel_id": trace.1,
             "sender_id": trace.2,
-            "external_message_id": trace.3,
+            "conversation_id": trace.3,
+            "external_message_id": trace.4,
             "input": input,
-            "status": trace.7,
-            "failure_stage": trace.8,
-            "error": trace.9,
-            "started_at": decode_time(trace.10)?,
+            "status": trace.8,
+            "failure_stage": trace.9,
+            "error": trace.10,
+            "started_at": decode_time(trace.11)?,
         });
-        if let Some(value) = trace.4 {
+        if let Some(value) = trace.5 {
             trace_value["reminder_id"] = json!(value);
         }
-        if let Some(value) = trace.6 {
+        if let Some(value) = trace.7 {
             trace_value["inbound_history_id"] = json!(value);
         }
-        if let Some(value) = trace.11 {
+        if let Some(value) = trace.12 {
             trace_value["completed_at"] = json!(decode_time(value)?);
         }
 
@@ -735,6 +745,7 @@ mod tests {
             trigger_type: "chat".into(),
             channel_id: "telegram".into(),
             sender_id: "owner".into(),
+            conversation_id: "owner-chat".into(),
             external_message_id: "in-7".into(),
             reminder_id: None,
             input_json: r#"{"content":"why?"}"#.into(),
@@ -751,6 +762,7 @@ mod tests {
             .save_conversation_message(
                 "telegram",
                 "owner",
+                "owner-chat",
                 "user",
                 CONTENT_INBOUND_MESSAGE,
                 r#"{"content":"why?"}"#,

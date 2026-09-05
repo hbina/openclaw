@@ -329,7 +329,10 @@ impl Gateway {
             .prepare_chat_with_trace(ChatInput {
                 channel_id: "cli".into(),
                 sender_id: sender.into(),
+                conversation_id: sender.into(),
                 message_id: String::new(),
+                update_id: None,
+                timestamp: None,
                 content: message.into(),
                 reply: None,
             })
@@ -373,7 +376,7 @@ impl Gateway {
             prepared.trace_id,
             prepared.output_event_id,
             "cli",
-            &prepared.sender_id,
+            &prepared.conversation_id,
             &prepared.content,
         ) {
             Ok(id) => id,
@@ -443,6 +446,7 @@ impl Gateway {
             "http",
             "cli",
             &prepared.sender_id,
+            &prepared.conversation_id,
             &prepared.content,
             prepared.start_history_id,
             &prepared.chunks,

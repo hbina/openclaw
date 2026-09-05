@@ -104,7 +104,10 @@ pub enum AgentError {
 pub struct ChatInput {
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub message_id: String,
+    pub update_id: Option<i64>,
+    pub timestamp: Option<DateTime<Utc>>,
     pub content: String,
     pub reply: Option<ReplyContext>,
 }
@@ -114,6 +117,7 @@ pub struct PreparedResponse {
     pub output_event_id: i64,
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub content: String,
     pub start_history_id: i64,
     pub chunks: Vec<ConversationChunk>,
@@ -358,18 +362,22 @@ impl Agent {
         trace_id: i64,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         system_prompt: String,
         query: &str,
         current: Message,
         definitions: &[ToolDefinition],
         max_output_tokens: u32,
     ) -> Result<Vec<Message>, AgentError> {
-        let history = self.store.get_conversation_history(channel_id, sender_id)?;
+        let history = self
+            .store
+            .get_conversation_history(channel_id, conversation_id)?;
         let (recent_exchanges, history_messages) = recent_conversation(&history)?;
         debug!(
             trace_id,
             channel_id,
             sender_id,
+            conversation_id,
             stored_turn_count = history.len(),
             recent_exchange_count = recent_exchanges.len(),
             recent_message_count = history_messages.len(),
@@ -790,6 +798,7 @@ impl Agent {
             tx.save_conversation_message(
                 "internal",
                 "recall",
+                "recall",
                 "assistant",
                 CONTENT_TOOL_CALL,
                 AUDIENCE_INTERNAL,
@@ -814,6 +823,7 @@ impl Agent {
         self.store.with_tx(|tx| {
             tx.save_conversation_message(
                 "internal",
+                "recall",
                 "recall",
                 "tool",
                 CONTENT_TOOL_RESULT,
@@ -873,21 +883,29 @@ impl Agent {
         debug!(
             channel_id = %input.channel_id,
             sender_id = %input.sender_id,
+            conversation_id = %input.conversation_id,
             external_message_id = %input.message_id,
             message_bytes = input.content.len(),
             "waiting for conversation lock"
         );
         let guard = self
             .conversation_locks
-            .lock(&input.channel_id, &input.sender_id)
+            .lock(&input.channel_id, &input.conversation_id)
             .await;
         debug!(
             channel_id = %input.channel_id,
             sender_id = %input.sender_id,
+            conversation_id = %input.conversation_id,
             wait_ms = lock_started.elapsed().as_millis(),
             "conversation lock acquired"
         );
         let inbound = PersistedInboundMessage {
+            channel_id: input.channel_id.clone(),
+            sender_id: input.sender_id.clone(),
+            conversation_id: input.conversation_id.clone(),
+            message_id: input.message_id.clone(),
+            update_id: input.update_id,
+            timestamp: input.timestamp,
             content: input.content.clone(),
             reply: input.reply.clone(),
         };
@@ -901,6 +919,7 @@ impl Agent {
                 trigger_type: "chat".into(),
                 channel_id: input.channel_id.clone(),
                 sender_id: input.sender_id.clone(),
+                conversation_id: input.conversation_id.clone(),
                 external_message_id: input.message_id.clone(),
                 reminder_id: None,
                 input_json: inbound_json.clone(),
@@ -952,6 +971,7 @@ impl Agent {
                 trace_id,
                 &input.channel_id,
                 &input.sender_id,
+                &input.conversation_id,
                 self.system_prompt(
                     &input.channel_id,
                     &input.sender_id,
@@ -973,6 +993,7 @@ impl Agent {
         let history_id = self.store.save_conversation_message(
             &input.channel_id,
             &input.sender_id,
+            &input.conversation_id,
             "user",
             CONTENT_INBOUND_MESSAGE,
             &inbound_json,
@@ -983,6 +1004,7 @@ impl Agent {
         let base_tool_context = ToolContext {
             channel_id: input.channel_id.clone(),
             sender_id: input.sender_id.clone(),
+            conversation_id: input.conversation_id.clone(),
             response_trace_id: trace_id,
             source_history_id: history_id,
             ..ToolContext::default()
@@ -1016,6 +1038,7 @@ impl Agent {
                 self.store.save_conversation_message(
                     &input.channel_id,
                     &input.sender_id,
+                    &input.conversation_id,
                     "assistant",
                     CONTENT_TOOL_CALL,
                     &serde_json::to_string(&assistant)?,
@@ -1127,7 +1150,12 @@ impl Agent {
                 &reply,
             )?;
             let (start_history_id, chunks) = self
-                .prepare_current_exchange(&input.channel_id, &input.sender_id, &reply)
+                .prepare_current_exchange(
+                    &input.channel_id,
+                    &input.sender_id,
+                    &input.conversation_id,
+                    &reply,
+                )
                 .await?;
             info!(
                 trace_id,
@@ -1141,6 +1169,7 @@ impl Agent {
                 output_event_id,
                 channel_id: input.channel_id,
                 sender_id: input.sender_id,
+                conversation_id: input.conversation_id,
                 content: reply,
                 start_history_id,
                 chunks,
@@ -1154,12 +1183,15 @@ impl Agent {
         &self,
         channel_id: &str,
         sender_id: &str,
+        conversation_id: &str,
         reply: &str,
     ) -> Result<(i64, Vec<ConversationChunk>), AgentError> {
         let Some(rag) = &self.rag else {
             return Ok((0, Vec::new()));
         };
-        let mut history = self.store.get_conversation_history(channel_id, sender_id)?;
+        let mut history = self
+            .store
+            .get_conversation_history(channel_id, conversation_id)?;
         let last = history.last().ok_or_else(|| {
             AgentError::Validation("completed exchange has no inbound history".into())
         })?;
@@ -1167,6 +1199,7 @@ impl Agent {
             id: last.id + 1,
             channel_id: channel_id.into(),
             sender_id: sender_id.into(),
+            conversation_id: conversation_id.into(),
             role: "assistant".into(),
             content_type: CONTENT_TEXT.into(),
             audience: AUDIENCE_CONVERSATION.into(),
@@ -1192,7 +1225,7 @@ impl Agent {
                 prepared.trace_id,
                 prepared.output_event_id,
                 &prepared.channel_id,
-                &prepared.sender_id,
+                &prepared.conversation_id,
                 &prepared.content,
             )
             .inspect_err(|error| {
@@ -1210,6 +1243,7 @@ impl Agent {
                 "internal",
                 &prepared.channel_id,
                 &prepared.sender_id,
+                &prepared.conversation_id,
                 &prepared.content,
                 prepared.start_history_id,
                 &prepared.chunks,
@@ -1226,7 +1260,7 @@ impl Agent {
 
     pub async fn handle_message(
         &self,
-        message: &crate::channels::Message,
+        message: &crate::channels::InboundMessage,
     ) -> Result<(), AgentError> {
         info!(
             channel_id = %message.channel_id,
@@ -1238,8 +1272,11 @@ impl Agent {
         let prepared = self
             .prepare_chat(ChatInput {
                 channel_id: message.channel_id.clone(),
-                sender_id: message.sender_id.clone(),
-                message_id: message.message_id.clone(),
+                sender_id: message.sender_id.to_string(),
+                conversation_id: message.chat_id.to_string(),
+                message_id: message.message_id.to_string(),
+                update_id: Some(message.update_id),
+                timestamp: Some(message.timestamp),
                 content: message.content.clone(),
                 reply: message.reply.clone(),
             })
@@ -1256,7 +1293,7 @@ impl Agent {
                 prepared.trace_id,
                 prepared.output_event_id,
                 &message.channel_id,
-                &message.sender_id,
+                &message.chat_id.to_string(),
                 &prepared.content,
             )
             .inspect_err(|error| {
@@ -1268,7 +1305,7 @@ impl Agent {
                 self.fail_trace(prepared.trace_id, "delivery", &error.to_string());
             })?;
         let receipt = match channel
-            .send_message(&message.sender_id, &prepared.content)
+            .send_message(&message.chat_id.to_string(), &prepared.content)
             .await
         {
             Ok(receipt) => receipt,
@@ -1285,7 +1322,8 @@ impl Agent {
                 delivery_id,
                 &receipt.message_id,
                 &message.channel_id,
-                &message.sender_id,
+                &message.sender_id.to_string(),
+                &message.chat_id.to_string(),
                 &prepared.content,
                 prepared.start_history_id,
                 &prepared.chunks,
@@ -1312,7 +1350,7 @@ impl Agent {
         );
         let _guard = self
             .conversation_locks
-            .lock(&reminder.channel_id, &reminder.sender_id)
+            .lock(&reminder.channel_id, &reminder.conversation_id)
             .await;
         let scheduled = PersistedScheduledReminder {
             reminder_id: reminder.id,
@@ -1324,6 +1362,7 @@ impl Agent {
             trigger_type: "reminder".into(),
             channel_id: reminder.channel_id.clone(),
             sender_id: reminder.sender_id.clone(),
+            conversation_id: reminder.conversation_id.clone(),
             external_message_id: String::new(),
             reminder_id: Some(reminder.id),
             input_json: payload.clone(),
@@ -1384,6 +1423,7 @@ impl Agent {
                 trace_id,
                 &reminder.channel_id,
                 &reminder.sender_id,
+                &reminder.conversation_id,
                 self.system_prompt(
                     &reminder.channel_id,
                     &reminder.sender_id,
@@ -1450,7 +1490,7 @@ impl Agent {
                 trace_id,
                 output_id,
                 &reminder.channel_id,
-                &reminder.sender_id,
+                &reminder.conversation_id,
                 &notification,
             )
             .map_err(AgentError::from)
@@ -1460,7 +1500,7 @@ impl Agent {
             .map_err(AgentError::from)
             .map_err(at_stage("delivery"))?;
         let receipt = match channel
-            .send_message(&reminder.sender_id, &notification)
+            .send_message(&reminder.conversation_id, &notification)
             .await
         {
             Ok(receipt) => receipt,
@@ -1516,6 +1556,7 @@ impl Agent {
                     id: 1,
                     channel_id: reminder.channel_id.clone(),
                     sender_id: reminder.sender_id.clone(),
+                    conversation_id: reminder.conversation_id.clone(),
                     role: "user".into(),
                     content_type: crate::state::CONTENT_SCHEDULED_REMINDER.into(),
                     audience: AUDIENCE_CONVERSATION.into(),
@@ -1526,6 +1567,7 @@ impl Agent {
                     id: 2,
                     channel_id: reminder.channel_id.clone(),
                     sender_id: reminder.sender_id.clone(),
+                    conversation_id: reminder.conversation_id.clone(),
                     role: "assistant".into(),
                     content_type: CONTENT_TEXT.into(),
                     audience: AUDIENCE_CONVERSATION.into(),
@@ -1859,7 +1901,7 @@ mod tests {
 
     struct FakeChannel {
         fail: bool,
-        sent: Mutex<Vec<String>>,
+        sent: Mutex<Vec<(String, String)>>,
     }
 
     #[async_trait]
@@ -1878,16 +1920,16 @@ mod tests {
 
         async fn send_message(
             &self,
-            _recipient_id: &str,
+            recipient_id: &str,
             content: &str,
         ) -> Result<crate::channels::DeliveryReceipt, ChannelError> {
-            if self.fail {
-                return Err(ChannelError::Operation("injected send failure".into()));
-            }
             self.sent
                 .lock()
                 .expect("sent message lock poisoned")
-                .push(content.into());
+                .push((recipient_id.into(), content.into()));
+            if self.fail {
+                return Err(ChannelError::Operation("injected send failure".into()));
+            }
             Ok(crate::channels::DeliveryReceipt {
                 message_id: "telegram-1".into(),
             })
@@ -2045,7 +2087,10 @@ mod tests {
             .chat(ChatInput {
                 channel_id: "cli".into(),
                 sender_id: "owner".into(),
+                conversation_id: "owner".into(),
                 message_id: "m1".into(),
+                update_id: None,
+                timestamp: None,
                 content: "Add a task".into(),
                 reply: None,
             })
@@ -2102,7 +2147,10 @@ mod tests {
                 .chat(ChatInput {
                     channel_id: "cli".into(),
                     sender_id: "owner".into(),
+                    conversation_id: "owner".into(),
                     message_id: "m2".into(),
+                    update_id: None,
+                    timestamp: None,
                     content: "What did I say?".into(),
                     reply: None,
                 })
@@ -2130,6 +2178,7 @@ mod tests {
                 tx.add_reminder(
                     "telegram",
                     "42",
+                    "9001",
                     "Submit the report",
                     &crate::state::ReminderSchedule::at(fire_at),
                     fire_at,
@@ -2143,10 +2192,11 @@ mod tests {
             Vec::new(),
         )]));
         let mut registry = Registry::new();
-        registry.register(Arc::new(FakeChannel {
+        let channel = Arc::new(FakeChannel {
             fail: true,
             sent: Mutex::new(Vec::new()),
-        }));
+        });
+        registry.register(channel.clone());
         let agent = Agent::new(
             provider,
             Arc::new(registry),
@@ -2161,6 +2211,7 @@ mod tests {
         .unwrap();
         assert!(agent.deliver_reminder(&reminder).await.is_err());
         assert_eq!(store.fetch_due_reminders().unwrap().len(), 1);
+        assert_eq!(channel.sent.lock().unwrap()[0].0, "9001");
         assert!(
             store
                 .get_conversation_history("telegram", "42")
@@ -2170,5 +2221,70 @@ mod tests {
         let report = store.get_trace_report(1).unwrap();
         assert_eq!(report.trace["status"], "failed");
         assert_eq!(report.trace["failure_stage"], "delivery");
+        assert_eq!(report.trace["sender_id"], "42");
+        assert_eq!(report.trace["conversation_id"], "9001");
+    }
+
+    #[tokio::test]
+    async fn telegram_sender_and_conversation_route_are_not_interchangeable() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::new(directory.path().join("state.sqlite")).unwrap());
+        let provider = Arc::new(ScriptedProvider::new(vec![response(
+            "Route acknowledged.",
+            Vec::new(),
+        )]));
+        let channel = Arc::new(FakeChannel {
+            fail: false,
+            sent: Mutex::new(Vec::new()),
+        });
+        let mut registry = Registry::new();
+        registry.register(channel.clone());
+        let agent = Agent::new(
+            provider,
+            Arc::new(registry),
+            Arc::clone(&store),
+            "UTC",
+            Arc::new(FakeModel),
+            "embed-v1",
+            2,
+            0.35,
+            None,
+        )
+        .unwrap();
+        let timestamp = DateTime::from_timestamp(1_788_566_400, 0).unwrap();
+        agent
+            .handle_message(&crate::channels::InboundMessage {
+                channel_id: "telegram".into(),
+                update_id: 1001,
+                message_id: 9,
+                chat_id: 9001,
+                sender_id: 42,
+                timestamp,
+                content: "Use the chat route".into(),
+                reply: None,
+            })
+            .await
+            .unwrap();
+
+        let sent = channel.sent.lock().unwrap();
+        assert_eq!(sent[0].0, "9001");
+        drop(sent);
+        assert!(
+            store
+                .get_conversation_history("telegram", "42")
+                .unwrap()
+                .is_empty()
+        );
+        let history = store.get_conversation_history("telegram", "9001").unwrap();
+        assert_eq!(history.len(), 2);
+        assert!(
+            history
+                .iter()
+                .all(|turn| turn.sender_id == "42" && turn.conversation_id == "9001")
+        );
+        let report = store.get_trace_report(1).unwrap();
+        assert_eq!(report.trace["sender_id"], "42");
+        assert_eq!(report.trace["conversation_id"], "9001");
+        assert_eq!(report.trace["input"]["update_id"], 1001);
     }
 }

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -12,6 +13,14 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedInboundMessage {
+    pub channel_id: String,
+    pub sender_id: String,
+    pub conversation_id: String,
+    pub message_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<ReplyContext>,
@@ -205,6 +214,7 @@ mod tests {
             id,
             channel_id: "telegram".into(),
             sender_id: "owner".into(),
+            conversation_id: "owner".into(),
             role: role.into(),
             content_type: kind.into(),
             audience: "conversation".into(),
@@ -216,6 +226,12 @@ mod tests {
     #[test]
     fn renders_reply_context_and_rejects_conflicts() {
         let inbound = PersistedInboundMessage {
+            channel_id: "telegram".into(),
+            sender_id: "owner".into(),
+            conversation_id: "owner".into(),
+            message_id: "9".into(),
+            update_id: Some(11),
+            timestamp: None,
             content: "explain this".into(),
             reply: Some(ReplyContext {
                 message_id: "7".into(),
@@ -226,8 +242,10 @@ mod tests {
             }),
         };
         let rendered = render_inbound_message(&inbound).unwrap();
-        assert!(rendered.contains("Author: assistant"));
-        assert!(rendered.contains("Selected text:\nanswer"));
+        assert_eq!(
+            rendered,
+            "Reply context:\nAuthor: assistant\nMessage:\nearlier answer\n\nSelected text:\nanswer\n\nCurrent user message:\nexplain this"
+        );
     }
 
     #[test]

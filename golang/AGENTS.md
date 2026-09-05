@@ -1,23 +1,28 @@
-# Go Runtime Intent
+# Legacy Go Runtime Intent
 
-This directory is the sole production implementation of the retained OpenClaw
-assistant. The repository-level `AGENTS.md` defines the product and trust
-model; this file records why the Go runtime uses its present boundaries.
+This directory contains the superseded Go implementation of the retained
+OpenClaw assistant. Rust is the canonical and only production implementation.
+The repository-level `AGENTS.md` defines the product and trust model; this file
+records why the legacy Go runtime used its present boundaries where that
+history remains useful during retirement.
 
 Source code and tests explain package mechanics. Keep this document focused on
 the reasoning that should guide changes when several implementations appear
 technically possible.
 
-## Runtime Goals
+## Legacy Runtime Context
 
-The Go runtime exists to make the assistant small, locally deployable, and
-operationally understandable. A single canonical path is preferred over
-compatibility branches because every additional path makes persistence,
-failure recovery, and local-model behavior harder to prove.
+The former Go runtime was created to make the assistant small, locally
+deployable, and operationally understandable. It must not be treated as an
+alternate implementation, deployment target, or source of current product
+truth. New production behavior belongs in Rust; changes here should only
+support deliberate retirement work or provide evidence needed to preserve a
+verified outcome in Rust.
 
-The runtime is deliberately independent of Node, hosted model providers, and
-cloud fallbacks. Provider abstractions exist to isolate local wire contracts
-and enable testing, not to reopen the product to hosted services.
+Rust remains deliberately independent of Node, hosted model providers, and
+cloud fallbacks. Legacy Go provider abstractions may clarify local wire
+contracts and tests, but they do not reopen Go as a supported runtime or the
+product to hosted services.
 
 ## Architectural Rationale
 
@@ -84,10 +89,12 @@ and small packages because failure should be visible at the boundary where it
 can be understood. Avoid hidden global fallbacks: they make a local deployment
 appear healthy while silently changing its behavior.
 
-Preserve one canonical implementation. Removing a stale path is usually safer
-than maintaining a shim whose behavior must be proven forever. New dependencies
-need direct contract inspection and pinned versions because dependency behavior
-becomes part of the local assistant’s reliability envelope.
+Preserve Rust as the one canonical implementation. Do not extend the Go tree in
+a way that creates a competing behavioral path. Removing a stale path is
+usually safer than maintaining a shim whose behavior must be proven forever.
+New dependencies in the canonical runtime need direct contract inspection and
+pinned versions because dependency behavior becomes part of the local
+assistant’s reliability envelope.
 
 Do not let model-controlled data substitute for trusted routing identity. Do
 not partition owner state by channel or sender as though those values denoted

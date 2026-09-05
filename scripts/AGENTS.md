@@ -44,4 +44,7 @@ Add or expand a script when it solves a recurring repository problem with a
 stable interface. One-off migration detail, production application behavior,
 and policy that belongs at repository scope should not be hidden here. The
 root `AGENTS.md` owns product-wide intent and verification expectations; this
-file adds only the rationale specific to automation.
+file adds only the rationale specific to automation. Rust is the canonical and
+only production implementation, so automation must not present the legacy Go
+tree or deleted Node paths as supported build, test, packaging, or deployment
+alternatives.

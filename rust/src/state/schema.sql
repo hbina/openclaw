@@ -51,6 +51,7 @@
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         channel_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
         message TEXT NOT NULL,
         fire_at DATETIME NOT NULL,
         schedule_kind TEXT NOT NULL DEFAULT 'at',
@@ -72,6 +73,7 @@
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         channel_id  TEXT    NOT NULL,
         sender_id   TEXT    NOT NULL,
+        conversation_id TEXT NOT NULL,
         role        TEXT    NOT NULL,
         content_type TEXT   NOT NULL DEFAULT 'text',
         audience    TEXT    NOT NULL DEFAULT 'conversation' CHECK (audience IN ('conversation', 'internal')),
@@ -80,7 +82,7 @@
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversation_history_lookup
-        ON conversation_history(channel_id, sender_id, id);
+        ON conversation_history(channel_id, conversation_id, id);
 
     CREATE TABLE IF NOT EXISTS memory_maintenance_state (
         singleton_id          INTEGER PRIMARY KEY CHECK (singleton_id = 1),
@@ -160,6 +162,7 @@
         trigger_type         TEXT NOT NULL,
         channel_id           TEXT NOT NULL,
         sender_id            TEXT NOT NULL,
+        conversation_id      TEXT NOT NULL,
         external_message_id  TEXT NOT NULL DEFAULT '',
         reminder_id          INTEGER,
         input_json           TEXT NOT NULL,
@@ -312,7 +315,7 @@
         ON response_traces(started_at DESC, id DESC);
 
     CREATE INDEX IF NOT EXISTS idx_response_traces_route
-        ON response_traces(channel_id, sender_id, started_at DESC);
+        ON response_traces(channel_id, conversation_id, started_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_response_traces_external_message
         ON response_traces(external_message_id) WHERE external_message_id <> '';

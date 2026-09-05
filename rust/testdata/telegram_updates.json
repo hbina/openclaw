@@ -1,0 +1,98 @@
+[
+  {
+    "update_id": 1001,
+    "message": {
+      "message_id": 9,
+      "from": { "id": 42 },
+      "chat": { "id": 42, "type": "private" },
+      "date": 1788566400,
+      "text": "What about this?\r\nThanks\r",
+      "reply_to_message": {
+        "message_id": 7,
+        "from": { "id": 100 },
+        "chat": { "id": 42, "type": "private" },
+        "date": 1788566300,
+        "text": "Earlier answer"
+      },
+      "quote": { "text": "answer" }
+    }
+  },
+  {
+    "update_id": 1002,
+    "message": {
+      "message_id": 10,
+      "from": { "id": 43 },
+      "chat": { "id": 42, "type": "private" },
+      "date": 1788566401,
+      "text": "wrong owner"
+    }
+  },
+  {
+    "update_id": 1003,
+    "message": {
+      "message_id": 11,
+      "from": { "id": 42 },
+      "chat": { "id": -10, "type": "group" },
+      "date": 1788566402,
+      "text": "owner in group"
+    }
+  },
+  {
+    "update_id": 1004,
+    "message": {
+      "message_id": 12,
+      "from": { "id": 42 },
+      "chat": { "id": -10099, "type": "supergroup" },
+      "date": 1788566403,
+      "text": "owner in supergroup"
+    }
+  },
+  {
+    "update_id": 1005,
+    "message": {
+      "message_id": 13,
+      "from": { "id": 42 },
+      "chat": { "id": -10088, "type": "channel" },
+      "date": 1788566404,
+      "text": "channel shape"
+    }
+  },
+  {
+    "update_id": 1006,
+    "message": {
+      "message_id": 14,
+      "from": { "id": 42 },
+      "chat": { "id": 41, "type": "private" },
+      "date": 1788566405,
+      "text": "mismatched route"
+    }
+  },
+  {
+    "update_id": 1007,
+    "message": {
+      "message_id": 15,
+      "chat": { "id": 42, "type": "private" },
+      "date": 1788566406,
+      "text": "missing sender"
+    }
+  },
+  {
+    "update_id": 1008,
+    "message": {
+      "message_id": 16,
+      "from": { "id": 42 },
+      "chat": { "id": 42, "type": "community" },
+      "date": 1788566407,
+      "text": "unknown shape"
+    }
+  },
+  {
+    "update_id": 1009,
+    "message": {
+      "message_id": 17,
+      "from": { "id": 42 },
+      "chat": { "id": 42, "type": "private" },
+      "date": 1788566408
+    }
+  }
+]

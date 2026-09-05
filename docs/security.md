@@ -4,9 +4,10 @@ summary: Current trust boundary and known gaps
 ---
 
 This is a single-owner assistant. Each owner runs a separate deployment.
-Channel and sender ids route conversations and reminder delivery; they are not
-tenant ids and do not isolate data inside the runtime. Tasks, durable memory,
-and semantic conversation recall are intentionally owner-global.
+Sender ids establish owner identity while channel and conversation ids route
+conversations and reminder delivery; they are not tenant ids and do not
+isolate data inside the runtime. Tasks, durable memory, and semantic
+conversation recall are intentionally owner-global.
 
 Keep these boundaries:
 
@@ -20,8 +21,9 @@ Known high-priority gaps:
 
 - `/chat` has no authentication, request-size limit, rate limit, safe-bind
   policy, or stable error envelope;
-- Telegram has one startup-validated numeric owner allowlist but no pairing,
-  group/topic identity policy, or live credential-backed acceptance proof;
+- Telegram has one startup-validated numeric owner allowlist and enforces its
+  private-DM chat shape, but has no pairing beyond that allowlist or live
+  credential-backed acceptance proof;
 - reminder delivery has no durable claim/lease or delivery-idempotency token;
 - backup/restore is an operator procedure, not an in-product command;
 - live Telegram delivery still needs credential-backed acceptance proof.

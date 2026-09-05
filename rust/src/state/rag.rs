@@ -97,12 +97,12 @@ impl Store {
             "WITH completed AS (
                 SELECT u.id AS start_id,
                     (SELECT MAX(a.id) FROM conversation_history a
-                     WHERE a.channel_id=u.channel_id AND a.sender_id=u.sender_id
+                     WHERE a.channel_id=u.channel_id AND a.conversation_id=u.conversation_id
                        AND a.audience='conversation' AND a.id>u.id
                        AND a.role='assistant' AND a.content_type='text'
                        AND NOT EXISTS (
                            SELECT 1 FROM conversation_history next_u
-                           WHERE next_u.channel_id=u.channel_id AND next_u.sender_id=u.sender_id
+                           WHERE next_u.channel_id=u.channel_id AND next_u.conversation_id=u.conversation_id
                              AND next_u.audience='conversation' AND next_u.role='user'
                              AND next_u.id>u.id AND next_u.id<a.id
                        )) AS end_id
@@ -150,10 +150,24 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = Store::new(directory.path().join("state.sqlite")).unwrap();
         let start = store
-            .save_conversation_message("telegram", "owner", "user", CONTENT_TEXT, "question")
+            .save_conversation_message(
+                "telegram",
+                "owner",
+                "owner",
+                "user",
+                CONTENT_TEXT,
+                "question",
+            )
             .unwrap();
         let end = store
-            .save_conversation_message("telegram", "owner", "assistant", CONTENT_TEXT, "answer")
+            .save_conversation_message(
+                "telegram",
+                "owner",
+                "owner",
+                "assistant",
+                CONTENT_TEXT,
+                "answer",
+            )
             .unwrap();
         assert_eq!(
             store

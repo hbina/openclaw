@@ -20,6 +20,7 @@ use crate::{
 pub struct ToolContext {
     pub channel_id: String,
     pub sender_id: String,
+    pub conversation_id: String,
     pub trace_event_id: i64,
     pub response_trace_id: i64,
     pub source_history_id: i64,
@@ -179,16 +180,18 @@ impl Executor {
             is_error: false,
         };
 
-        let mut validation_error =
-            if context.channel_id.trim().is_empty() || context.sender_id.trim().is_empty() {
-                Some("trusted channel and sender identity are required".to_owned())
-            } else if call.id.is_empty() {
-                Some("tool call id is required".to_owned())
-            } else if call.kind != "function" {
-                Some(format!("unsupported tool call type {:?}", call.kind))
-            } else {
-                None
-            };
+        let mut validation_error = if context.channel_id.trim().is_empty()
+            || context.sender_id.trim().is_empty()
+            || context.conversation_id.trim().is_empty()
+        {
+            Some("trusted channel, sender, and conversation identity are required".to_owned())
+        } else if call.id.is_empty() {
+            Some("tool call id is required".to_owned())
+        } else if call.kind != "function" {
+            Some(format!("unsupported tool call type {:?}", call.kind))
+        } else {
+            None
+        };
 
         let mut memory_input = None;
         if validation_error.is_none() {
@@ -496,6 +499,7 @@ impl Executor {
         let id = tx.add_reminder(
             &context.channel_id,
             &context.sender_id,
+            &context.conversation_id,
             message,
             &schedule,
             fire_at,
@@ -808,6 +812,7 @@ fn save_result(
     tx.save_conversation_message(
         &context.channel_id,
         &context.sender_id,
+        &context.conversation_id,
         "tool",
         CONTENT_TOOL_RESULT,
         if context.audience.is_empty() {
@@ -1074,6 +1079,7 @@ mod tests {
         let context = ToolContext {
             channel_id: "telegram".into(),
             sender_id: "owner".into(),
+            conversation_id: "owner-chat".into(),
             ..Default::default()
         };
         (store, executor, context, now)
@@ -1097,7 +1103,9 @@ mod tests {
             .await
             .unwrap();
         assert!(listed.content.contains("Write port"));
-        let history = store.get_conversation_history("telegram", "owner").unwrap();
+        let history = store
+            .get_conversation_history("telegram", "owner-chat")
+            .unwrap();
         assert_eq!(history.len(), 2);
         assert!(
             history
@@ -1125,6 +1133,8 @@ mod tests {
             .with_tx(|tx| tx.list_reminders("telegram", "owner"))
             .unwrap();
         assert_eq!(reminders.len(), 1);
+        assert_eq!(reminders[0].sender_id, "owner");
+        assert_eq!(reminders[0].conversation_id, "owner-chat");
         assert_eq!(reminders[0].fire_at, now + chrono::Duration::hours(1));
         let other = ToolContext {
             sender_id: "intruder".into(),
@@ -1148,13 +1158,21 @@ mod tests {
     async fn memory_mutation_is_idempotent_and_provenance_is_attached() {
         let (store, executor, mut context, _) = setup();
         context.source_history_id = store
-            .save_conversation_message("telegram", "owner", "user", "text", "remember")
+            .save_conversation_message(
+                "telegram",
+                "owner",
+                "owner-chat",
+                "user",
+                "text",
+                "remember",
+            )
             .unwrap();
         let trace = store
             .start_response_trace(&crate::state::TraceInput {
                 trigger_type: "chat".into(),
                 channel_id: "telegram".into(),
                 sender_id: "owner".into(),
+                conversation_id: "owner-chat".into(),
                 external_message_id: String::new(),
                 reminder_id: None,
                 input_json: "{}".into(),
@@ -1219,7 +1237,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .get_conversation_history("telegram", "owner")
+                .get_conversation_history("telegram", "owner-chat")
                 .unwrap()
                 .len(),
             1
@@ -1234,6 +1252,7 @@ mod tests {
                 trigger_type: "chat".into(),
                 channel_id: "telegram".into(),
                 sender_id: "owner".into(),
+                conversation_id: "owner-chat".into(),
                 external_message_id: "in-1".into(),
                 reminder_id: None,
                 input_json: "{}".into(),
@@ -1277,7 +1296,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .get_conversation_history("telegram", "owner")
+                .get_conversation_history("telegram", "owner-chat")
                 .unwrap()
                 .len(),
             1

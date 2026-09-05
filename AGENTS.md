@@ -30,7 +30,7 @@ and avoids importing account, tenancy, and cross-user data-isolation complexity
 into a personal tool. Channel and sender identifiers route the owner’s
 conversations and topics; they are not internal ownership boundaries.
 
-The retained product is intentionally narrow: a standalone Go gateway and
+The retained product is intentionally narrow: a standalone Rust gateway and
 agent loop, Telegram text delivery, owner-global tasks, one-shot and recurring
 reminders, semantic memory and conversation recall, fixed non-relational
 behavior, local chat and embedding models, and persistent SQLite state.
@@ -43,14 +43,15 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
   data does not depend on a hosted model provider. The retained `openai`
   provider name denotes an OpenAI-compatible wire protocol only. Hosted
   OpenAI, Anthropic, ChatGPT, Claude, CLI-agent, MCP-subprocess, and cloud
-  fallback paths do not belong in the production Go runtime.
-- **Go is the only production runtime.** The slim fork removed the Node runtime
-  to reduce the deployable surface and eliminate a second behavioral path.
-  Deleted Node code in Git history may clarify an ambiguous retained behavior,
-  but it is not a reason to restore unsupported upstream features. Historical
-  Node application state is deliberately discarded at Go cutover. A Node-state
-  importer, reader, migration adapter, or other backward-compatibility path
-  does not belong in the retained product.
+  fallback paths do not belong in the production Rust runtime.
+- **Rust is the canonical and only production runtime.** The Rust
+  implementation supersedes the former Go runtime, and neither Go nor deleted
+  Node code is an alternate production path. Historical implementations in
+  the repository or Git history may clarify ambiguous retained behavior, but
+  they are not reasons to restore unsupported features or preserve a second
+  behavioral path. Historical application state is deliberately discarded at
+  Rust cutover. A Node- or Go-state importer, reader, migration adapter, or
+  other backward-compatibility path does not belong in the retained product.
 - **SQLite is the single state authority.** Tasks, reminders, memory, transcripts, and
   derived recall metadata belong together so mutation, backup, recovery, and
   inspection have one coherent boundary. JSON, JSONL, or text sidecars would
@@ -111,7 +112,7 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
 
 ## Migration Truth and Current Risk
 
-The retained Go runtime supports local chat and structured single-item tools,
+The canonical Rust runtime supports local chat and structured single-item tools,
 owner-global tasks and reminders, one-shot and recurring schedules, a
 revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
 main-assistant memory tools, provenance-gated native background consolidation,
@@ -119,11 +120,11 @@ synchronous derived indexing, fixed neutral
 behavior, contextual reminders, structured transcripts, Telegram text delivery,
 HTTP endpoints, and a standalone image without Node or hosted-model dependencies.
 
-Historical Node state is an accepted discard rather than a migration target.
-The Go runtime starts from its canonical SQLite state and does not import,
-translate, or read the deleted runtime's data formats. This avoids preserving
-an untested compatibility path whose behavior and recovery properties cannot
-be proven against the retained product.
+Historical Node and former Go state are accepted discards rather than migration
+targets. The Rust runtime starts from its canonical SQLite state and does not
+import, translate, or read either superseded runtime's data formats. This avoids
+preserving an untested compatibility path whose behavior and recovery
+properties cannot be proven against the retained product.
 
 That working feature set is not equivalent to production readiness. Remaining
 work is prioritized by the user harm it prevents:
@@ -179,17 +180,18 @@ agents receive one consistent set of intentions rather than divergent copies.
 
 ## Production Cutover Meaning
 
-Historical Node state and all state in the pre-ledger Go schema are accepted
-discards. The memory-ledger release starts with a fresh SQLite database and has
-no migration, import, export, translation, or compatibility path.
+Historical Node state, former Go runtime state, and all state predating the
+canonical Rust schema are accepted discards. The Rust memory-ledger release
+starts with a fresh SQLite database and has no migration, import, export,
+translation, or compatibility path.
 
 Production cutover is complete only when the retained behaviors have focused
 tests and live local-model proof, HTTP and Telegram enforce the one-owner
 admission boundary, reminder delivery is crash-safe and idempotent, recovery
 and image rollback drills pass, and the documented deployment uses the
-standalone Go image. Historical Node and pre-ledger Go state continuity is
-explicitly outside this cutover and requires no importer or parity proof.
+standalone Rust image. Historical Node and Go state continuity is explicitly
+outside this cutover and requires no importer or parity proof.
 
-The removal of Node and unsupported cloud/platform surfaces is already
-complete. It narrows the system; it does not waive the remaining safety and
-recovery obligations.
+The removal of Node, the retirement of Go as a production path, and the removal
+of unsupported cloud/platform surfaces are already complete. They narrow the
+system; they do not waive the remaining safety and recovery obligations.
