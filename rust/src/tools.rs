@@ -25,6 +25,9 @@ pub struct ToolContext {
     pub response_trace_id: i64,
     pub source_history_id: i64,
     pub audience: String,
+    pub inbound_event_id: Option<i64>,
+    pub inbound_lease_owner: String,
+    pub inbound_lease_generation: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -208,6 +211,14 @@ impl Executor {
         }
 
         let operation: Result<(), ToolError> = self.store.with_tx(|tx| {
+            if let Some(event_id) = context.inbound_event_id {
+                tx.assert_inbound_claim(
+                    event_id,
+                    &context.inbound_lease_owner,
+                    context.inbound_lease_generation,
+                    (self.now)(),
+                )?;
+            }
             result.content = self.execute(tx, context, call, memory_input.as_mut())?;
             save_result(tx, context, &result)?;
             let mut committed = tool_mutation(&call.function.name);
@@ -809,19 +820,33 @@ fn save_result(
     context: &ToolContext,
     result: &ToolResult,
 ) -> Result<(), ToolError> {
-    tx.save_conversation_message(
-        &context.channel_id,
-        &context.sender_id,
-        &context.conversation_id,
-        "tool",
-        CONTENT_TOOL_RESULT,
-        if context.audience.is_empty() {
-            AUDIENCE_CONVERSATION
-        } else {
-            &context.audience
-        },
-        &serde_json::to_string(result)?,
-    )?;
+    let audience = if context.audience.is_empty() {
+        AUDIENCE_CONVERSATION
+    } else {
+        &context.audience
+    };
+    if context.trace_event_id > 0 {
+        tx.save_conversation_message_for_event(
+            context.trace_event_id,
+            &context.channel_id,
+            &context.sender_id,
+            &context.conversation_id,
+            "tool",
+            CONTENT_TOOL_RESULT,
+            audience,
+            &serde_json::to_string(result)?,
+        )?;
+    } else {
+        tx.save_conversation_message(
+            &context.channel_id,
+            &context.sender_id,
+            &context.conversation_id,
+            "tool",
+            CONTENT_TOOL_RESULT,
+            audience,
+            &serde_json::to_string(result)?,
+        )?;
+    }
     Ok(())
 }
 
@@ -1176,6 +1201,7 @@ mod tests {
                 external_message_id: String::new(),
                 reminder_id: None,
                 input_json: "{}".into(),
+                inbound_event_id: None,
             })
             .unwrap();
         context.response_trace_id = trace;
@@ -1256,6 +1282,7 @@ mod tests {
                 external_message_id: "in-1".into(),
                 reminder_id: None,
                 input_json: "{}".into(),
+                inbound_event_id: None,
             })
             .unwrap();
         let llm_id = store.start_llm_call(trace_id, 1, "chat", "{}").unwrap();

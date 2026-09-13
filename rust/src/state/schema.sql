@@ -69,6 +69,39 @@
         completed_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS inbound_events (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id          TEXT NOT NULL,
+        update_id           INTEGER NOT NULL,
+        chat_id             INTEGER NOT NULL,
+        message_id          INTEGER NOT NULL,
+        sender_id           INTEGER NOT NULL,
+        occurred_at         DATETIME NOT NULL,
+        payload_json        TEXT NOT NULL,
+        payload_hash        TEXT NOT NULL,
+        status              TEXT NOT NULL DEFAULT 'received'
+                            CHECK (status IN ('received', 'processing', 'abandoned', 'completed', 'failed')),
+        attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        max_attempts        INTEGER NOT NULL CHECK (max_attempts > 0),
+        next_attempt_at     DATETIME NOT NULL,
+        lease_owner         TEXT NOT NULL DEFAULT '',
+        lease_generation    INTEGER NOT NULL DEFAULT 0 CHECK (lease_generation >= 0),
+        lease_expires_at    DATETIME,
+        last_error          TEXT NOT NULL DEFAULT '',
+        received_at         DATETIME NOT NULL,
+        started_at          DATETIME,
+        completed_at        DATETIME,
+        updated_at          DATETIME NOT NULL,
+        UNIQUE (channel_id, update_id),
+        UNIQUE (channel_id, chat_id, message_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_polling_checkpoints (
+        channel_id      TEXT PRIMARY KEY,
+        next_update_id  INTEGER NOT NULL CHECK (next_update_id >= 0),
+        updated_at      DATETIME NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS conversation_history (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         channel_id  TEXT    NOT NULL,
@@ -78,7 +111,11 @@
         content_type TEXT   NOT NULL DEFAULT 'text',
         audience    TEXT    NOT NULL DEFAULT 'conversation' CHECK (audience IN ('conversation', 'internal')),
         content     TEXT    NOT NULL,
+        inbound_event_id INTEGER UNIQUE,
+        source_trace_event_id INTEGER UNIQUE,
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        ,FOREIGN KEY (inbound_event_id) REFERENCES inbound_events(id)
+        ,FOREIGN KEY (source_trace_event_id) REFERENCES trace_events(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversation_history_lookup
@@ -167,12 +204,14 @@
         reminder_id          INTEGER,
         input_json           TEXT NOT NULL,
         inbound_history_id   INTEGER,
+        inbound_event_id     INTEGER UNIQUE,
         status               TEXT NOT NULL DEFAULT 'active',
         failure_stage        TEXT NOT NULL DEFAULT '',
         error                TEXT NOT NULL DEFAULT '',
         started_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         completed_at         DATETIME,
-        FOREIGN KEY (inbound_history_id) REFERENCES conversation_history(id)
+        FOREIGN KEY (inbound_history_id) REFERENCES conversation_history(id),
+        FOREIGN KEY (inbound_event_id) REFERENCES inbound_events(id)
     );
 
     CREATE TABLE IF NOT EXISTS trace_events (
@@ -257,7 +296,8 @@
         is_error          INTEGER NOT NULL DEFAULT 0,
         mutation_committed INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (event_id) REFERENCES trace_events(id),
-        FOREIGN KEY (llm_event_id) REFERENCES llm_calls(event_id)
+        FOREIGN KEY (llm_event_id) REFERENCES llm_calls(event_id),
+        UNIQUE (llm_event_id, tool_call_id)
     );
 
     CREATE TABLE IF NOT EXISTS response_outputs (
@@ -288,6 +328,9 @@
 
     CREATE INDEX IF NOT EXISTS idx_conversation_chunks_active
         ON conversation_chunks(embedding_model, index_version, dimensions);
+
+    CREATE INDEX IF NOT EXISTS idx_inbound_events_work
+        ON inbound_events(status, next_attempt_at, id);
 
     CREATE INDEX IF NOT EXISTS idx_reminders_due
         ON reminders(enabled, fire_at);

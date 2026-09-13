@@ -68,6 +68,54 @@ impl Store {
             [],
         )
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_inbound_conversation_message(
+        &self,
+        inbound_event_id: i64,
+        channel_id: &str,
+        sender_id: &str,
+        conversation_id: &str,
+        content: &str,
+    ) -> Result<i64, StateError> {
+        self.with_tx(|tx| {
+            tx.transaction.execute(
+                "INSERT OR IGNORE INTO conversation_history (channel_id,sender_id,conversation_id,role,content_type,audience,content,inbound_event_id) VALUES (?1,?2,?3,'user',?4,?5,?6,?7)",
+                params![channel_id,sender_id,conversation_id,CONTENT_INBOUND_MESSAGE,AUDIENCE_CONVERSATION,content,inbound_event_id],
+            )?;
+            tx.transaction.query_row(
+                "SELECT id FROM conversation_history WHERE inbound_event_id=?1 AND channel_id=?2 AND sender_id=?3 AND conversation_id=?4 AND content=?5",
+                params![inbound_event_id,channel_id,sender_id,conversation_id,content],
+                |row| row.get(0),
+            ).map_err(StateError::from)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_conversation_message_for_event(
+        &self,
+        source_trace_event_id: i64,
+        channel_id: &str,
+        sender_id: &str,
+        conversation_id: &str,
+        role: &str,
+        content_type: &str,
+        audience: &str,
+        content: &str,
+    ) -> Result<i64, StateError> {
+        self.with_tx(|tx| {
+            tx.save_conversation_message_for_event(
+                source_trace_event_id,
+                channel_id,
+                sender_id,
+                conversation_id,
+                role,
+                content_type,
+                audience,
+                content,
+            )
+        })
+    }
 }
 
 impl StateTx<'_> {
@@ -92,6 +140,34 @@ impl StateTx<'_> {
             params![channel_id, sender_id, conversation_id, role, content_type, audience, content],
         )?;
         Ok(self.transaction.last_insert_rowid())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_conversation_message_for_event(
+        &self,
+        source_trace_event_id: i64,
+        channel_id: &str,
+        sender_id: &str,
+        conversation_id: &str,
+        role: &str,
+        content_type: &str,
+        audience: &str,
+        content: &str,
+    ) -> Result<i64, StateError> {
+        if !matches!(audience, AUDIENCE_CONVERSATION | AUDIENCE_INTERNAL) {
+            return Err(StateError::Validation(format!(
+                "unsupported conversation audience {audience:?}"
+            )));
+        }
+        self.transaction.execute(
+            "INSERT OR IGNORE INTO conversation_history (channel_id,sender_id,conversation_id,role,content_type,audience,content,source_trace_event_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![channel_id,sender_id,conversation_id,role,content_type,audience,content,source_trace_event_id],
+        )?;
+        self.transaction.query_row(
+            "SELECT id FROM conversation_history WHERE source_trace_event_id=?1 AND channel_id=?2 AND sender_id=?3 AND conversation_id=?4 AND role=?5 AND content_type=?6 AND audience=?7 AND content=?8",
+            params![source_trace_event_id,channel_id,sender_id,conversation_id,role,content_type,audience,content],
+            |row| row.get(0),
+        ).map_err(StateError::from)
     }
 }
 

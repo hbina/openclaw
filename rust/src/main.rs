@@ -185,6 +185,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         channels.register(Arc::new(TelegramAdapter::new(
             &secrets.channels.telegram.bot_token,
             &config.channels.telegram.owner_user_id,
+            Arc::clone(&store),
         )?));
         info!("Telegram channel configured");
     } else {

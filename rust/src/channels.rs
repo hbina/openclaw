@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    future::Future,
-    pin::Pin,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -11,6 +9,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
+
+use crate::state::{InboundDuplicate, Store};
 
 const MAX_TELEGRAM_RESPONSE_BYTES: usize = 16 << 20;
 const MAX_TELEGRAM_TEXT_BYTES: usize = 16 << 10;
@@ -54,16 +54,10 @@ pub struct DeliveryReceipt {
     pub message_id: String,
 }
 
-pub type Handler = Arc<
-    dyn Fn(InboundMessage) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
-        + Send
-        + Sync,
->;
-
 #[async_trait]
 pub trait Channel: Send + Sync {
     fn id(&self) -> &str;
-    async fn start(&self, handler: Handler) -> Result<(), ChannelError>;
+    async fn start(&self) -> Result<(), ChannelError>;
     async fn stop(&self) -> Result<(), ChannelError>;
     async fn send_message(
         &self,
@@ -102,11 +96,11 @@ impl Registry {
             .ok_or_else(|| ChannelError::NotFound(id.to_owned()))
     }
 
-    pub async fn start_all(&self, handler: Handler) -> Result<(), ChannelError> {
+    pub async fn start_all(&self) -> Result<(), ChannelError> {
         debug!(channel_count = self.channels.len(), "starting channels");
         for channel in self.channels.values() {
             debug!(channel = channel.id(), "starting channel");
-            channel.start(Arc::clone(&handler)).await?;
+            channel.start().await?;
             info!(channel = channel.id(), "channel started");
         }
         Ok(())
@@ -134,12 +128,13 @@ pub struct TelegramAdapter {
     client: reqwest::Client,
     api_base: String,
     owner_user_id: i64,
+    store: Arc<Store>,
     shutdown: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl TelegramAdapter {
-    pub fn new(token: &str, owner_user_id: &str) -> Result<Self, ChannelError> {
+    pub fn new(token: &str, owner_user_id: &str, store: Arc<Store>) -> Result<Self, ChannelError> {
         if token.trim().is_empty() {
             return Err(ChannelError::Operation(
                 "telegram bot token must not be empty".into(),
@@ -157,6 +152,7 @@ impl TelegramAdapter {
             client: reqwest::Client::new(),
             api_base: format!("https://api.telegram.org/bot{}/", token.trim()),
             owner_user_id,
+            store,
             shutdown: Mutex::new(None),
             worker: Mutex::new(None),
         })
@@ -230,11 +226,17 @@ impl TelegramAdapter {
         api_base: String,
         owner_user_id: i64,
         bot_id: i64,
-        handler: Handler,
+        store: Arc<Store>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
         info!(bot_id, "Telegram polling worker started");
-        let mut offset = 0_i64;
+        let mut offset = match store.channel_next_update_id("telegram") {
+            Ok(offset) => offset,
+            Err(error) => {
+                error!(error = %error, "failed to load Telegram polling checkpoint");
+                return;
+            }
+        };
         loop {
             if *shutdown.borrow() {
                 info!("Telegram polling worker stopping");
@@ -268,7 +270,6 @@ impl TelegramAdapter {
                 debug!(update_count = updates.len(), "Telegram updates received");
             }
             for update in updates {
-                offset = offset.max(update.update_id + 1);
                 let inbound = match telegram_inbound_message(&update, bot_id, owner_user_id) {
                     Ok(Some(inbound)) => inbound,
                     Ok(None) => {
@@ -276,10 +277,32 @@ impl TelegramAdapter {
                             update_id = update.update_id,
                             "ignoring unsupported Telegram update"
                         );
+                        match store.advance_channel_checkpoint(
+                            "telegram",
+                            update.update_id,
+                            Utc::now(),
+                        ) {
+                            Ok(next) => offset = offset.max(next),
+                            Err(error) => {
+                                error!(update_id = update.update_id, error = %error, "failed to persist Telegram checkpoint");
+                                break;
+                            }
+                        }
                         continue;
                     }
                     Err(error) => {
                         warn!(update_id = update.update_id, error = %error, "rejected Telegram message");
+                        match store.advance_channel_checkpoint(
+                            "telegram",
+                            update.update_id,
+                            Utc::now(),
+                        ) {
+                            Ok(next) => offset = offset.max(next),
+                            Err(error) => {
+                                error!(update_id = update.update_id, error = %error, "failed to persist rejected Telegram checkpoint");
+                                break;
+                            }
+                        }
                         continue;
                     }
                 };
@@ -290,20 +313,30 @@ impl TelegramAdapter {
                     message_bytes = inbound.content.len(),
                     "accepted Telegram owner private message"
                 );
-                let handling = handler(inbound);
-                tokio::select! {
-                    changed = shutdown.changed() => {
-                        if changed.is_err() || *shutdown.borrow() {
-                            info!("Telegram polling worker stopping");
-                            return;
+                match store.record_inbound_message(&inbound, Utc::now()) {
+                    Ok((event_id, duplicate, next)) => {
+                        offset = offset.max(next);
+                        match duplicate {
+                            InboundDuplicate::Inserted => {
+                                info!(event_id, "Telegram message durably queued")
+                            }
+                            InboundDuplicate::Completed => {
+                                debug!(event_id, "completed Telegram duplicate ignored")
+                            }
+                            InboundDuplicate::Active => {
+                                debug!(event_id, "active Telegram duplicate ignored")
+                            }
+                            InboundDuplicate::Retryable => {
+                                debug!(event_id, "retryable Telegram duplicate retained")
+                            }
+                            InboundDuplicate::PermanentlyFailed => {
+                                warn!(event_id, "permanently failed Telegram duplicate ignored")
+                            }
                         }
                     }
-                    result = handling => {
-                        if let Err(error) = result {
-                            error!(error = %error, "Telegram message handling failed");
-                        } else {
-                            info!("Telegram message handling completed");
-                        }
+                    Err(error) => {
+                        error!(update_id = inbound.update_id, error = %error, "failed to durably queue Telegram message");
+                        break;
                     }
                 }
             }
@@ -317,7 +350,7 @@ impl Channel for TelegramAdapter {
         "telegram"
     }
 
-    async fn start(&self, handler: Handler) -> Result<(), ChannelError> {
+    async fn start(&self) -> Result<(), ChannelError> {
         if self
             .worker
             .lock()
@@ -337,7 +370,7 @@ impl Channel for TelegramAdapter {
             self.api_base.clone(),
             self.owner_user_id,
             me.id,
-            handler,
+            Arc::clone(&self.store),
             receiver,
         ));
         *self
@@ -560,11 +593,11 @@ fn normalize_telegram_text(
 #[cfg(test)]
 mod telegram_tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn fixtures_enforce_private_owner_chat_and_map_reply_context() {
-        assert!(TelegramAdapter::new("token", "not-an-id").is_err());
+        let store = Arc::new(Store::new(":memory:").unwrap());
+        assert!(TelegramAdapter::new("token", "not-an-id", store).is_err());
         let updates: Vec<TelegramUpdate> =
             serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
 
@@ -712,28 +745,21 @@ mod telegram_tests {
         }
     }
 
-    #[tokio::test]
-    async fn rejected_chat_fixtures_never_invoke_the_agent_handler() {
+    #[test]
+    fn rejected_chat_fixtures_never_create_an_admitted_message() {
         let updates: Vec<TelegramUpdate> =
             serde_json::from_str(include_str!("../testdata/telegram_updates.json")).unwrap();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let counted = Arc::clone(&calls);
-        let handler: Handler = Arc::new(move |_| {
-            counted.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Ok(()) })
-        });
 
         for update in &updates[1..8] {
-            if let Ok(Some(inbound)) = telegram_inbound_message(update, 100, 42) {
-                handler(inbound).await.unwrap();
-            }
+            assert!(!matches!(
+                telegram_inbound_message(update, 100, 42),
+                Ok(Some(_))
+            ));
         }
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
 
-        let admitted = telegram_inbound_message(&updates[0], 100, 42)
-            .unwrap()
-            .unwrap();
-        handler(admitted).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            telegram_inbound_message(&updates[0], 100, 42),
+            Ok(Some(_))
+        ));
     }
 }

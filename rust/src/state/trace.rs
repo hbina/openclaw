@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    CONTENT_TEXT, ConversationChunk, StateError, StateTx, Store, decode_time, encode_time,
+    CONTENT_TEXT, ConversationChunk, InboundClaim, StateError, StateTx, Store, decode_time,
+    encode_time,
 };
 
 const MAX_TRACE_ERROR_BYTES: usize = 64 << 10;
@@ -39,6 +40,7 @@ pub struct TraceInput {
     pub external_message_id: String,
     pub reminder_id: Option<i64>,
     pub input_json: String,
+    pub inbound_event_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,11 +111,26 @@ pub struct TraceReport {
     pub events: Vec<Value>,
 }
 
+#[derive(Debug, Clone)]
+pub struct StoredChatRound {
+    pub event_id: i64,
+    pub round_number: usize,
+    pub request_json: String,
+    pub response_json: String,
+    pub finish_reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredResponseOutput {
+    pub event_id: i64,
+    pub final_content: String,
+}
+
 impl Store {
     pub fn start_response_trace(&self, input: &TraceInput) -> Result<i64, StateError> {
         let connection = self.lock()?;
         connection.execute(
-            "INSERT INTO response_traces (trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO response_traces (trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json, inbound_event_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 input.trigger_type,
                 input.channel_id,
@@ -122,9 +139,41 @@ impl Store {
                 input.external_message_id,
                 input.reminder_id,
                 input.input_json,
+                input.inbound_event_id,
             ],
         )?;
         Ok(connection.last_insert_rowid())
+    }
+
+    pub fn start_or_resume_inbound_trace(
+        &self,
+        input: &TraceInput,
+    ) -> Result<(i64, bool), StateError> {
+        let Some(inbound_event_id) = input.inbound_event_id else {
+            return self.start_response_trace(input).map(|id| (id, false));
+        };
+        self.with_tx(|tx| {
+            let existing: Option<i64> = tx
+                .transaction
+                .query_row(
+                    "SELECT id FROM response_traces WHERE inbound_event_id=?1",
+                    [inbound_event_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = existing {
+                tx.transaction.execute(
+                    "UPDATE response_traces SET status='active',failure_stage='',error='',completed_at=NULL WHERE id=?1 AND status<>'completed'",
+                    [id],
+                )?;
+                return Ok((id, true));
+            }
+            tx.transaction.execute(
+                "INSERT INTO response_traces (trigger_type,channel_id,sender_id,conversation_id,external_message_id,reminder_id,input_json,inbound_event_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![input.trigger_type,input.channel_id,input.sender_id,input.conversation_id,input.external_message_id,input.reminder_id,input.input_json,inbound_event_id],
+            )?;
+            Ok((tx.transaction.last_insert_rowid(), false))
+        })
     }
 
     pub fn link_trace_inbound(&self, trace_id: i64, history_id: i64) -> Result<(), StateError> {
@@ -294,12 +343,92 @@ impl Store {
         name: &str,
         arguments: &str,
     ) -> Result<i64, StateError> {
+        if let Some((event_id, stored_name, stored_arguments)) = self
+            .lock()?
+            .query_row(
+                "SELECT event_id,name,arguments_json FROM tool_executions WHERE llm_event_id=?1 AND tool_call_id=?2",
+                params![llm_event_id, call_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+            )
+            .optional()?
+        {
+            if stored_name != name || stored_arguments != arguments {
+                return Err(StateError::Validation(format!(
+                    "tool call {call_id:?} changed while resuming LLM event {llm_event_id}"
+                )));
+            }
+            return Ok(event_id);
+        }
         let event_id = self.begin_trace_event(trace_id, "tool")?;
         self.lock()?.execute(
             "INSERT INTO tool_executions (event_id, llm_event_id, tool_call_id, name, arguments_json) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![event_id, llm_event_id, call_id, name, arguments],
         )?;
         Ok(event_id)
+    }
+
+    pub fn stored_tool_result(
+        &self,
+        llm_event_id: i64,
+        call_id: &str,
+    ) -> Result<Option<(i64, String)>, StateError> {
+        self.lock()?
+            .query_row(
+                "SELECT event_id,result_json FROM tool_executions WHERE llm_event_id=?1 AND tool_call_id=?2 AND result_json<>''",
+                params![llm_event_id, call_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(StateError::from)
+    }
+
+    pub fn successful_chat_rounds(
+        &self,
+        trace_id: i64,
+    ) -> Result<Vec<StoredChatRound>, StateError> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT l.event_id,l.round_number,l.request_json,l.response_json,l.finish_reason FROM llm_calls l JOIN trace_events e ON e.id=l.event_id WHERE e.trace_id=?1 AND e.status='succeeded' AND l.purpose='chat' ORDER BY l.round_number,l.event_id",
+        )?;
+        statement
+            .query_map([trace_id], |row| {
+                let round: i64 = row.get(1)?;
+                Ok(StoredChatRound {
+                    event_id: row.get(0)?,
+                    round_number: usize::try_from(round).unwrap_or(0),
+                    request_json: row.get(2)?,
+                    response_json: row.get(3)?,
+                    finish_reason: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(StateError::from)
+    }
+
+    pub fn stored_response_output(
+        &self,
+        trace_id: i64,
+    ) -> Result<Option<StoredResponseOutput>, StateError> {
+        self.lock()?
+            .query_row(
+                "SELECT o.event_id,o.final_content FROM response_outputs o JOIN trace_events e ON e.id=o.event_id WHERE e.trace_id=?1 AND e.status='succeeded' ORDER BY e.sequence_no DESC LIMIT 1",
+                [trace_id],
+                |row| Ok(StoredResponseOutput { event_id: row.get(0)?, final_content: row.get(1)? }),
+            )
+            .optional()
+            .map_err(StateError::from)
+    }
+
+    pub fn trace_inbound_history_id(&self, trace_id: i64) -> Result<Option<i64>, StateError> {
+        self.lock()?
+            .query_row(
+                "SELECT inbound_history_id FROM response_traces WHERE id=?1",
+                [trace_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(StateError::from)
     }
 
     pub fn finish_tool_execution(
@@ -456,6 +585,63 @@ impl Store {
                 "UPDATE response_traces SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?1",
                 [trace_id],
             )?;
+            Ok(())
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn complete_inbound_delivery_indexed(
+        &self,
+        claim: &InboundClaim,
+        trace_id: i64,
+        event_id: i64,
+        provider_message_id: &str,
+        channel_id: &str,
+        sender_id: &str,
+        conversation_id: &str,
+        content: &str,
+        start_history_id: i64,
+        chunks: &[ConversationChunk],
+        now: DateTime<Utc>,
+    ) -> Result<(), StateError> {
+        self.with_tx(|tx| {
+            tx.assert_inbound_claim(
+                claim.event.id,
+                &claim.lease_owner,
+                claim.lease_generation,
+                now,
+            )?;
+            let history_id = tx.save_conversation_message(
+                channel_id,
+                sender_id,
+                conversation_id,
+                "assistant",
+                CONTENT_TEXT,
+                "conversation",
+                content,
+            )?;
+            if !chunks.is_empty() {
+                tx.save_conversation_chunks(start_history_id, history_id, chunks)?;
+            }
+            tx.transaction.execute(
+                "UPDATE delivery_attempts SET provider_message_id=?1,conversation_history_id=?2,accepted_at=?3 WHERE event_id=?4",
+                params![provider_message_id, history_id, encode_time(now), event_id],
+            )?;
+            tx.transaction.execute(
+                "UPDATE trace_events SET status='succeeded',completed_at=?1 WHERE id=?2",
+                params![encode_time(now), event_id],
+            )?;
+            tx.transaction.execute(
+                "UPDATE response_traces SET status='completed',failure_stage='',error='',completed_at=?1 WHERE id=?2",
+                params![encode_time(now), trace_id],
+            )?;
+            let changed = tx.transaction.execute(
+                "UPDATE inbound_events SET status='completed',lease_owner='',lease_expires_at=NULL,last_error='',completed_at=?1,updated_at=?1 WHERE id=?2 AND status='processing' AND lease_owner=?3 AND lease_generation=?4",
+                params![encode_time(now), claim.event.id, claim.lease_owner, claim.lease_generation],
+            )?;
+            if changed != 1 {
+                return Err(StateError::Validation("complete inbound delivery: inbound lease was lost".into()));
+            }
             Ok(())
         })
     }
@@ -749,6 +935,7 @@ mod tests {
             external_message_id: "in-7".into(),
             reminder_id: None,
             input_json: r#"{"content":"why?"}"#.into(),
+            inbound_event_id: None,
         }
     }
 

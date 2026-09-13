@@ -1,4 +1,5 @@
 mod conversation;
+mod inbound;
 mod maintenance;
 mod memory;
 mod rag;
@@ -21,6 +22,9 @@ pub use conversation::{
     AUDIENCE_CONVERSATION, AUDIENCE_INTERNAL, CONTENT_INBOUND_MESSAGE, CONTENT_SCHEDULED_REMINDER,
     CONTENT_TEXT, CONTENT_TOOL_CALL, CONTENT_TOOL_RESULT, ConversationTurn,
 };
+pub use inbound::{
+    InboundClaim, InboundDuplicate, InboundEvent, InboundStatus, MAX_INBOUND_ATTEMPTS,
+};
 pub use maintenance::{
     MaintenanceCandidate, MaintenanceExchange, MaintenanceMode, MaintenanceRun,
     MaintenanceRunCompletion, MaintenanceRunStart, MaintenanceState,
@@ -34,8 +38,8 @@ pub(crate) use reminders::validate_standard_cron;
 pub use reminders::{Reminder, ReminderSchedule, ScheduleKind, next_reminder_run};
 pub use tasks::{Task, TaskStatus};
 pub use trace::{
-    MemoryRagTraceMatch, RagTrace, RagTraceMatch, RecallPlanContractReason, TraceFilter,
-    TraceInput, TraceReport, TraceSummary,
+    MemoryRagTraceMatch, RagTrace, RagTraceMatch, RecallPlanContractReason, StoredChatRound,
+    StoredResponseOutput, TraceFilter, TraceInput, TraceReport, TraceSummary,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");

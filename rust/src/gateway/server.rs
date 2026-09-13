@@ -1,5 +1,6 @@
 use std::{
     net::SocketAddr,
+    process,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -16,7 +17,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    channels::{ChannelError, Handler, Registry},
+    channels::{ChannelError, Registry},
     maintenance::Maintainer,
     state::{StateError, Store},
 };
@@ -31,6 +32,9 @@ const MAX_CONNECTIONS: usize = 32;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const REMINDER_POLL_INTERVAL: Duration = Duration::from_secs(60);
+const INBOUND_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const INBOUND_LEASE_DURATION: Duration = Duration::from_secs(120);
+const INBOUND_LEASE_REFRESH: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Error)]
 pub enum GatewayError {
@@ -80,18 +84,14 @@ impl Gateway {
         }
         let listener = TcpListener::bind(address).await?;
         info!(%address, max_connections = MAX_CONNECTIONS, "HTTP gateway listening");
-        let agent = Arc::clone(&self.agent);
-        let handler: Handler = Arc::new(move |message| {
-            let agent = Arc::clone(&agent);
-            Box::pin(async move {
-                agent
-                    .handle_message(&message)
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        });
-        self.channels.start_all(handler).await?;
+        self.channels.start_all().await?;
         debug!("configured channels started");
+
+        let inbound_gateway = Arc::clone(&self);
+        let inbound_shutdown = shutdown.clone();
+        let mut inbound_task = tokio::spawn(async move {
+            inbound_gateway.inbound_loop(inbound_shutdown).await;
+        });
 
         let reminder_gateway = Arc::clone(&self);
         let reminder_shutdown = shutdown.clone();
@@ -143,6 +143,15 @@ impl Gateway {
             }
         }
         info!("HTTP gateway stopping");
+        self.channels.stop_all().await?;
+        if tokio::time::timeout(SHUTDOWN_TIMEOUT, &mut inbound_task)
+            .await
+            .is_err()
+        {
+            warn!("inbound worker did not stop before deadline; aborting it");
+            inbound_task.abort();
+            let _ = inbound_task.await;
+        }
         if tokio::time::timeout(SHUTDOWN_TIMEOUT, &mut reminder_task)
             .await
             .is_err()
@@ -160,7 +169,6 @@ impl Gateway {
             task.abort();
             let _ = task.await;
         }
-        self.channels.stop_all().await?;
         if tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
             while connections.join_next().await.is_some() {}
         })
@@ -171,6 +179,84 @@ impl Gateway {
         }
         info!("HTTP gateway stopped");
         Ok(())
+    }
+
+    async fn inbound_loop(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
+        let lease_owner = format!(
+            "gateway-{}-{}",
+            process::id(),
+            chrono::Utc::now().timestamp_micros()
+        );
+        let mut interval = tokio::time::interval(INBOUND_POLL_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() { return; }
+                }
+                _ = interval.tick() => {}
+            }
+            let claim = match self.store.claim_oldest_inbound(
+                &lease_owner,
+                chrono::Utc::now(),
+                INBOUND_LEASE_DURATION,
+            ) {
+                Ok(Some(claim)) => claim,
+                Ok(None) => continue,
+                Err(error) => {
+                    error!(error = %error, "failed to claim inbound event");
+                    continue;
+                }
+            };
+            let event_id = claim.event.id;
+            info!(
+                event_id,
+                attempt = claim.event.attempt_count,
+                "inbound event claimed"
+            );
+            let handling = self.agent.handle_inbound_claim(&claim);
+            tokio::pin!(handling);
+            let mut heartbeat = tokio::time::interval(INBOUND_LEASE_REFRESH);
+            heartbeat.tick().await;
+            let result = loop {
+                tokio::select! {
+                    changed = shutdown.changed() => {
+                        if changed.is_err() || *shutdown.borrow() { return; }
+                    }
+                    result = &mut handling => break result,
+                    _ = heartbeat.tick() => {
+                        if let Err(error) = self.store.refresh_inbound_lease(
+                            &claim,
+                            chrono::Utc::now(),
+                            INBOUND_LEASE_DURATION,
+                        ) {
+                            error!(event_id, error = %error, "inbound lease refresh failed");
+                            return;
+                        }
+                    }
+                }
+            };
+            match result {
+                Ok(()) => {
+                    info!(event_id, "inbound event completed");
+                }
+                Err(error) => match self.store.fail_inbound_claim(
+                    &claim,
+                    chrono::Utc::now(),
+                    &error.to_string(),
+                ) {
+                    Ok(true) => {
+                        error!(event_id, error = %error, "inbound event permanently failed")
+                    }
+                    Ok(false) => {
+                        warn!(event_id, error = %error, "inbound event scheduled for retry")
+                    }
+                    Err(state_error) => {
+                        error!(event_id, error = %state_error, "failed to record inbound failure")
+                    }
+                },
+            }
+        }
     }
 
     async fn reminder_loop(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
@@ -335,6 +421,9 @@ impl Gateway {
                 timestamp: None,
                 content: message.into(),
                 reply: None,
+                inbound_event_id: None,
+                inbound_lease_owner: String::new(),
+                inbound_lease_generation: 0,
             })
             .await
         {

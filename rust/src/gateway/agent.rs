@@ -7,7 +7,7 @@ use std::{
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -21,9 +21,9 @@ use crate::{
     },
     state::{
         AUDIENCE_CONVERSATION, AUDIENCE_INTERNAL, CONTENT_INBOUND_MESSAGE, CONTENT_TEXT,
-        CONTENT_TOOL_CALL, CONTENT_TOOL_RESULT, ConversationChunk, ConversationTurn, MemoryFilter,
-        MemoryKind, MemoryRagTraceMatch, MemorySearchResult, MemoryStatus, RagTrace, RagTraceMatch,
-        RecallPlanContractReason, Reminder, StateError, Store, TraceInput,
+        CONTENT_TOOL_CALL, CONTENT_TOOL_RESULT, ConversationChunk, ConversationTurn, InboundClaim,
+        MemoryFilter, MemoryKind, MemoryRagTraceMatch, MemorySearchResult, MemoryStatus, RagTrace,
+        RagTraceMatch, RecallPlanContractReason, Reminder, StateError, Store, TraceInput,
     },
     tools::{self, Executor, ToolContext, ToolError, ToolResult},
 };
@@ -110,6 +110,9 @@ pub struct ChatInput {
     pub timestamp: Option<DateTime<Utc>>,
     pub content: String,
     pub reply: Option<ReplyContext>,
+    pub inbound_event_id: Option<i64>,
+    pub inbound_lease_owner: String,
+    pub inbound_lease_generation: i64,
 }
 
 pub struct PreparedResponse {
@@ -134,6 +137,96 @@ struct OutputTransformation<'a> {
     name: &'a str,
     before: String,
     after: String,
+}
+
+#[derive(Deserialize)]
+struct StoredWireRequest {
+    #[serde(default)]
+    model: String,
+    messages: Vec<StoredWireMessage>,
+    #[serde(default)]
+    tools: Vec<ToolDefinition>,
+    #[serde(default)]
+    tool_choice: Option<String>,
+    #[serde(default)]
+    max_tokens: u32,
+}
+
+#[derive(Deserialize)]
+struct StoredWireMessage {
+    role: MessageRole,
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<ToolCall>,
+    #[serde(default)]
+    tool_call_id: String,
+}
+
+#[derive(Deserialize)]
+struct StoredWireResponse {
+    choices: Vec<StoredWireChoice>,
+}
+
+#[derive(Deserialize)]
+struct StoredWireChoice {
+    message: StoredWireMessage,
+    #[serde(default)]
+    finish_reason: String,
+}
+
+#[derive(Deserialize)]
+struct StoredSyntheticResponse {
+    message: Message,
+    #[serde(default)]
+    finish_reason: String,
+    #[serde(default)]
+    http_status: u16,
+}
+
+impl From<StoredWireMessage> for Message {
+    fn from(value: StoredWireMessage) -> Self {
+        Self {
+            role: value.role,
+            content: value.content.unwrap_or_default(),
+            tool_calls: value.tool_calls,
+            tool_call_id: value.tool_call_id,
+        }
+    }
+}
+
+fn decode_stored_request(value: &str) -> Result<GenerateRequest, AgentError> {
+    let stored: StoredWireRequest = serde_json::from_str(value)?;
+    Ok(GenerateRequest {
+        model: stored.model,
+        messages: stored.messages.into_iter().map(Message::from).collect(),
+        tools: stored.tools,
+        tool_choice: stored.tool_choice.unwrap_or_default(),
+        max_tokens: stored.max_tokens,
+        wire_json: value.as_bytes().to_vec(),
+    })
+}
+
+fn decode_stored_response(value: &str) -> Result<GenerateResponse, AgentError> {
+    if let Ok(stored) = serde_json::from_str::<StoredSyntheticResponse>(value) {
+        return Ok(GenerateResponse {
+            message: stored.message,
+            finish_reason: stored.finish_reason,
+            raw_response: value.as_bytes().to_vec(),
+            http_status: stored.http_status,
+        });
+    }
+    let mut stored: StoredWireResponse = serde_json::from_str(value)?;
+    let choice = stored
+        .choices
+        .drain(..)
+        .next()
+        .ok_or_else(|| AgentError::Validation("stored chat response has no choices".into()))?;
+    Ok(GenerateResponse {
+        message: choice.message.into(),
+        finish_reason: choice.finish_reason,
+        raw_response: value.as_bytes().to_vec(),
+        http_status: 200,
+    })
 }
 
 struct StagedError {
@@ -207,6 +300,18 @@ pub struct Agent {
 }
 
 impl Agent {
+    fn assert_chat_input_claim(&self, input: &ChatInput) -> Result<(), AgentError> {
+        if let Some(event_id) = input.inbound_event_id {
+            self.store.assert_inbound_lease(
+                event_id,
+                &input.inbound_lease_owner,
+                input.inbound_lease_generation,
+                Utc::now(),
+            )?;
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: Arc<dyn Provider>,
@@ -368,10 +473,14 @@ impl Agent {
         current: Message,
         definitions: &[ToolDefinition],
         max_output_tokens: u32,
+        exclude_history_id: Option<i64>,
     ) -> Result<Vec<Message>, AgentError> {
-        let history = self
+        let mut history = self
             .store
             .get_conversation_history(channel_id, conversation_id)?;
+        if let Some(id) = exclude_history_id {
+            history.retain(|turn| turn.id != id);
+        }
         let (recent_exchanges, history_messages) = recent_conversation(&history)?;
         debug!(
             trace_id,
@@ -913,9 +1022,9 @@ impl Agent {
             trace_id: None,
             source: error.into(),
         })?;
-        let trace_id = self
+        let (trace_id, resumed) = self
             .store
-            .start_response_trace(&TraceInput {
+            .start_or_resume_inbound_trace(&TraceInput {
                 trigger_type: "chat".into(),
                 channel_id: input.channel_id.clone(),
                 sender_id: input.sender_id.clone(),
@@ -923,6 +1032,7 @@ impl Agent {
                 external_message_id: input.message_id.clone(),
                 reminder_id: None,
                 input_json: inbound_json.clone(),
+                inbound_event_id: input.inbound_event_id,
             })
             .map_err(|error| PrepareError {
                 trace_id: None,
@@ -930,6 +1040,7 @@ impl Agent {
             })?;
         info!(
             trace_id,
+            resumed,
             channel_id = %input.channel_id,
             sender_id = %input.sender_id,
             external_message_id = %input.message_id,
@@ -965,40 +1076,81 @@ impl Agent {
         guard: ConversationGuard,
     ) -> Result<PreparedResponse, AgentError> {
         let rendered = render_inbound_message(&inbound).map_err(AgentError::Validation)?;
-        let definitions = tools::definitions(self.timezone.name());
-        let mut messages = self
-            .contextual_messages(
-                trace_id,
+        let history_id = if let Some(event_id) = input.inbound_event_id {
+            self.store.save_inbound_conversation_message(
+                event_id,
                 &input.channel_id,
                 &input.sender_id,
                 &input.conversation_id,
-                self.system_prompt(
+                &inbound_json,
+            )?
+        } else {
+            self.store.save_conversation_message(
+                &input.channel_id,
+                &input.sender_id,
+                &input.conversation_id,
+                "user",
+                CONTENT_INBOUND_MESSAGE,
+                &inbound_json,
+            )?
+        };
+        self.store.link_trace_inbound(trace_id, history_id)?;
+
+        if let Some(output) = self.store.stored_response_output(trace_id)? {
+            let (start_history_id, chunks) = self
+                .prepare_current_exchange(
                     &input.channel_id,
                     &input.sender_id,
-                    Utc::now(),
-                    CHAT_INSTRUCTIONS,
-                ),
-                &rendered,
-                Message::text(MessageRole::User, &rendered),
-                &definitions,
-                DEFAULT_MAX_TOKENS,
-            )
-            .await?;
+                    &input.conversation_id,
+                    &output.final_content,
+                )
+                .await?;
+            return Ok(PreparedResponse {
+                trace_id,
+                output_event_id: output.event_id,
+                channel_id: input.channel_id,
+                sender_id: input.sender_id,
+                conversation_id: input.conversation_id,
+                content: output.final_content,
+                start_history_id,
+                chunks,
+                _conversation_guard: Some(guard),
+            });
+        }
+
+        let stored_rounds = self.store.successful_chat_rounds(trace_id)?;
+        let (definitions, mut messages) = if let Some(first) = stored_rounds.first() {
+            let request = decode_stored_request(&first.request_json)?;
+            (request.tools, request.messages)
+        } else {
+            let definitions = tools::definitions(self.timezone.name());
+            let messages = self
+                .contextual_messages(
+                    trace_id,
+                    &input.channel_id,
+                    &input.sender_id,
+                    &input.conversation_id,
+                    self.system_prompt(
+                        &input.channel_id,
+                        &input.sender_id,
+                        Utc::now(),
+                        CHAT_INSTRUCTIONS,
+                    ),
+                    &rendered,
+                    Message::text(MessageRole::User, &rendered),
+                    &definitions,
+                    DEFAULT_MAX_TOKENS,
+                    Some(history_id),
+                )
+                .await?;
+            (definitions, messages)
+        };
         debug!(
             trace_id,
             message_count = messages.len(),
             tool_count = definitions.len(),
             "chat model context ready"
         );
-        let history_id = self.store.save_conversation_message(
-            &input.channel_id,
-            &input.sender_id,
-            &input.conversation_id,
-            "user",
-            CONTENT_INBOUND_MESSAGE,
-            &inbound_json,
-        )?;
-        self.store.link_trace_inbound(trace_id, history_id)?;
         debug!(trace_id, history_id, "inbound chat message persisted");
         let mut outcomes = MutationOutcomes::default();
         let base_tool_context = ToolContext {
@@ -1007,18 +1159,30 @@ impl Agent {
             conversation_id: input.conversation_id.clone(),
             response_trace_id: trace_id,
             source_history_id: history_id,
+            inbound_event_id: input.inbound_event_id,
+            inbound_lease_owner: input.inbound_lease_owner.clone(),
+            inbound_lease_generation: input.inbound_lease_generation,
             ..ToolContext::default()
         };
 
         for round in 1.. {
+            self.assert_chat_input_claim(&input)?;
             debug!(
                 trace_id,
                 round,
                 message_count = messages.len(),
                 "starting chat agent round"
             );
-            let (response, llm_event_id) = self
-                .generate(
+            let (response, llm_event_id) = if let Some(stored) = stored_rounds
+                .iter()
+                .find(|stored| stored.round_number == round)
+            {
+                (
+                    decode_stored_response(&stored.response_json)?,
+                    stored.event_id,
+                )
+            } else {
+                self.generate(
                     trace_id,
                     round,
                     "chat",
@@ -1031,16 +1195,20 @@ impl Agent {
                         wire_json: Vec::new(),
                     },
                 )
-                .await?;
+                .await?
+            };
+            self.assert_chat_input_claim(&input)?;
             if !response.message.tool_calls.is_empty() {
                 let mut assistant = response.message;
                 assistant.role = MessageRole::Assistant;
-                self.store.save_conversation_message(
+                self.store.save_conversation_message_for_event(
+                    llm_event_id,
                     &input.channel_id,
                     &input.sender_id,
                     &input.conversation_id,
                     "assistant",
                     CONTENT_TOOL_CALL,
+                    AUDIENCE_CONVERSATION,
                     &serde_json::to_string(&assistant)?,
                 )?;
                 messages.push(assistant.clone());
@@ -1070,25 +1238,35 @@ impl Agent {
                         trace_event_id: event_id,
                         ..base_tool_context.clone()
                     };
-                    let result = match self.tools.execute_and_record(&context, call).await {
-                        Ok(result) => result,
-                        Err(error) => {
-                            error!(
-                                trace_id,
-                                tool_event_id = event_id,
-                                tool_call_id = %call.id,
-                                tool = %call.function.name,
-                                error = %error,
-                                "tool execution failed"
-                            );
-                            let _ = self.store.finish_tool_execution(
-                                event_id,
-                                "",
-                                true,
-                                false,
-                                Some(&error.to_string()),
-                            );
-                            return Err(error.into());
+                    let stored_result = self.store.stored_tool_result(llm_event_id, &call.id)?;
+                    let result = if let Some((stored_event_id, result_json)) = stored_result {
+                        if stored_event_id != event_id {
+                            return Err(AgentError::Validation(
+                                "stored tool execution identity changed".into(),
+                            ));
+                        }
+                        serde_json::from_str(&result_json)?
+                    } else {
+                        match self.tools.execute_and_record(&context, call).await {
+                            Ok(result) => result,
+                            Err(error) => {
+                                error!(
+                                    trace_id,
+                                    tool_event_id = event_id,
+                                    tool_call_id = %call.id,
+                                    tool = %call.function.name,
+                                    error = %error,
+                                    "tool execution failed"
+                                );
+                                let _ = self.store.finish_tool_execution(
+                                    event_id,
+                                    "",
+                                    true,
+                                    false,
+                                    Some(&error.to_string()),
+                                );
+                                return Err(error.into());
+                            }
                         }
                     };
                     outcomes.observe(&call.function.name, result.is_error);
@@ -1279,6 +1457,9 @@ impl Agent {
                 timestamp: Some(message.timestamp),
                 content: message.content.clone(),
                 reply: message.reply.clone(),
+                inbound_event_id: None,
+                inbound_lease_owner: String::new(),
+                inbound_lease_generation: 0,
             })
             .await?;
         let channel = self
@@ -1341,6 +1522,63 @@ impl Agent {
         Ok(())
     }
 
+    pub async fn handle_inbound_claim(&self, claim: &InboundClaim) -> Result<(), AgentError> {
+        self.store.assert_inbound_claim(claim, Utc::now())?;
+        let message = &claim.event.message;
+        let prepared = self
+            .prepare_chat(ChatInput {
+                channel_id: message.channel_id.clone(),
+                sender_id: message.sender_id.to_string(),
+                conversation_id: message.chat_id.to_string(),
+                message_id: message.message_id.to_string(),
+                update_id: Some(message.update_id),
+                timestamp: Some(message.timestamp),
+                content: message.content.clone(),
+                reply: message.reply.clone(),
+                inbound_event_id: Some(claim.event.id),
+                inbound_lease_owner: claim.lease_owner.clone(),
+                inbound_lease_generation: claim.lease_generation,
+            })
+            .await?;
+        self.store.assert_inbound_claim(claim, Utc::now())?;
+        let channel = self.channels.get(&message.channel_id)?;
+        let delivery_id = self.store.prepare_delivery(
+            prepared.trace_id,
+            prepared.output_event_id,
+            &message.channel_id,
+            &message.chat_id.to_string(),
+            &prepared.content,
+        )?;
+        self.store.mark_delivery_attempting(delivery_id)?;
+        self.store.assert_inbound_claim(claim, Utc::now())?;
+        let receipt = match channel
+            .send_message(&message.chat_id.to_string(), &prepared.content)
+            .await
+        {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                let _ =
+                    self.store
+                        .fail_delivery(prepared.trace_id, delivery_id, &error.to_string());
+                return Err(error.into());
+            }
+        };
+        self.store.complete_inbound_delivery_indexed(
+            claim,
+            prepared.trace_id,
+            delivery_id,
+            &receipt.message_id,
+            &message.channel_id,
+            &message.sender_id.to_string(),
+            &message.chat_id.to_string(),
+            &prepared.content,
+            prepared.start_history_id,
+            &prepared.chunks,
+            Utc::now(),
+        )?;
+        Ok(())
+    }
+
     pub async fn deliver_reminder(&self, reminder: &Reminder) -> Result<(), AgentError> {
         info!(
             reminder_id = reminder.id,
@@ -1366,6 +1604,7 @@ impl Agent {
             external_message_id: String::new(),
             reminder_id: Some(reminder.id),
             input_json: payload.clone(),
+            inbound_event_id: None,
         })?;
         debug!(
             trace_id,
@@ -1434,6 +1673,7 @@ impl Agent {
                 Message::text(MessageRole::User, rendered),
                 &[],
                 REMINDER_MAX_TOKENS,
+                None,
             )
             .await
             .map_err(at_stage("generation"))?;
@@ -1897,11 +2137,49 @@ fn provider_error_evidence(error: &ProviderError) -> (String, u16) {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use std::{collections::VecDeque, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
 
     struct FakeChannel {
         fail: bool,
         sent: Mutex<Vec<(String, String)>>,
+    }
+
+    struct FlakyChannel {
+        sends: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl crate::channels::Channel for FlakyChannel {
+        fn id(&self) -> &str {
+            "telegram"
+        }
+        async fn start(&self) -> Result<(), ChannelError> {
+            Ok(())
+        }
+        async fn stop(&self) -> Result<(), ChannelError> {
+            Ok(())
+        }
+        async fn send_message(
+            &self,
+            _recipient_id: &str,
+            _content: &str,
+        ) -> Result<crate::channels::DeliveryReceipt, ChannelError> {
+            if self.sends.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(ChannelError::Operation(
+                    "injected first delivery failure".into(),
+                ))
+            } else {
+                Ok(crate::channels::DeliveryReceipt {
+                    message_id: "telegram-2".into(),
+                })
+            }
+        }
     }
 
     #[async_trait]
@@ -1910,7 +2188,7 @@ mod tests {
             "telegram"
         }
 
-        async fn start(&self, _handler: crate::channels::Handler) -> Result<(), ChannelError> {
+        async fn start(&self) -> Result<(), ChannelError> {
             Ok(())
         }
 
@@ -1981,6 +2259,57 @@ mod tests {
     }
 
     struct FakeModel;
+
+    struct FailOnceAfterToolProvider {
+        calls: AtomicUsize,
+        tool_name: String,
+        arguments: String,
+    }
+
+    #[async_trait]
+    impl Provider for FailOnceAfterToolProvider {
+        fn is_local_openai(&self) -> bool {
+            true
+        }
+
+        fn marshal_generate_request(
+            &self,
+            request: &GenerateRequest,
+        ) -> Result<Vec<u8>, ProviderError> {
+            Ok(serde_json::to_vec(&json!({
+                "model": request.model,
+                "messages": request.messages,
+                "tools": request.tools,
+                "tool_choice": request.tool_choice,
+                "max_tokens": request.max_tokens,
+            }))?)
+        }
+
+        async fn generate(
+            &self,
+            _request: &mut GenerateRequest,
+        ) -> Result<GenerateResponse, ProviderError> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(response(
+                    "",
+                    vec![ToolCall {
+                        id: "stable-call".into(),
+                        kind: "function".into(),
+                        function: crate::providers::FunctionCall {
+                            name: self.tool_name.clone(),
+                            arguments: self.arguments.clone(),
+                        },
+                    }],
+                )),
+                1 => Err(ProviderError::HttpStatus {
+                    status: 503,
+                    body: "retry".into(),
+                }),
+                2 => Ok(response("Task created.", Vec::new())),
+                _ => panic!("unexpected repeated model generation"),
+            }
+        }
+    }
 
     #[async_trait]
     impl crate::providers::Embedder for FakeModel {
@@ -2053,6 +2382,211 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn inbound_retry_resumes_trace_without_replaying_committed_mutations() {
+        for (tool_name, arguments) in [
+            ("add_task", r#"{"description":"durable task"}"#),
+            (
+                "add_reminder",
+                r#"{"message":"durable reminder","schedule":{"kind":"at","at":"2099-01-01T00:00:00Z"}}"#,
+            ),
+            (
+                "store_memory",
+                r#"{"content":"durable memory","kind":"durable"}"#,
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Arc::new(Store::new(directory.path().join("state.sqlite")).unwrap());
+            let provider = Arc::new(FailOnceAfterToolProvider {
+                calls: AtomicUsize::new(0),
+                tool_name: tool_name.into(),
+                arguments: arguments.into(),
+            });
+            let channel = Arc::new(FakeChannel {
+                fail: false,
+                sent: Mutex::new(Vec::new()),
+            });
+            let mut registry = Registry::new();
+            registry.register(channel.clone());
+            let agent = Agent::new(
+                provider.clone(),
+                Arc::new(registry),
+                Arc::clone(&store),
+                "UTC",
+                Arc::new(FakeModel),
+                "embed-v1",
+                2,
+                0.35,
+                None,
+            )
+            .unwrap();
+            let now = Utc::now();
+            let inbound = crate::channels::InboundMessage {
+                channel_id: "telegram".into(),
+                update_id: 77,
+                message_id: 9,
+                chat_id: 42,
+                sender_id: 42,
+                timestamp: now,
+                content: format!("Run {tool_name}"),
+                reply: None,
+            };
+            store.record_inbound_message(&inbound, now).unwrap();
+            let first = store
+                .claim_oldest_inbound("worker", now, Duration::from_secs(3600))
+                .unwrap()
+                .unwrap();
+            assert!(agent.handle_inbound_claim(&first).await.is_err());
+            assert!(!store.fail_inbound_claim(&first, now, "retry").unwrap());
+
+            let retry_at = now + chrono::Duration::seconds(10);
+            let second = store
+                .claim_oldest_inbound("worker", retry_at, Duration::from_secs(3600))
+                .unwrap()
+                .unwrap();
+            agent.handle_inbound_claim(&second).await.unwrap();
+
+            assert_eq!(provider.calls.load(Ordering::SeqCst), 3, "{tool_name}");
+            let mutations = match tool_name {
+                "add_task" => store
+                    .with_tx(|tx| tx.list_tasks(crate::state::TaskStatus::All))
+                    .unwrap()
+                    .len(),
+                "add_reminder" => store
+                    .with_tx(|tx| tx.list_reminders("telegram", "42"))
+                    .unwrap()
+                    .len(),
+                "store_memory" => store
+                    .list_memories(MemoryFilter {
+                        kind: None,
+                        status: MemoryStatus::Active,
+                        limit: 100,
+                    })
+                    .unwrap()
+                    .len(),
+                _ => unreachable!(),
+            };
+            assert_eq!(mutations, 1, "{tool_name}");
+            assert_eq!(channel.sent.lock().unwrap().len(), 1, "{tool_name}");
+            assert_eq!(
+                store.get_inbound_event(second.event.id).unwrap().status,
+                crate::state::InboundStatus::Completed
+            );
+            let traces = store
+                .list_response_traces(&crate::state::TraceFilter::default())
+                .unwrap();
+            assert_eq!(traces.len(), 1);
+            let report = store.get_trace_report(traces[0].id).unwrap();
+            assert_eq!(
+                report
+                    .events
+                    .iter()
+                    .filter(|event| event["kind"] == "tool")
+                    .count(),
+                1,
+                "{tool_name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn inbound_delivery_retry_reuses_stored_output() {
+        let store = Arc::new(Store::new(":memory:").unwrap());
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            response(
+                "",
+                vec![ToolCall {
+                    id: "delivery-call".into(),
+                    kind: "function".into(),
+                    function: crate::providers::FunctionCall {
+                        name: "add_task".into(),
+                        arguments: r#"{"description":"deliver once"}"#.into(),
+                    },
+                }],
+            ),
+            response("Done.", Vec::new()),
+        ]));
+        let channel = Arc::new(FlakyChannel {
+            sends: AtomicUsize::new(0),
+        });
+        let mut registry = Registry::new();
+        registry.register(channel.clone());
+        let agent = Agent::new(
+            provider,
+            Arc::new(registry),
+            Arc::clone(&store),
+            "UTC",
+            Arc::new(FakeModel),
+            "embed-v1",
+            2,
+            0.35,
+            None,
+        )
+        .unwrap();
+        let now = Utc::now();
+        let inbound = crate::channels::InboundMessage {
+            channel_id: "telegram".into(),
+            update_id: 88,
+            message_id: 10,
+            chat_id: 42,
+            sender_id: 42,
+            timestamp: now,
+            content: "Add and confirm".into(),
+            reply: None,
+        };
+        store.record_inbound_message(&inbound, now).unwrap();
+        let first = store
+            .claim_oldest_inbound("worker", now, Duration::from_secs(3600))
+            .unwrap()
+            .unwrap();
+        assert!(agent.handle_inbound_claim(&first).await.is_err());
+        assert!(!store.fail_inbound_claim(&first, now, "delivery").unwrap());
+        let retry_at = now + chrono::Duration::seconds(10);
+        let second = store
+            .claim_oldest_inbound("worker", retry_at, Duration::from_secs(3600))
+            .unwrap()
+            .unwrap();
+        agent.handle_inbound_claim(&second).await.unwrap();
+
+        assert_eq!(channel.sends.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            store
+                .with_tx(|tx| tx.list_tasks(crate::state::TaskStatus::All))
+                .unwrap()
+                .len(),
+            1
+        );
+        let traces = store
+            .list_response_traces(&crate::state::TraceFilter::default())
+            .unwrap();
+        assert_eq!(traces.len(), 1);
+        let report = store.get_trace_report(traces[0].id).unwrap();
+        assert_eq!(
+            report
+                .events
+                .iter()
+                .filter(|event| event["kind"] == "llm")
+                .count(),
+            2
+        );
+        assert_eq!(
+            report
+                .events
+                .iter()
+                .filter(|event| event["kind"] == "tool")
+                .count(),
+            1
+        );
+        assert_eq!(
+            report
+                .events
+                .iter()
+                .filter(|event| event["kind"] == "delivery")
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
     async fn chat_executes_tools_and_atomically_completes_internal_delivery() {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::new(directory.path().join("state.sqlite")).unwrap());
@@ -2093,6 +2627,9 @@ mod tests {
                 timestamp: None,
                 content: "Add a task".into(),
                 reply: None,
+                inbound_event_id: None,
+                inbound_lease_owner: String::new(),
+                inbound_lease_generation: 0,
             })
             .await
             .unwrap();
@@ -2153,6 +2690,9 @@ mod tests {
                     timestamp: None,
                     content: "What did I say?".into(),
                     reply: None,
+                    inbound_event_id: None,
+                    inbound_lease_owner: String::new(),
+                    inbound_lease_generation: 0,
                 })
                 .await
                 .unwrap(),
