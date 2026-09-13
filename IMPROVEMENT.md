@@ -5,7 +5,7 @@ summary: Planned improvements to private Telegram DM ingestion and Rust model-co
 
 # Input Prompt Improvement Plan
 
-Status: **in progress; Phase 1 implemented, later phases remain planned**
+Status: **in progress; Phases 1–2 implemented, later phases remain planned**
 
 This document tracks improvements to the canonical Rust runtime's handling of
 an admitted Telegram message, from private-DM ingress through the final local
@@ -110,10 +110,10 @@ they are required to be equal for the supported deployment.
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Add a SQLite inbound-event record with scoped uniqueness for the Telegram chat and message/update identity. | Replaying one Telegram update cannot execute a task, reminder, or memory mutation twice. |
-| [ ] | Persist an accepted update before advancing the durable polling checkpoint. | A restart after admission but before generation retains retryable work. |
-| [ ] | Add received, processing, completed, failed, and leased/abandoned processing states with bounded retry attempts. | Crash-and-restart tests recover abandoned work without concurrent duplicate handling. |
-| [ ] | Define duplicate behavior for completed, active, retryable, and permanently failed events. | Tests prove each state has a deterministic response and no accidental tool replay. |
+| [x] | Add a SQLite inbound-event record with scoped uniqueness for the Telegram chat and message/update identity. | Replaying one Telegram update cannot execute a task, reminder, or memory mutation twice. |
+| [x] | Persist an accepted update before advancing the durable polling checkpoint. | A restart after admission but before generation retains retryable work. |
+| [x] | Add received, processing, completed, failed, and leased/abandoned processing states with bounded retry attempts. | Crash-and-restart tests recover abandoned work without concurrent duplicate handling. |
+| [x] | Define duplicate behavior for completed, active, retryable, and permanently failed events. | Tests prove each state has a deterministic response and no accidental tool replay. |
 
 This durability work is part of the input boundary because the same Telegram
 text must not become two independent current requests after a restart.

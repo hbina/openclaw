@@ -115,7 +115,31 @@ Append-only structured transcript and source of truth for conversation recall.
 and tool results are related through exact tool-call ids stored inside their
 JSON payloads. A `scheduled_reminder` row stores the reminder id, original
 message, and scheduled occurrence; its following assistant text row contains
-the exact delivered notification.
+the exact delivered notification. Optional unique inbound-event and trace-event
+references prevent recovery from appending the same inbound, tool-call, or
+tool-result row twice.
+
+## Durable inbound processing
+
+`inbound_events` is the canonical queue for admitted Telegram messages. It
+stores the complete normalized inbound JSON and its SHA-256 hash, Telegram
+update/chat/message/sender identities, event state, fixed attempt limit,
+retry time, renewable lease and fencing generation, bounded failure detail,
+and lifecycle timestamps. Uniqueness is enforced for both channel/update and
+channel/chat/message identities. A duplicate with different canonical content
+is an integrity failure rather than a second request.
+
+Events move through `received`, leased `processing`, `abandoned`, `failed`, and
+`completed` states. Five attempts use fixed bounded backoff. An expired lease
+is fenced by its generation and recovered by the next worker; the oldest
+unfinished event blocks later owner messages so conversation order survives
+restart. A permanently failed event remains available for inspection and no
+longer blocks following work.
+
+`channel_polling_checkpoints` stores the next update id for Telegram. Insertion
+or deduplication of an admitted event and advancement of this checkpoint are
+one transaction. Rejected or unsupported updates advance the checkpoint
+without creating an inbound event or entering the agent pipeline.
 
 ## `conversation_chunks`
 
@@ -150,7 +174,8 @@ an explicit future maintenance action. It records diagnostic inputs and
 outcomes, not credentials or transport authorization headers.
 
 - `response_traces` is the root record for one inbound chat or scheduled
-  reminder attempt. It stores owner identity separately from the trusted
+  reminder execution. A Telegram trace has a unique durable inbound-event
+  reference and is reused across attempts. It stores owner identity separately from the trusted
   conversation route, plus the original structured input, external inbound id,
   optional reminder id, history link, lifecycle status, and failure stage.
 - `trace_events` provides a stable sequence for the RAG, LLM, tool, output, and
@@ -166,7 +191,8 @@ outcomes, not credentials or transport authorization headers.
   call is marked failed while retaining that exact request and response; its
   parent response trace may still complete after raw-query retrieval.
 - `tool_executions` relates exact model call ids, arguments, results, errors,
-  and mutation outcomes to their LLM round.
+  and mutation outcomes to their LLM round. Model-call/tool-call identity is
+  unique so a committed result is returned during recovery rather than run again.
 - `response_outputs` keeps raw model content, ordered application
   transformations, and exact final channel text.
 - `delivery_attempts` is persisted before external I/O. `attempting` with no

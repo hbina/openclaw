@@ -22,8 +22,12 @@ Known high-priority gaps:
 - `/chat` has no authentication, request-size limit, rate limit, safe-bind
   policy, or stable error envelope;
 - Telegram has one startup-validated numeric owner allowlist and enforces its
-  private-DM chat shape, but has no pairing beyond that allowlist or live
-  credential-backed acceptance proof;
+  private-DM chat shape. Accepted messages and polling progress are durable,
+  lease-fenced, bounded-retry events whose committed tools are replay-safe,
+  but there is no pairing beyond that allowlist or live credential-backed
+  acceptance proof;
+- Telegram chat delivery is at-least-once; a crash in the external
+  acceptance/local-receipt gap can duplicate a reply without replaying tools;
 - reminder delivery has no durable claim/lease or delivery-idempotency token;
 - backup/restore is an operator procedure, not an in-product command;
 - live Telegram delivery still needs credential-backed acceptance proof.

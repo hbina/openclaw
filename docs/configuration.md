@@ -53,6 +53,8 @@ or memory pipeline is invoked. The sender id establishes owner identity while
 the chat id supplies conversation and delivery routing. When Telegram is
 enabled, both this ID and the bot token in `secrets.json` are mandatory startup
 inputs; the runtime does not silently start without its admitted channel.
+Inbound leases, five-attempt retry policy, and bounded backoff are fixed runtime
+behavior and intentionally add no public configuration surface.
 
 `agents.defaults.memoryMaintenance` controls the native Go consolidation
 worker. `schedule` is a five-field cron expression interpreted in the named
