@@ -89,6 +89,14 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
   mixed results and never claim durable work that the database did not accept.
 - Exact tool-call identifiers and deterministic prompt/tool ordering must be
   preserved so stored conversations can be replayed without changing meaning.
+- At the OpenAI-compatible generation boundary, application-produced context
+  for the active turn and the owner's current text must be separate messages.
+  The context carrier may contain routing facts and human-authored quoted text,
+  so its provenance and its contents are different concerns: reserved carrier
+  delimiters must be escaped in human text, quoted content must be labelled as
+  data rather than instructions, and carriers from older turns must not be
+  replayed as current context. The carrier's API role is not an authorization
+  boundary; ingress admission and tool execution remain authoritative in code.
 - Semantic reminder selection uses normal model tool choice rather than
   keyword forcing. User intent is contextual, and lexical triggers create
   false reminder mutations.

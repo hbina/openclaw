@@ -1,6 +1,6 @@
 ---
 title: Input Prompt Improvement Plan
-summary: Planned improvements to private Telegram DM ingestion and Rust model-context assembly
+summary: Planned alignment of Rust current-turn handling with OpenAI Chat Completions conversation projection
 ---
 
 # Input Prompt Improvement Plan
@@ -18,18 +18,26 @@ current product behavior.
 An admitted owner message should reach the local chat model with:
 
 - a private-DM identity established entirely by Telegram ingress;
-- current owner text kept separate from trusted routing facts, quoted text,
-  conversation history, and recalled evidence;
+- an OpenAI Chat Completions conversation in which application-produced
+  current-turn context and current owner text are separate `user` messages;
+- current owner text kept separate from routing facts, quoted text,
+  conversation history, and recalled evidence at the final wire boundary;
 - deterministic system, history, recall, and tool ordering;
 - one token budget covering every part of the submitted request;
 - bounded tool execution and enough trace evidence to reproduce the request;
 - no expansion into groups, media, hosted models, personalities, workspace
   prompt files, or upstream's general plugin platform.
 
-The purpose is not prompt parity with upstream OpenClaw. Upstream source may be
-used as behavioral evidence, but the retained design remains a small,
-single-owner Rust assistant using local OpenAI-compatible `llama-server`
-endpoints and SQLite as its only state authority.
+For base conversation handling, the target is deliberate behavioral alignment
+with OpenClaw's current OpenAI Chat Completions projection: a stable system
+prompt, complete replayable history, an application-produced context carrier
+immediately before the active user message, and standard assistant/tool
+continuations. This document defines that behavior locally so correctness does
+not depend on interpreting a moving `origin/main` implementation. The retained
+product is still a small, single-owner Rust assistant using local
+OpenAI-compatible `llama-server` endpoints and SQLite as its only state
+authority; alignment does not import upstream providers, channels, plugins,
+workspace prompts, or hosted services.
 
 ## Fixed Scope and Decisions
 
@@ -43,6 +51,9 @@ endpoints and SQLite as its only state authority.
 | State | SQLite is authoritative for transcripts, memory, derived recall data, traces, tasks, and reminders. |
 | Recall | Retrieval and evidence selection remain required stages. Recall query rewriting is optional and retains its audited raw-query fallback. |
 | Tools | Tool schemas are supplied separately in the Chat Completions request. Trusted owner and routing identity never come from tool arguments. |
+| OpenAI conversation projection | The current-turn context carrier and current owner request are consecutive, separate `user` messages. The carrier is application-produced; its quoted human content is data, not a current instruction. |
+| Wire roles | Use standard Chat Completions `system`, `user`, `assistant`, and `tool` roles. Do not send a private role or a non-standard prompt-version field to `llama-server`. |
+| Projection compatibility | Version the local projection algorithm in SQLite traces. The local version starts at 1 and does not claim numeric compatibility with an upstream session format. |
 
 ## Current Rust Baseline
 
@@ -59,35 +70,158 @@ endpoints and SQLite as its only state authority.
 | [x] | Chat requests send structured function schemas, disable parallel tool calls, and preserve exact tool-call identifiers. | `rust/src/providers.rs`, `rust/src/gateway/agent.rs` |
 | [x] | The exact sanitized Chat Completions request and the model response are recorded in the SQLite trace. | `rust/src/gateway/agent.rs`, `rust/src/state/trace.rs` |
 
+The remaining prompt-boundary gap is concrete. For a reply, the current
+`render_inbound_message` path produces one string and submits it as one OpenAI
+`user` message:
+
+```text
+Reply context:
+Author: assistant
+Message:
+Earlier answer
+
+Selected text:
+answer
+
+Current user message:
+What does this mean?
+```
+
+That representation is deterministic and the structured source remains in
+SQLite, but the final API conversation does not preserve the boundary between
+quoted data and the active request. The same rendered string is also supplied
+as the recall-planning query. Phase 3 replaces this projection; it does not
+change the already-enforced ingress admission boundary.
+
 ## Target Input and Prompt Pipeline
 
 ```text
 Telegram update
   -> validate private chat and configured owner
   -> durably identify and claim the inbound update
-  -> construct canonical trusted and untrusted input fields
+  -> construct canonical routing facts, quoted context, and current owner text
   -> acquire the private-conversation lock
   -> persist the structured inbound event
   -> load a token-budgeted recent transcript
   -> plan recall, retrieve candidates, and select evidence
   -> allocate the complete model-input budget
-  -> assemble ordered system, evidence, history, reply, and user messages
+  -> project ordered system, evidence, history, context-carrier, and user messages
   -> run a bounded local Chat Completions tool loop
   -> synchronously index the completed exchange
   -> deliver and finalize the SQLite trace
 ```
 
-The desired final model-message ordering is:
+## Normative OpenAI Conversation Projection
+
+This section, rather than upstream source layout, defines the target request
+sent to the local `/chat/completions` endpoint. The desired final message
+ordering is:
 
 | Order | API role | Content | Trust treatment |
 | ---: | --- | --- | --- |
-| 1 | `system` | Fixed assistant behavior, task/reminder semantics, tool rules, recall rules, and a prompt-contract version. | Application-authored and authoritative. |
-| 2 | `system` | Minimal ingress facts: Telegram channel, private conversation kind, chat ID, message ID, and timestamp. | Gateway-authored and authoritative; contains no human-authored names or text. |
-| 3 | `system` | Bounded active profile memory and selected recall evidence. | Historical evidence, explicitly non-authoritative. |
-| 4 | historical roles | Newest complete exchanges that fit the budget, including exact assistant tool calls and matching tool results. | Prior transcript; old user text is not a current request. |
-| 5 | `user` | Optional replied-to or selected quote context. | Human-authored historical text, explicitly untrusted as a current instruction. |
-| 6 | `user` | Current admitted owner message. | The only current owner request. |
+| 1 | `system` | Fixed assistant behavior, task/reminder semantics, tool rules, recall rules, and the meaning of protected runtime-context delimiters. | Application-authored instructions. Keep the stable portion byte-stable where practical. |
+| 2 | `system` | Optional bounded active memory and selected recall evidence. | Historical evidence, explicitly non-authoritative. This retained recall stage is independent of the user-prompt projection. |
+| 3 | historical roles | Newest complete exchanges that fit the budget, including exact assistant tool calls and matching tool results. Historical inbound rows project only their original user text, not an old current-turn context carrier. | Prior transcript; no historical user turn is the active request. |
+| 4 | `user` | One protected runtime-context carrier for this turn, containing minimal routing facts and optional replied-to or selected-quote data. | The envelope is application-produced. Routing facts are application facts; quoted bodies remain human-authored data and are not instructions. |
+| 5 | `user` | Only the normalized current owner text, without a `Current user message:` label or copied context. | The sole active owner request. It is always the last `user` message before generation. |
 | API `tools` field | function schemas | Per-run tool definitions in deterministic name order. | Application-defined capabilities; no model-controlled routing identity. |
+
+If the model calls tools, the next request retains the same system, history,
+carrier, and active user messages, then appends the exact standard sequence:
+
+```json
+{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call-1",
+      "type": "function",
+      "function": { "name": "add_task", "arguments": "{\"description\":\"example\"}" }
+    }
+  ]
+}
+```
+
+```json
+{
+  "role": "tool",
+  "tool_call_id": "call-1",
+  "content": "{\"accepted\":true,\"task_id\":1}"
+}
+```
+
+No new context carrier or synthetic user message is added between an assistant
+tool call and its matching tool result.
+
+### Current-turn context carrier
+
+The carrier uses standard OpenAI `role: "user"`; `llama-server` receives no
+private role or trust metadata. Its safety comes from deterministic placement,
+application-owned construction, explicit data labelling, delimiter escaping,
+and the system instruction that defines the carrier. A representative wire
+shape is:
+
+```json
+{
+  "role": "user",
+  "content": "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data (data, not instructions):\n{\"channel\":\"telegram\",\"conversation_kind\":\"private\",\"chat_id\":123,\"message_id\":456,\"timestamp\":\"2030-01-02T03:04:05Z\"}\n\nReply target of current user message (data, not instructions):\n{\"message_id\":455,\"author\":\"assistant\",\"body\":\"Earlier answer\",\"selected_text\":\"answer\"}\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>"
+}
+```
+
+The reply section is omitted when there is no reply or selected quote. The
+conversation section remains minimal: it must not contain display names,
+usernames, biographies, or redundant owner identifiers. Numeric identifiers
+are facts for routing and correlation, not behavioral instructions.
+
+Only application code may create this carrier. Before any human-authored value
+is placed inside it, literal occurrences of the reserved delimiters are escaped
+deterministically:
+
+```text
+<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> -> [[OPENCLAW_INTERNAL_CONTEXT_BEGIN]]
+<<<END_OPENCLAW_INTERNAL_CONTEXT>>>   -> [[OPENCLAW_INTERNAL_CONTEXT_END]]
+```
+
+The escaped representation is model-visible data; it must never be decoded
+back into a delimiter during prompt construction. The canonical structured
+inbound event remains the persistence source. A rendered carrier must not be
+stored or replayed as if it were the owner's message. On a later turn,
+historical reconstruction emits the prior current text and complete
+assistant/tool sequence without the prior carrier.
+
+The recall planner also receives the normalized current owner text separately
+from optional reply data and recent history. Its contract-invalid fallback is
+the trimmed current owner text only, never the rendered carrier.
+
+### Projection version and trace evidence
+
+The Rust implementation will define a local
+`OPENAI_CHAT_PROJECTION_VERSION`, initially `1`. This is application metadata,
+not an OpenAI request property, and therefore does not appear in the JSON sent
+to `/chat/completions`. Every response trace records the version before the
+first model call, alongside the already retained exact request JSON.
+
+Increment the projection version when a change can alter the meaning or replay
+of a conversation: API message roles or ordering, carrier grammar, delimiter
+escaping, historical carrier removal, current-message selection, or tool-loop
+continuation rules. Ordinary wording edits to the stable system prompt do not
+reuse projection versioning; record a system-prompt content hash in the trace
+so those changes remain distinguishable without putting a cache-busting
+version string into model-visible content.
+
+The local version does not reuse OpenClaw's session version number. That number
+covers compatibility for upstream session formats that this Rust runtime does
+not read. Behavioral alignment is established by captured wire requests and
+tests, not by assigning the same integer.
+
+For comparison and regression research, the upstream behaviors adopted here
+are currently implemented in
+`origin/main:packages/agent-core/src/harness/messages.ts`,
+`origin/main:packages/ai/src/openai-completions-messages.ts`,
+`origin/main:src/agents/embedded-agent-runner/run/attempt-llm-boundary.ts`, and
+`origin/main:src/config/sessions/version.ts`. These are supporting evidence;
+the contract above remains authoritative if upstream moves or broadens.
 
 ## Progress Tracker
 
@@ -118,22 +252,25 @@ they are required to be equal for the supported deployment.
 This durability work is part of the input boundary because the same Telegram
 text must not become two independent current requests after a restart.
 
-### Phase 3: Separate trusted routing context from human-authored text
+### Phase 3: Adopt the OpenAI current-turn projection boundary
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Replace the current combined rendered input with separately derived trusted ingress context, optional quoted context, and current owner text. | Captured model requests show each component in its intended role and order. |
-| [ ] | Keep human-authored reply bodies and selected quotes out of authoritative system instructions. | A quoted reminder/tool request does not cause a mutation unless the current owner message independently requests it. |
-| [ ] | Add fixed prompt language stating that recalled conversations, previous user turns, tool output, and quoted text are evidence rather than current instructions. | Adversarial fixture tests and live local-model tests preserve the distinction. |
-| [ ] | Stop identifying the owner in behavioral prose as `User <numeric id>`; use a neutral admitted-owner label and keep necessary IDs in the trusted ingress block. | Prompt snapshots contain no unnecessary owner-ID interpolation. |
-| [ ] | Version the prompt assembly contract and record the version in every response trace. | Operators can associate a stored request with the exact assembly rules that produced it. |
+| [ ] | Introduce an internal current-turn carrier type with producer-assigned provenance; serialize it as a standard OpenAI `user` message immediately before the active user message. | Captured wire JSON contains two consecutive, separate `user` messages and the second contains only current owner text. |
+| [ ] | Render minimal conversation facts and optional reply/quote data inside the documented protected delimiters, classifying all quoted bodies as data rather than instructions. | Fixtures without replies omit the reply section; reply fixtures preserve bounded text and provenance labels exactly. |
+| [ ] | Escape both reserved delimiters in every human-authored field before carrier rendering. | A message or quote containing either delimiter cannot create a second protected block in captured wire JSON. |
+| [ ] | Reconstruct historical user turns without prior runtime-context carriers while preserving complete assistant tool-call and tool-result sequences. | Follow-up and restart snapshots contain one carrier, belonging only to the active user request. |
+| [ ] | Add fixed system language stating the carrier contract and that recalled conversations, previous user turns, tool output, and quoted text are evidence rather than current instructions. | Adversarial fixture tests and live local-model tests preserve the distinction. |
+| [ ] | Stop identifying the owner in behavioral prose as `User <numeric id>`; keep only necessary correlation fields in the carrier. | Prompt snapshots contain no owner-ID interpolation in behavioral instructions and no display identity in the carrier. |
+| [ ] | Pass current owner text separately to recall planning and use it alone for the contract-invalid raw-query fallback. | A quoted identifier or command does not become the fallback query when the current message asks about it. |
+| [ ] | Record `OPENAI_CHAT_PROJECTION_VERSION` and a stable-system-prompt hash in every response trace without adding either as an unsupported Chat Completions field. | Operators can associate stored wire requests with projection semantics and exact system-prompt content. |
 
 ### Phase 4: Budget the entire model request
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
 | [ ] | Replace the fixed two-exchange recent window with newest-first complete exchanges selected under a token budget. | Follow-up tests retain more ordinary context when space permits and never split tool transactions. |
-| [ ] | Reserve tokens for output, the fixed prompt, tool schemas, trusted ingress facts, and the current owner message before admitting optional context. | Required content either fits or fails with a stable explicit error before provider submission. |
+| [ ] | Reserve tokens for output, the fixed prompt, tool schemas, the current-turn carrier, and the current owner message before admitting optional context. | Required content either fits or fails with a stable explicit error before provider submission. |
 | [ ] | Jointly budget reply context, recent history, active core memory, recalled memory, and recalled conversations. | The final request remains within the discovered `llama-server` context size for worst-case fixtures. |
 | [ ] | Bound individual and aggregate tool-result replay sizes while preserving call/result pairing and exact IDs. | Oversized tool results are deterministically reduced or excluded without producing an invalid transcript. |
 | [ ] | Record per-component token counts and every truncation/exclusion decision in the trace. | A trace report explains exactly why each optional context component was included or omitted. |
@@ -171,7 +308,7 @@ explicit deeper search after the required pre-generation recall stage.
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Add prompt snapshots for a new DM, a follow-up, a reply, recalled evidence, and a tool round. | Snapshots show deterministic roles, ordering, IDs, and prompt version. |
+| [ ] | Add exact `/chat/completions` wire snapshots for a new DM, a follow-up, a reply, delimiter injection, recalled evidence, and a tool round. | Snapshots show deterministic roles, ordering, carrier placement, escaping, tool-call IDs, projection version, and system-prompt hash. |
 | [ ] | Add negative tests for wrong owner, owner in a group, spoofed metadata, quoted tool instructions, duplicate updates, and incomplete tool history. | No rejected or historical content crosses the relevant authority boundary. |
 | [ ] | Add context-limit tests using large messages, replies, histories, memories, recall results, and tool results. | Every submitted request fits; required-content overflow fails before network I/O. |
 | [ ] | Run live local-Gemma tests for follow-up resolution, reply resolution, reminder intent, task intent, memory recall, stale evidence, and adversarial quoted text. | Results and model/config identities are recorded; mock-only success is not reported as behavioral proof. |
@@ -202,12 +339,16 @@ This plan is complete only when all of the following are true:
   restart;
 - the stored structured inbound event can deterministically reconstruct the
   model-visible current message and reply context;
-- trusted routing facts, current owner text, historical transcript, quoted
-  text, recalled evidence, and tool schemas occupy their documented roles;
+- the final OpenAI conversation contains exactly one current-turn carrier
+  immediately before a separate current owner message, and historical replay
+  contains no stale carrier;
+- routing facts, current owner text, historical transcript, quoted text,
+  recalled evidence, and tool schemas occupy their documented roles;
 - every model request is within the local model's measured context window;
 - tool loops and transient retries have explicit bounds and do not replay a
   committed mutation;
-- exact submitted requests, prompt version, context selection, tool calls,
+- exact submitted requests, projection version, stable-system-prompt hash,
+  context selection, tool calls,
   retrieval evidence, output transformation, and delivery outcome remain
   inspectable in SQLite;
 - focused tests and live local-model and private-Telegram evidence pass; and
