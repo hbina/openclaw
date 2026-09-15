@@ -184,6 +184,51 @@ impl Store {
         )
     }
 
+    pub fn record_openai_chat_projection(
+        &self,
+        trace_id: i64,
+        version: i64,
+        stable_system_prompt_hash: &str,
+    ) -> Result<(), StateError> {
+        if version < 1 {
+            return Err(StateError::Validation(
+                "OpenAI chat projection version must be positive".into(),
+            ));
+        }
+        if stable_system_prompt_hash.len() != 64
+            || !stable_system_prompt_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(StateError::Validation(
+                "stable system prompt hash must be lowercase SHA-256 hex".into(),
+            ));
+        }
+        self.with_tx(|tx| {
+            let current: (i64, String) = tx.transaction.query_row(
+                "SELECT openai_chat_projection_version,stable_system_prompt_hash FROM response_traces WHERE id=?1",
+                [trace_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            if current.0 != 0 && current.0 != version {
+                return Err(StateError::Validation(format!(
+                    "trace {trace_id} projection version changed from {} to {version}",
+                    current.0
+                )));
+            }
+            if !current.1.is_empty() && current.1 != stable_system_prompt_hash {
+                return Err(StateError::Validation(format!(
+                    "trace {trace_id} stable system prompt hash changed"
+                )));
+            }
+            tx.transaction.execute(
+                "UPDATE response_traces SET openai_chat_projection_version=?1,stable_system_prompt_hash=?2 WHERE id=?3",
+                params![version, stable_system_prompt_hash, trace_id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn finish_trace(
         &self,
         trace_id: i64,
@@ -718,17 +763,18 @@ impl Store {
         let connection = self.lock()?;
         let trace = connection
             .query_row(
-                "SELECT trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json, inbound_history_id, status, failure_stage, error, started_at, completed_at FROM response_traces WHERE id=?1",
+                "SELECT trigger_type, channel_id, sender_id, conversation_id, external_message_id, reminder_id, input_json, openai_chat_projection_version, stable_system_prompt_hash, inbound_history_id, status, failure_stage, error, started_at, completed_at FROM response_traces WHERE id=?1",
                 [trace_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?, row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?, row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?, row.get::<_, Option<i64>>(5)?,
-                        row.get::<_, String>(6)?, row.get::<_, Option<i64>>(7)?,
-                        row.get::<_, String>(8)?, row.get::<_, String>(9)?,
+                        row.get::<_, String>(6)?, row.get::<_, i64>(7)?,
+                        row.get::<_, String>(8)?, row.get::<_, Option<i64>>(9)?,
                         row.get::<_, String>(10)?, row.get::<_, String>(11)?,
-                        row.get::<_, Option<String>>(12)?,
+                        row.get::<_, String>(12)?, row.get::<_, String>(13)?,
+                        row.get::<_, Option<String>>(14)?,
                     ))
                 },
             )
@@ -743,18 +789,20 @@ impl Store {
             "conversation_id": trace.3,
             "external_message_id": trace.4,
             "input": input,
-            "status": trace.8,
-            "failure_stage": trace.9,
-            "error": trace.10,
-            "started_at": decode_time(trace.11)?,
+            "openai_chat_projection_version": trace.7,
+            "stable_system_prompt_hash": trace.8,
+            "status": trace.10,
+            "failure_stage": trace.11,
+            "error": trace.12,
+            "started_at": decode_time(trace.13)?,
         });
         if let Some(value) = trace.5 {
             trace_value["reminder_id"] = json!(value);
         }
-        if let Some(value) = trace.7 {
+        if let Some(value) = trace.9 {
             trace_value["inbound_history_id"] = json!(value);
         }
-        if let Some(value) = trace.12 {
+        if let Some(value) = trace.14 {
             trace_value["completed_at"] = json!(decode_time(value)?);
         }
 
@@ -945,6 +993,23 @@ mod tests {
         let path = directory.path().join("trace.sqlite");
         let store = Store::new(&path).unwrap();
         let trace_id = store.start_response_trace(&input()).unwrap();
+        let prompt_hash = "a".repeat(64);
+        store
+            .record_openai_chat_projection(trace_id, 1, &prompt_hash)
+            .unwrap();
+        store
+            .record_openai_chat_projection(trace_id, 1, &prompt_hash)
+            .unwrap();
+        assert!(
+            store
+                .record_openai_chat_projection(trace_id, 2, &prompt_hash)
+                .is_err()
+        );
+        assert!(
+            store
+                .record_openai_chat_projection(trace_id, 1, &"b".repeat(64))
+                .is_err()
+        );
         let history_id = store
             .save_conversation_message(
                 "telegram",
@@ -1013,6 +1078,8 @@ mod tests {
         assert_eq!(traces[0].status, "completed");
         assert_eq!(traces[0].final_content, "final");
         let report = read_only.get_trace_report(trace_id).unwrap();
+        assert_eq!(report.trace["openai_chat_projection_version"], 1);
+        assert_eq!(report.trace["stable_system_prompt_hash"], prompt_hash);
         assert_eq!(report.events.len(), 4);
         assert!(read_only.start_response_trace(&input()).is_err());
     }

@@ -203,6 +203,8 @@
         external_message_id  TEXT NOT NULL DEFAULT '',
         reminder_id          INTEGER,
         input_json           TEXT NOT NULL,
+        openai_chat_projection_version INTEGER NOT NULL DEFAULT 0,
+        stable_system_prompt_hash TEXT NOT NULL DEFAULT '',
         inbound_history_id   INTEGER,
         inbound_event_id     INTEGER UNIQUE,
         status               TEXT NOT NULL DEFAULT 'active',

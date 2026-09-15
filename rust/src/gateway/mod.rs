@@ -6,9 +6,10 @@ mod server;
 
 pub use agent::{Agent, AgentError, ChatInput, PreparedResponse};
 pub use conversation_lock::{ConversationGuard, ConversationLockManager};
+pub(crate) use history::{CurrentTurnContextCarrier, project_user_text};
 pub use history::{
     PersistedInboundMessage, PersistedScheduledReminder, history_message, reconstruct_history,
-    render_inbound_message, render_scheduled_reminder,
+    render_scheduled_reminder,
 };
 pub use rag::{
     ConversationExchange, RagError, RagRetrievalResult, RagService, recent_conversation,

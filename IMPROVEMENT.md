@@ -5,7 +5,7 @@ summary: Planned alignment of Rust current-turn handling with OpenAI Chat Comple
 
 # Input Prompt Improvement Plan
 
-Status: **in progress; Phases 1–2 implemented, later phases remain planned**
+Status: **in progress; Phases 1–3 implemented, later phases remain planned**
 
 This document tracks improvements to the canonical Rust runtime's handling of
 an admitted Telegram message, from private-DM ingress through the final local
@@ -70,28 +70,12 @@ workspace prompts, or hosted services.
 | [x] | Chat requests send structured function schemas, disable parallel tool calls, and preserve exact tool-call identifiers. | `rust/src/providers.rs`, `rust/src/gateway/agent.rs` |
 | [x] | The exact sanitized Chat Completions request and the model response are recorded in the SQLite trace. | `rust/src/gateway/agent.rs`, `rust/src/state/trace.rs` |
 
-The remaining prompt-boundary gap is concrete. For a reply, the current
-`render_inbound_message` path produces one string and submits it as one OpenAI
-`user` message:
-
-```text
-Reply context:
-Author: assistant
-Message:
-Earlier answer
-
-Selected text:
-answer
-
-Current user message:
-What does this mean?
-```
-
-That representation is deterministic and the structured source remains in
-SQLite, but the final API conversation does not preserve the boundary between
-quoted data and the active request. The same rendered string is also supplied
-as the recall-planning query. Phase 3 replaces this projection; it does not
-change the already-enforced ingress admission boundary.
+The Phase 3 prompt boundary now preserves the structured source in SQLite while
+projecting one application-produced context carrier immediately before a
+separate active owner message. Historical reconstruction emits only the
+original owner text, and recall planning receives current text, optional reply
+data, and recent history as distinct fields. The carrier change does not alter
+the already-enforced ingress admission boundary.
 
 ## Target Input and Prompt Pipeline
 
@@ -256,14 +240,22 @@ text must not become two independent current requests after a restart.
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Introduce an internal current-turn carrier type with producer-assigned provenance; serialize it as a standard OpenAI `user` message immediately before the active user message. | Captured wire JSON contains two consecutive, separate `user` messages and the second contains only current owner text. |
-| [ ] | Render minimal conversation facts and optional reply/quote data inside the documented protected delimiters, classifying all quoted bodies as data rather than instructions. | Fixtures without replies omit the reply section; reply fixtures preserve bounded text and provenance labels exactly. |
-| [ ] | Escape both reserved delimiters in every human-authored field before carrier rendering. | A message or quote containing either delimiter cannot create a second protected block in captured wire JSON. |
-| [ ] | Reconstruct historical user turns without prior runtime-context carriers while preserving complete assistant tool-call and tool-result sequences. | Follow-up and restart snapshots contain one carrier, belonging only to the active user request. |
-| [ ] | Add fixed system language stating the carrier contract and that recalled conversations, previous user turns, tool output, and quoted text are evidence rather than current instructions. | Adversarial fixture tests and live local-model tests preserve the distinction. |
-| [ ] | Stop identifying the owner in behavioral prose as `User <numeric id>`; keep only necessary correlation fields in the carrier. | Prompt snapshots contain no owner-ID interpolation in behavioral instructions and no display identity in the carrier. |
-| [ ] | Pass current owner text separately to recall planning and use it alone for the contract-invalid raw-query fallback. | A quoted identifier or command does not become the fallback query when the current message asks about it. |
-| [ ] | Record `OPENAI_CHAT_PROJECTION_VERSION` and a stable-system-prompt hash in every response trace without adding either as an unsupported Chat Completions field. | Operators can associate stored wire requests with projection semantics and exact system-prompt content. |
+| [x] | Introduce an internal current-turn carrier type with producer-assigned provenance; serialize it as a standard OpenAI `user` message immediately before the active user message. | Captured wire JSON contains two consecutive, separate `user` messages and the second contains only current owner text. |
+| [x] | Render minimal conversation facts and optional reply/quote data inside the documented protected delimiters, classifying all quoted bodies as data rather than instructions. | Fixtures without replies omit the reply section; reply fixtures preserve bounded text and provenance labels exactly. |
+| [x] | Escape both reserved delimiters in every human-authored field before carrier rendering. | A message or quote containing either delimiter cannot create a second protected block in captured wire JSON. |
+| [x] | Reconstruct historical user turns without prior runtime-context carriers while preserving complete assistant tool-call and tool-result sequences. | Follow-up and restart snapshots contain one carrier, belonging only to the active user request. |
+| [x] | Add fixed system language stating the carrier contract and that recalled conversations, previous user turns, tool output, and quoted text are evidence rather than current instructions. | Adversarial fixture tests and live local-model tests preserve the distinction. |
+| [x] | Stop identifying the owner in behavioral prose as `User <numeric id>`; keep only necessary correlation fields in the carrier. | Prompt snapshots contain no owner-ID interpolation in behavioral instructions and no display identity in the carrier. |
+| [x] | Pass current owner text separately to recall planning and use it alone for the contract-invalid raw-query fallback. | A quoted identifier or command does not become the fallback query when the current message asks about it. |
+| [x] | Record `OPENAI_CHAT_PROJECTION_VERSION` and a stable-system-prompt hash in every response trace without adding either as an unsupported Chat Completions field. | Operators can associate a stored wire request with the projection semantics and stable system-prompt content that produced it. |
+
+Phase 3 verification includes deterministic unit coverage for new turns,
+follow-ups, replies, delimiter injection, tool continuation, retry/restart, and
+recall fallback. The live boundary test passed on 2026-09-15 against local
+`gemma-4-26B-A4B-it-UD-Q6_K.gguf` (`llama-server` build
+`b10497-9731ad3f2`, 100096-token context, reasoning disabled): it resolved a
+selected reply value and did not call a supplied mutation tool when the tool
+request appeared only in quoted data.
 
 ### Phase 4: Budget the entire model request
 
