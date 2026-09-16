@@ -33,13 +33,16 @@ pub use memory::{
     Memory, MemoryFilter, MemoryKind, MemoryOrigin, MemoryReindexEntry, MemorySearchResult,
     MemorySource, MemoryStatus, MemoryWrite, memory_content_hash,
 };
-pub use rag::{ConversationChunk, ConversationEmbedding, ConversationReindexEntry};
+pub use rag::{
+    ConversationChunk, ConversationEmbedding, ConversationKeywordMatch, ConversationReindexEntry,
+};
 pub(crate) use reminders::validate_standard_cron;
 pub use reminders::{Reminder, ReminderSchedule, ScheduleKind, next_reminder_run};
 pub use tasks::{Task, TaskStatus};
 pub use trace::{
-    MemoryRagTraceMatch, RagTrace, RagTraceMatch, RecallPlanContractReason, StoredChatRound,
-    StoredResponseOutput, TraceFilter, TraceInput, TraceReport, TraceSummary,
+    ContextBudgetComponent, ContextBudgetTrace, MemoryRagTraceMatch, RagTrace, RagTraceMatch,
+    RecallPlanContractReason, StoredChatRound, StoredResponseOutput, TraceFilter, TraceInput,
+    TraceReport, TraceSummary,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");

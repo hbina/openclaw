@@ -744,7 +744,8 @@ async fn write_response(
 mod tests {
     use super::*;
     use crate::providers::{
-        Embedder, GenerateRequest, GenerateResponse, Message, MessageRole, Provider, ProviderError,
+        Embedder, GenerateRequest, GenerateResponse, Message, MessageRole, PromptSizer, Provider,
+        ProviderError, ToolDefinition,
     };
     use async_trait::async_trait;
 
@@ -789,6 +790,24 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl PromptSizer for UnusedEmbedder {
+        async fn context_size(&self) -> Result<u32, ProviderError> {
+            Ok(8192)
+        }
+
+        async fn count_prompt_tokens(
+            &self,
+            messages: &[Message],
+            _tools: &[ToolDefinition],
+        ) -> Result<usize, ProviderError> {
+            Ok(messages
+                .iter()
+                .map(|message| message.content.len().div_ceil(4))
+                .sum())
+        }
+    }
+
     #[test]
     fn chat_json_is_strict_and_bounded_by_validation() {
         assert!(strict_json::<ChatRequest>(br#"{"message":"hello"}"#).is_ok());
@@ -810,6 +829,7 @@ mod tests {
         let agent = Arc::new(
             Agent::new(
                 Arc::new(ReplyProvider),
+                Arc::new(UnusedEmbedder),
                 Arc::clone(&channels),
                 Arc::clone(&store),
                 "UTC",

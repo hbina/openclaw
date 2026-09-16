@@ -43,6 +43,29 @@ pub struct TraceInput {
     pub inbound_event_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextBudgetComponent {
+    pub name: String,
+    pub decision: String,
+    pub tokens: usize,
+    pub original_bytes: usize,
+    pub rendered_bytes: usize,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextBudgetTrace {
+    pub round_number: usize,
+    pub purpose: String,
+    pub context_size: usize,
+    pub input_limit: usize,
+    pub input_tokens: usize,
+    pub max_output_tokens: usize,
+    pub safety_tokens: usize,
+    pub components: Vec<ContextBudgetComponent>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RagTrace {
     pub outcome: String,
@@ -76,7 +99,11 @@ pub struct RagTraceMatch {
     pub rank: usize,
     pub start_history_id: i64,
     pub end_history_id: i64,
+    pub channel_id: String,
+    pub observed_at: String,
     pub similarity_score: f64,
+    pub vector_score: f64,
+    pub keyword_score: f64,
     pub content_hash: String,
     pub messages_json: String,
 }
@@ -304,8 +331,8 @@ impl Store {
             )?;
             for item in &detail.matches {
                 tx.transaction.execute(
-                    "INSERT INTO rag_matches (retrieval_event_id, rank, start_history_id, end_history_id, similarity_score, content_hash, messages_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![event_id, item.rank as i64, item.start_history_id, item.end_history_id, item.similarity_score, item.content_hash, item.messages_json],
+                    "INSERT INTO rag_matches (retrieval_event_id, rank, start_history_id, end_history_id, channel_id, observed_at, similarity_score, vector_score, keyword_score, content_hash, messages_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![event_id, item.rank as i64, item.start_history_id, item.end_history_id, item.channel_id, item.observed_at, item.similarity_score, item.vector_score, item.keyword_score, item.content_hash, item.messages_json],
                 )?;
             }
             for item in &detail.memory_matches {
@@ -316,6 +343,43 @@ impl Store {
             }
             tx.transaction.execute(
                 "UPDATE trace_events SET status=?1, error=?2, completed_at=CURRENT_TIMESTAMP WHERE id=?3",
+                params![status, trace_error(cause), event_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn record_context_budget(
+        &self,
+        trace_id: i64,
+        detail: &ContextBudgetTrace,
+        cause: Option<&str>,
+    ) -> Result<(), StateError> {
+        let event_id = self.begin_trace_event(trace_id, "context_budget")?;
+        let status = if cause.is_some() {
+            "failed"
+        } else {
+            "succeeded"
+        };
+        let components = serde_json::to_string(&detail.components)
+            .map_err(|error| StateError::Validation(format!("encode context budget: {error}")))?;
+        self.with_tx(|tx| {
+            tx.transaction.execute(
+                "INSERT INTO context_budgets (event_id,round_number,purpose,context_size,input_limit,input_tokens,max_output_tokens,safety_tokens,components_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![
+                    event_id,
+                    detail.round_number as i64,
+                    detail.purpose,
+                    detail.context_size as i64,
+                    detail.input_limit as i64,
+                    detail.input_tokens as i64,
+                    detail.max_output_tokens as i64,
+                    detail.safety_tokens as i64,
+                    components,
+                ],
+            )?;
+            tx.transaction.execute(
+                "UPDATE trace_events SET status=?1,error=?2,completed_at=CURRENT_TIMESTAMP WHERE id=?3",
                 params![status, trace_error(cause), event_id],
             )?;
             Ok(())
@@ -854,6 +918,9 @@ impl Store {
             "rag" => {
                 "SELECT json_object('outcome',outcome,'embedding_query',embedding_query,'embedding_model',embedding_model,'dimensions',dimensions,'index_version',index_version,'minimum_score',minimum_score,'history_highwater_id',history_highwater_id,'candidate_count',candidate_count,'excluded_count',excluded_count,'qualified_count',qualified_count,'selected_count',selected_count,'rendered_archive',rendered_archive) FROM rag_retrievals WHERE event_id=?1"
             }
+            "context_budget" => {
+                "SELECT json_object('round_number',round_number,'purpose',purpose,'context_size',context_size,'input_limit',input_limit,'input_tokens',input_tokens,'max_output_tokens',max_output_tokens,'safety_tokens',safety_tokens,'components_json',components_json) FROM context_budgets WHERE event_id=?1"
+            }
             "llm" => {
                 "SELECT json_object('round_number',round_number,'purpose',purpose,'request_json',request_json,'response_json',response_json,'http_status',http_status,'finish_reason',finish_reason) FROM llm_calls WHERE event_id=?1"
             }
@@ -871,24 +938,40 @@ impl Store {
         let raw: String = connection.query_row(query, [event_id], |row| row.get(0))?;
         let mut result: Value = serde_json::from_str(&raw)
             .map_err(|error| StateError::Validation(format!("invalid trace detail: {error}")))?;
-        if kind == "rag" {
-            let mut statement = connection.prepare("SELECT rank, start_history_id, end_history_id, similarity_score, content_hash, messages_json FROM rag_matches WHERE retrieval_event_id=?1 ORDER BY rank")?;
+        if kind == "context_budget" {
+            let components = result["components_json"]
+                .as_str()
+                .and_then(|value| serde_json::from_str(value).ok())
+                .unwrap_or_else(|| json!([]));
+            result
+                .as_object_mut()
+                .expect("budget detail is an object")
+                .remove("components_json");
+            result["components"] = components;
+        } else if kind == "rag" {
+            let mut statement = connection.prepare("SELECT rank, start_history_id, end_history_id, channel_id, observed_at, similarity_score, vector_score, keyword_score, content_hash, messages_json FROM rag_matches WHERE retrieval_event_id=?1 ORDER BY rank")?;
             let rows = statement
                 .query_map([event_id], |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
-                        row.get::<_, f64>(3)?,
+                        row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
+                        row.get::<_, f64>(5)?,
+                        row.get::<_, f64>(6)?,
+                        row.get::<_, f64>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             let matches: Vec<_> = rows.into_iter().map(|item| json!({
                 "rank": item.0, "start_history_id": item.1, "end_history_id": item.2,
-                "similarity_score": item.3, "content_hash": item.4,
-                "messages_json": serde_json::from_str::<Value>(&item.5).unwrap_or(Value::String(item.5)),
+                "channel_id": item.3, "observed_at": item.4,
+                "similarity_score": item.5, "vector_score": item.6, "keyword_score": item.7,
+                "content_hash": item.8,
+                "messages_json": serde_json::from_str::<Value>(&item.9).unwrap_or(Value::String(item.9)),
             })).collect();
             result["matches"] = Value::Array(matches);
 
@@ -1040,7 +1123,11 @@ mod tests {
                         rank: 1,
                         start_history_id: history_id,
                         end_history_id: history_id,
+                        channel_id: "cli".into(),
+                        observed_at: "2030-01-01T00:00:00Z".into(),
                         similarity_score: 0.8,
+                        vector_score: 0.8,
+                        keyword_score: 0.0,
                         content_hash: "hash".into(),
                         messages_json: r#"[{"role":"user","content":"why?"}]"#.into(),
                     }],

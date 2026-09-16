@@ -454,6 +454,7 @@ impl Store {
                 "DELETE FROM memory_fts",
                 "DELETE FROM memory_embeddings",
                 "DELETE FROM conversation_chunks",
+                "DELETE FROM conversation_fts",
             ] {
                 tx.transaction.execute(statement, [])?;
             }

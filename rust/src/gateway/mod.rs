@@ -11,8 +11,8 @@ pub use history::{
     PersistedInboundMessage, PersistedScheduledReminder, history_message, reconstruct_history,
     render_scheduled_reminder,
 };
+pub(crate) use rag::complete_exchanges;
 pub use rag::{
     ConversationExchange, RagError, RagRetrievalResult, RagService, recent_conversation,
 };
-pub(crate) use rag::{complete_exchanges, insert_archive_message};
 pub use server::{Gateway, GatewayError};

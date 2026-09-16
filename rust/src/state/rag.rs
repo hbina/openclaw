@@ -5,6 +5,7 @@ use super::{StateError, StateTx, Store};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConversationChunk {
     pub part_index: i64,
+    pub content: String,
     pub content_hash: String,
     pub embedding_model: String,
     pub dimensions: usize,
@@ -18,6 +19,13 @@ pub struct ConversationEmbedding {
     pub start_history_id: i64,
     pub end_history_id: i64,
     pub embedding: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationKeywordMatch {
+    pub start_history_id: i64,
+    pub end_history_id: i64,
+    pub keyword_score: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,12 +67,63 @@ impl StateTx<'_> {
                     chunk.embedding,
                 ],
             )?;
+            self.transaction.execute(
+                "INSERT INTO conversation_fts(content, start_history_id, end_history_id, part_index) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    chunk.content,
+                    start_history_id,
+                    end_history_id,
+                    chunk.part_index,
+                ],
+            )?;
         }
         Ok(())
     }
 }
 
 impl Store {
+    pub fn search_conversation_keywords(
+        &self,
+        fts_query: &str,
+        limit: usize,
+    ) -> Result<Vec<ConversationKeywordMatch>, StateError> {
+        if fts_query.trim().is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT start_history_id, end_history_id FROM conversation_fts WHERE conversation_fts MATCH ?1 ORDER BY bm25(conversation_fts), start_history_id, part_index LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![fts_query, limit as i64], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut matches = std::collections::HashMap::new();
+        for (ordinal, row) in rows.enumerate() {
+            let (start_history_id, end_history_id) = row?;
+            matches
+                .entry((start_history_id, end_history_id))
+                .or_insert(1.0 / (ordinal + 1) as f64);
+        }
+        let mut matches: Vec<_> = matches
+            .into_iter()
+            .map(
+                |((start_history_id, end_history_id), keyword_score)| ConversationKeywordMatch {
+                    start_history_id,
+                    end_history_id,
+                    keyword_score,
+                },
+            )
+            .collect();
+        matches.sort_by(|left, right| {
+            right
+                .keyword_score
+                .partial_cmp(&left.keyword_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.start_history_id.cmp(&right.start_history_id))
+        });
+        Ok(matches)
+    }
+
     pub fn load_conversation_embeddings(
         &self,
         model: &str,
@@ -114,6 +173,16 @@ impl Store {
                 SELECT 1 FROM conversation_chunks x
                 WHERE x.start_history_id=c.start_id AND x.end_history_id=c.end_id
                   AND x.embedding_model=?1 AND x.index_version=?2 AND x.dimensions=?3
+            ) OR c.end_id IS NOT NULL AND EXISTS (
+                SELECT 1 FROM conversation_chunks x
+                WHERE x.start_history_id=c.start_id AND x.end_history_id=c.end_id
+                  AND x.embedding_model=?1 AND x.index_version=?2 AND x.dimensions=?3
+                  AND NOT EXISTS (
+                      SELECT 1 FROM conversation_fts f
+                      WHERE f.start_history_id=x.start_history_id
+                        AND f.end_history_id=x.end_history_id
+                        AND f.part_index=x.part_index
+                  )
             )",
             params![model, version, dimensions as i64],
             |row| row.get(0),
@@ -128,6 +197,7 @@ impl Store {
         self.with_tx(|tx| {
             tx.transaction
                 .execute("DELETE FROM conversation_chunks", [])?;
+            tx.transaction.execute("DELETE FROM conversation_fts", [])?;
             for entry in entries {
                 tx.save_conversation_chunks(
                     entry.start_history_id,
@@ -177,6 +247,7 @@ mod tests {
         );
         let chunk = ConversationChunk {
             part_index: 0,
+            content: "question answer".into(),
             content_hash: "hash".into(),
             embedding_model: "embed-v1".into(),
             dimensions: 2,
@@ -198,5 +269,22 @@ mod tests {
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].start_history_id, start);
         assert_eq!(loaded[0].end_history_id, end);
+        let keyword = store
+            .search_conversation_keywords("\"question\"", 24)
+            .unwrap();
+        assert_eq!(keyword.len(), 1);
+        assert_eq!(keyword[0].start_history_id, start);
+        assert!(keyword[0].keyword_score > 0.0);
+        store
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM conversation_fts", [])
+            .unwrap();
+        assert_eq!(
+            store
+                .count_conversation_index_gaps("embed-v1", 1, 2)
+                .unwrap(),
+            1
+        );
     }
 }

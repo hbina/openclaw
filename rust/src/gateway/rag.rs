@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
+    memory::safe_fts_query,
     providers::{Embedder, Message, MessageRole, PromptSizer, ProviderError, ToolDefinition},
     state::{
         CONTENT_INBOUND_MESSAGE, CONTENT_SCHEDULED_REMINDER, CONTENT_TEXT, CONTENT_TOOL_CALL,
@@ -52,7 +53,9 @@ pub struct ConversationExchange {
 #[derive(Debug, Clone)]
 struct ScoredExchange {
     exchange: ConversationExchange,
-    score: f64,
+    vector_score: f64,
+    keyword_score: f64,
+    combined_score: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +134,7 @@ impl RagService {
                 }
                 Ok(ConversationChunk {
                     part_index: index as i64,
+                    content: document.clone(),
                     content_hash: sha256_hex(document.as_bytes()),
                     embedding_model: self.index_id.clone(),
                     dimensions: self.dimensions,
@@ -204,6 +208,7 @@ impl RagService {
     pub async fn retrieve(
         &self,
         query: &str,
+        keywords: &[String],
         recent_history: &[ConversationTurn],
         base_messages: &[Message],
         tools: &[ToolDefinition],
@@ -212,6 +217,7 @@ impl RagService {
         Ok(self
             .retrieve_detailed(
                 query,
+                keywords,
                 recent_history,
                 base_messages,
                 tools,
@@ -224,6 +230,7 @@ impl RagService {
     pub async fn retrieve_detailed(
         &self,
         query: &str,
+        keywords: &[String],
         recent_history: &[ConversationTurn],
         base_messages: &[Message],
         tools: &[ToolDefinition],
@@ -261,7 +268,6 @@ impl RagService {
             RAG_INDEX_VERSION,
             self.dimensions,
         )?;
-        result.candidate_count = stored.len();
         let all_turns = self.store.get_all_conversation_history()?;
         result.history_highwater_id = all_turns.last().map_or(0, |turn| turn.id);
         let recent = complete_exchanges(recent_history);
@@ -269,7 +275,7 @@ impl RagService {
             .iter()
             .map(|exchange| exchange_identity(exchange.start_id, exchange.end_id))
             .collect();
-        let mut best = HashMap::new();
+        let mut scores: HashMap<String, (f64, f64)> = HashMap::new();
         for item in stored {
             let key = exchange_identity(item.start_history_id, item.end_history_id);
             if excluded.contains(&key) {
@@ -281,26 +287,48 @@ impl RagService {
                     RagError::Validation(format!("decode stored embedding {}: {error}", item.id))
                 })?;
             let score = vector::dot(query_vector, &stored_vector);
-            if score >= self.min_score && score > *best.get(&key).unwrap_or(&f64::NEG_INFINITY) {
-                best.insert(key, score);
+            if score >= self.min_score {
+                let candidate = scores.entry(key).or_insert((0.0, 0.0));
+                candidate.0 = candidate.0.max(score);
             }
         }
-        if best.is_empty() {
+        let fts_query = if keywords.is_empty() {
+            safe_fts_query(&[query.to_owned()])
+        } else {
+            safe_fts_query(keywords)
+        };
+        for item in self.store.search_conversation_keywords(&fts_query, 48)? {
+            let key = exchange_identity(item.start_history_id, item.end_history_id);
+            if excluded.contains(&key) {
+                result.excluded_count += 1;
+                continue;
+            }
+            let candidate = scores.entry(key).or_insert((0.0, 0.0));
+            candidate.1 = candidate.1.max(item.keyword_score);
+        }
+        result.candidate_count = scores.len();
+        if scores.is_empty() {
             return Ok(result);
         }
-        result.qualified_count = best.len();
+        result.qualified_count = scores.len();
         let mut matches: Vec<_> = complete_exchanges_by_route(&all_turns)
             .into_iter()
             .filter_map(|exchange| {
-                best.get(&exchange_identity(exchange.start_id, exchange.end_id))
+                scores
+                    .get(&exchange_identity(exchange.start_id, exchange.end_id))
                     .copied()
-                    .map(|score| ScoredExchange { exchange, score })
+                    .map(|(vector_score, keyword_score)| ScoredExchange {
+                        exchange,
+                        vector_score,
+                        keyword_score,
+                        combined_score: 0.65 * vector_score + 0.35 * keyword_score,
+                    })
             })
             .collect();
         matches.sort_by(|left, right| {
             right
-                .score
-                .partial_cmp(&left.score)
+                .combined_score
+                .partial_cmp(&left.combined_score)
                 .unwrap_or(Ordering::Equal)
                 .then_with(|| left.exchange.start_id.cmp(&right.exchange.start_id))
         });
@@ -337,7 +365,14 @@ impl RagService {
                 rank: index + 1,
                 start_history_id: item.exchange.start_id,
                 end_history_id: item.exchange.end_id,
-                similarity_score: item.score,
+                channel_id: item.exchange.channel_id.clone(),
+                observed_at: item
+                    .exchange
+                    .created_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                similarity_score: item.combined_score,
+                vector_score: item.vector_score,
+                keyword_score: item.keyword_score,
                 content_hash: sha256_hex(&encoded),
                 messages_json: String::from_utf8(encoded).expect("JSON is UTF-8"),
             });
@@ -577,7 +612,14 @@ mod tests {
                 )
                 .unwrap();
         }
-        let service = service(Arc::clone(&store));
+        let service = RagService::new(
+            Arc::clone(&store),
+            Arc::new(FakeModel),
+            Arc::new(FakeModel),
+            "embed-v1",
+            2,
+            2.0,
+        );
         service.index_once().await.unwrap();
         let current = store.get_conversation_history("cli", "owner").unwrap();
         let base = vec![
@@ -585,12 +627,14 @@ mod tests {
             Message::text(MessageRole::User, "question"),
         ];
         let result = service
-            .retrieve_detailed("espresso", &current, &base, &[], 512)
+            .retrieve_detailed("espresso", &[], &current, &base, &[], 512)
             .await
             .unwrap();
         assert_eq!(result.outcome, "selected");
         assert!(result.archive.contains("I like espresso"));
         assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].vector_score, 0.0);
+        assert!(result.matches[0].keyword_score > 0.0);
         assert_eq!(result.excluded_count, 1);
     }
 

@@ -194,6 +194,14 @@
         UNIQUE (embedding_model, index_version, start_history_id, end_history_id, part_index)
     );
 
+    CREATE VIRTUAL TABLE IF NOT EXISTS conversation_fts USING fts5(
+        content,
+        start_history_id UNINDEXED,
+        end_history_id UNINDEXED,
+        part_index UNINDEXED,
+        tokenize = 'unicode61'
+    );
+
     CREATE TABLE IF NOT EXISTS response_traces (
         id                   INTEGER PRIMARY KEY AUTOINCREMENT,
         trigger_type         TEXT NOT NULL,
@@ -246,13 +254,30 @@
         FOREIGN KEY (event_id) REFERENCES trace_events(id)
     );
 
+    CREATE TABLE IF NOT EXISTS context_budgets (
+        event_id          INTEGER PRIMARY KEY,
+        round_number      INTEGER NOT NULL,
+        purpose           TEXT NOT NULL,
+        context_size      INTEGER NOT NULL,
+        input_limit       INTEGER NOT NULL,
+        input_tokens      INTEGER NOT NULL,
+        max_output_tokens INTEGER NOT NULL,
+        safety_tokens     INTEGER NOT NULL,
+        components_json   TEXT NOT NULL,
+        FOREIGN KEY (event_id) REFERENCES trace_events(id)
+    );
+
     CREATE TABLE IF NOT EXISTS rag_matches (
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
         retrieval_event_id INTEGER NOT NULL,
         rank               INTEGER NOT NULL,
         start_history_id   INTEGER NOT NULL,
         end_history_id     INTEGER NOT NULL,
+        channel_id         TEXT NOT NULL,
+        observed_at        DATETIME NOT NULL,
         similarity_score   REAL NOT NULL,
+        vector_score       REAL NOT NULL,
+        keyword_score      REAL NOT NULL,
         content_hash       TEXT NOT NULL,
         messages_json      TEXT NOT NULL,
         FOREIGN KEY (retrieval_event_id) REFERENCES rag_retrievals(event_id),

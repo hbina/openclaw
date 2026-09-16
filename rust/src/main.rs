@@ -195,13 +195,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let rag = Arc::new(RagService::new(
         Arc::clone(&store),
         Arc::clone(&foreground_embedding),
-        prompt_sizer,
+        Arc::clone(&prompt_sizer),
         &config.models.embeddings.index_id,
         dimensions,
         config.agents.defaults.history_search.min_score,
     ));
     let agent = Arc::new(Agent::new(
         foreground_chat,
+        prompt_sizer,
         Arc::clone(&channels),
         Arc::clone(&store),
         "Local",
