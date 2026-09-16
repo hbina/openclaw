@@ -6,6 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pulldown_cmark::{Event, Parser, Tag};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
@@ -424,11 +425,12 @@ impl Channel for TelegramAdapter {
             message_bytes = content.len(),
             "sending Telegram message"
         );
+        let (text, entities) = telegram_bold_entities(content);
         let sent: TelegramMessage = Self::call(
             &self.client,
             &self.api_base,
             "sendMessage",
-            serde_json::json!({"chat_id": recipient, "text": content}),
+            serde_json::json!({"chat_id": recipient, "text": text, "entities": entities}),
         )
         .await?;
         info!(
@@ -440,6 +442,86 @@ impl Channel for TelegramAdapter {
             message_id: sent.message_id.to_string(),
         })
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct TelegramTextEntity {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    offset: usize,
+    length: usize,
+}
+
+// Keep all non-bold Markdown as written. Telegram's MarkdownV2 differs from
+// CommonMark and can reject an entire message when punctuation is unescaped.
+fn telegram_bold_entities(content: &str) -> (String, Vec<TelegramTextEntity>) {
+    let mut markers = Vec::new();
+    let mut spans = Vec::new();
+    for (event, range) in Parser::new(content).into_offset_iter() {
+        if let Event::Start(Tag::Strong) = event {
+            // OffsetIter gives the entire strong span for both Start and End.
+            // CommonMark strong delimiters are two '*' or two '_' characters.
+            if range.end >= range.start + 4 {
+                let opening = content.get(range.start..range.start + 2);
+                let closing = content.get(range.end - 2..range.end);
+                if matches!(opening, Some("**" | "__")) && opening == closing {
+                    markers.push(range.start..range.start + 2);
+                    markers.push(range.end - 2..range.end);
+                    spans.push((range.start + 2, range.end - 2));
+                }
+            }
+        }
+    }
+    markers.sort_by_key(|range| range.start);
+    markers.dedup();
+
+    let mut text = String::with_capacity(content.len());
+    let mut cursor = 0;
+    for marker in &markers {
+        text.push_str(&content[cursor..marker.start]);
+        cursor = marker.end;
+    }
+    text.push_str(&content[cursor..]);
+
+    let mut entities = Vec::with_capacity(spans.len());
+    for (start, end) in spans {
+        let offset = utf16_position_without_markers(content, &markers, start);
+        let length = utf16_position_without_markers(content, &markers, end) - offset;
+        if length > 0 {
+            entities.push(TelegramTextEntity {
+                kind: "bold",
+                offset,
+                length,
+            });
+        }
+    }
+    entities.sort_by_key(|entity| entity.offset);
+    let mut merged: Vec<TelegramTextEntity> = Vec::with_capacity(entities.len());
+    for entity in entities {
+        if let Some(previous) = merged.last_mut() {
+            let previous_end = previous.offset + previous.length;
+            if entity.offset <= previous_end {
+                previous.length = previous_end.max(entity.offset + entity.length) - previous.offset;
+                continue;
+            }
+        }
+        merged.push(entity);
+    }
+    (text, merged)
+}
+
+fn utf16_position_without_markers(
+    content: &str,
+    markers: &[std::ops::Range<usize>],
+    position: usize,
+) -> usize {
+    let mut offset = content[..position].encode_utf16().count();
+    for marker in markers {
+        if marker.end <= position {
+            offset -= content[marker.clone()].encode_utf16().count();
+        }
+    }
+    offset
 }
 
 #[derive(Deserialize)]
@@ -593,6 +675,80 @@ fn normalize_telegram_text(
 #[cfg(test)]
 mod telegram_tests {
     use super::*;
+
+    #[test]
+    fn outgoing_bold_uses_telegram_entities_and_preserves_lists() {
+        let source = "**Technical & Quant Research (High Intensity)**\n* **Chlistalla paper** (Task 12)\n* **Papers in your ChatGPT share link** (Task 26)";
+        let (text, entities) = telegram_bold_entities(source);
+        assert_eq!(
+            text,
+            "Technical & Quant Research (High Intensity)\n* Chlistalla paper (Task 12)\n* Papers in your ChatGPT share link (Task 26)"
+        );
+        assert_eq!(entities.len(), 3);
+        assert_eq!(entities[0].offset, 0);
+        assert_eq!(
+            entities[0].length,
+            "Technical & Quant Research (High Intensity)".len()
+        );
+        assert_eq!(
+            entities[1].offset,
+            "Technical & Quant Research (High Intensity)\n* ".len()
+        );
+        assert_eq!(entities[1].length, "Chlistalla paper".len());
+        assert_eq!(
+            entities[2].length,
+            "Papers in your ChatGPT share link".len()
+        );
+        assert!(entities.iter().all(|entity| entity.kind == "bold"));
+    }
+
+    #[test]
+    fn outgoing_bold_counts_utf16_and_ignores_code_and_escapes() {
+        let source =
+            "👩‍💻 **漢字** and __é__\n`**code**` \\**literal** **unfinished\n```\n**fenced**\n```";
+        let (text, entities) = telegram_bold_entities(source);
+        assert_eq!(
+            text,
+            "👩‍💻 漢字 and é\n`**code**` \\**literal** **unfinished\n```\n**fenced**\n```"
+        );
+        assert_eq!(entities.len(), 2);
+        assert_eq!(entities[0].offset, "👩‍💻 ".encode_utf16().count());
+        assert_eq!(entities[0].length, "漢字".encode_utf16().count());
+        assert_eq!(entities[1].offset, "👩‍💻 漢字 and ".encode_utf16().count());
+        assert_eq!(entities[1].length, "é".encode_utf16().count());
+        assert_eq!(
+            telegram_bold_entities("plain text"),
+            ("plain text".into(), vec![])
+        );
+    }
+
+    #[test]
+    fn outgoing_bold_handles_nested_and_adjacent_markdown() {
+        for source in [
+            "**one** **two**",
+            "**bold _italic_ text**",
+            "***bold and italic***",
+            "****four stars****",
+            "a **bold** word and * list marker",
+        ] {
+            let (text, entities) = telegram_bold_entities(source);
+            assert!(text.len() <= source.len());
+            for entity in entities {
+                assert!(entity.length > 0);
+                assert!(entity.offset + entity.length <= text.encode_utf16().count());
+            }
+        }
+        let (text, entities) = telegram_bold_entities("****four stars****");
+        assert_eq!(text, "four stars");
+        assert_eq!(
+            entities,
+            vec![TelegramTextEntity {
+                kind: "bold",
+                offset: 0,
+                length: "four stars".len(),
+            }]
+        );
+    }
 
     #[test]
     fn fixtures_enforce_private_owner_chat_and_map_reply_context() {
