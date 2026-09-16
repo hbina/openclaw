@@ -29,13 +29,6 @@ The command connects to `http://127.0.0.1:18789` by default. Set
 `OPENCLAW_GATEWAY_URL` or pass `--url` before the message when the Gateway uses
 a different address. `--timeout` defaults to `10m`.
 
-For a Docker deployment, run the same binary inside the active container:
-
-```bash
-docker exec openclaw-go ./openclaw chat "List my open tasks"
-printf 'List my reminders\n' | docker exec -i openclaw-go ./openclaw chat
-```
-
 Human-readable output writes the reply to stdout and the response trace ID to
 stderr. Pass `--json` to emit both fields as one JSON object on stdout, then use
 the trace ID with `openclaw trace show` when diagnosing a turn.
@@ -44,16 +37,17 @@ All terminal turns use the `cli` channel. The default sender ID is `cli-user`,
 so separate invocations continue that CLI conversation; `--sender-id` selects a
 different CLI conversation key and never impersonates Telegram history. The
 command requires a running Gateway and does not open SQLite or start a second
-agent. Keep the Gateway loopback-bound or otherwise protected because `/chat`
-does not yet enforce admission or request limits.
+agent. The Rust Gateway enforces loopback binding, bounded requests and
+connections, and stable errors, but it has no HTTP authentication; keep it
+local.
 
 ## Fresh-state cutover
 
-The revisioned memory ledger changes the canonical schema. Use a new empty
-data directory for this release. Existing Node and Go databases are not
-migrated, imported, translated, or read by the new runtime. Keep the prior
-directory untouched if it is needed as an operator archive; there is no
-application-level compatibility or export command.
+Every Rust test cutover uses a new empty database. Existing Node, Go, and older
+Rust databases are never migrated, imported, translated, or read. If old test
+state has diagnostic value, stop the service and copy it to a uniquely named
+backup before removing the active database. The backup is a forensic artifact
+only; rollback restores the matching old binary and database together.
 
 ## Memory commands
 
@@ -99,7 +93,7 @@ derived index atomically.
 
 ## Backup and inspection
 
-Stop the container before database maintenance and make a unique SQLite
+Stop the service before database maintenance and make a unique SQLite
 backup:
 
 ```bash
@@ -123,36 +117,21 @@ Inspect recent traces locally:
 
 ## Deployment gate
 
-1. Run test, race, vet, and build with the `sqlite_fts5` tag.
-2. Verify both local model endpoints.
-3. Build an immutable candidate image.
-4. Point it at a fresh persistent data directory and preserved configuration.
-5. Prove startup readiness, a real HTTP turn, a Telegram turn, memory capture
-   through the main assistant tools, a maintenance preview and apply, hybrid
-   recall, rejection of a non-owner Telegram sender, tasks, reminders, and
-   restart persistence.
-6. Verify that model or embedding failure prevents delivery and leaves a due
-   reminder retryable.
-7. Retain one known-good SQLite backup and image rollback target.
+1. Run `cargo fmt --all -- --check`, strict Clippy, the full test suite, ignored
+   local-Gemma tests, and a locked release build.
+2. Record both local model identities and context/dimension contracts.
+3. Stop the Rust service and copy the active SQLite file to a unique backup.
+4. Remove only the explicitly resolved active test database and start the new
+   release so it creates the canonical schema from scratch.
+5. Prove loopback health and one real HTTP response, then restart and prove
+   health again.
+6. With exactly one long-poll consumer, send a private owner DM and verify the
+   inbound row, route, trace, response delivery, synchronous index, restart
+   persistence, and duplicate no-reexecution invariants. Unsupported sender and
+   chat shapes are additionally verified by ingress fixtures because the Bot
+   API cannot impersonate another account.
+7. Run `PRAGMA integrity_check`, create a SQLite backup of the new state, and
+   rehearse opening that backup with the same release.
 
-The native systemd fresh-state helper is `scripts/reset-go-test-state.py`. The
-Docker fresh-state helper is invoked with an explicitly named retained runtime:
-
-```bash
-scripts/deploy-go-docker.py cutover --yes \
-  --previous-container PREVIOUS_CONTAINER
-```
-
-It runs verification before stopping anything, builds an immutable candidate,
-archives the complete pre-ledger Go data directory, starts the candidate with a
-new empty directory on loopback port `18792`, performs schema, HTTP, restart,
-SQLite backup, and restore-rehearsal checks, and retains the stopped previous
-container. A failure automatically restores the old directory and restarts the
-previous container. Successful output includes an exact `rollback` command.
-Both helpers require explicit `--yes` confirmation. Live owner/non-owner
-Telegram acceptance remains a manual cutover gate because the same bot token
-must not have two long-poll consumers.
-
-The legacy `scripts/deploy-go-test.sh` entry point is now only a compatibility
-wrapper for this fresh-state tool; its former in-place schema transition has
-been removed.
+The final standalone Rust image and Compose definition are not yet shipped. Do
+not use the retained Go deployment scripts as a cutover or rollback path.

@@ -1,61 +1,52 @@
-# OpenClaw Go
+# OpenClaw Rust
 
-This branch is a slim, Docker-first personal assistant. The retained
-runtime is Go, serves one trusted owner per deployment, uses Telegram for text
-messages, and keeps tasks, reminders, durable memory, structured transcripts,
-and a derived retrieval index in one SQLite database. Its interaction style is
-fixed, neutral, and non-relational rather than operator-customizable.
+OpenClaw is a locally operated personal assistant for exactly one trusted owner
+per deployment. The canonical production runtime is one standalone Rust binary
+with Telegram text delivery, an HTTP chat endpoint, owner-global tasks,
+one-shot and recurring reminders, revisioned memory, conversation recall, and
+SQLite persistence.
 
-Every generated reply and contextual reminder has an always-on local
-provenance trace covering accepted input, selected recall, model/tool rounds,
-application transformations, and delivery outcome. Operators inspect these
-records with `openclaw trace list` and `openclaw trace show`.
+Assistant behavior is fixed, neutral, and non-relational. Chat and embeddings
+use operator-controlled local `llama-server` instances through their
+OpenAI-compatible protocols. There are no hosted-model fallbacks, plugins,
+multi-agent routing, browser tools, or Node dependencies.
 
-The model stack is local:
+Every response keeps an inspectable SQLite trace of admitted input, prompt
+projection metadata, context-budget decisions, recall evidence, model and tool
+rounds, output transformations, indexing, and delivery. Current owner text is
+sent separately from the application-produced routing/reply carrier, and
+historical text is never promoted to current instruction authority.
 
-- one OpenAI-compatible `llama-server` for chat and tool generation;
-- one dedicated EmbeddingGemma `llama-server` for memory and conversation
-  retrieval.
-
-There are no hosted-model fallbacks, plugins, multi-agent routing, WhatsApp,
-Discord, browser tools, skills, or Node dependencies. The upstream Node runtime
-has been removed from this branch; it remains available only in Git history.
-Historical Node application state is deliberately not imported or read by the
-Go runtime, and no backward-compatibility path is supported.
-
-Memory is a revisioned SQLite ledger with profile, durable, and daily records,
-FTS5 plus vector retrieval, optional local-model query rewriting, required
-local-model evidence selection for nonempty candidates, and memory tools in the
-main assistant loop. There is no separate post-response curator. The ledger
-cutover requires a fresh Go database; existing Go state is also deliberately
-not migrated.
+SQLite is the sole state authority for tasks, reminders, memories, transcripts,
+derived FTS/vector indexes, inbound Telegram work, and traces. Historical Node,
+Go, and pre-ledger Rust state is deliberately not migrated or read; use a fresh
+database for every Rust test cutover.
 
 ## Documentation
 
 - [Product and architecture](docs/architecture.md)
-- [Docker setup and configuration](docs/install.md)
+- [Installation](docs/install.md)
 - [HTTP API](docs/http-api.md)
 - [Telegram behavior](docs/telegram.md)
 - [Tasks, reminders, and memory](docs/reminders-memory.md)
 - [SQLite schema](docs/database.md)
-- [Operations and backups](docs/operations.md)
-- [Security and current limitations](docs/security.md)
+- [Operations and recovery](docs/operations.md)
+- [Security and limitations](docs/security.md)
 
 ## Development
 
-Run Go commands from `golang/`:
+Run Rust commands from `rust/`:
 
 ```bash
-GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 ./...
-GOCACHE=/tmp/openclaw-go-cache go vet -tags sqlite_fts5 ./...
-GOCACHE=/tmp/openclaw-go-cache go test -tags sqlite_fts5 -race ./...
-GOCACHE=/tmp/openclaw-go-cache go build -tags sqlite_fts5 -o /tmp/openclaw-go ./cmd/openclaw
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --locked
+cargo build --locked --release
 ```
 
-Build the standalone runtime image with:
+The final standalone Rust container and Compose definition are not yet shipped.
+Use the release binary for current testing; the retained Go image is not an
+alternate production runtime.
 
-```bash
-docker build -t openclaw-go:local golang
-```
-
-`AGENTS.md` records the retained scope, current status, and known gaps.
+`AGENTS.md` records the retained product intent, safety boundaries, current
+risks, and production cutover criteria.

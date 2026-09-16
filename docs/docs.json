@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "OpenClaw Go",
+  "name": "OpenClaw Rust",
   "description": "Operator documentation for the slim local reminder assistant.",
   "theme": "mint",
   "colors": {
@@ -11,7 +11,7 @@
   "navigation": {
     "groups": [
       {
-        "group": "OpenClaw Go",
+        "group": "OpenClaw Rust",
         "pages": [
           "index",
           "architecture",

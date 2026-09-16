@@ -56,14 +56,16 @@ inputs; the runtime does not silently start without its admitted channel.
 Inbound leases, five-attempt retry policy, and bounded backoff are fixed runtime
 behavior and intentionally add no public configuration surface.
 
-`agents.defaults.memoryMaintenance` controls the native Go consolidation
+`agents.defaults.memoryMaintenance` controls the native Rust consolidation
 worker. `schedule` is a five-field cron expression interpreted in the named
 IANA `timezone`; `batchSize` bounds the number of complete owner exchanges in
 one run. The worker is disabled unless `enabled` is true.
 
 The `openai` name identifies the OpenAI-compatible wire protocol. It does not
-enable the hosted OpenAI service. The runtime deliberately sends chat model id
-`default`.
+enable the hosted OpenAI service, provider fallback, or a Responses API path.
+Both configured endpoints must resolve to operator-controlled local services;
+startup rejects non-local provider behavior. The runtime deliberately sends
+chat model id `default` and uses non-streaming `/chat/completions` responses.
 
 `secrets.json`:
 
@@ -91,3 +93,12 @@ Assistant behavior is fixed, neutral, direct, and non-relational. Personality
 and identity customization are unsupported: `agents.defaults.soul` and
 `agents.defaults.identity` are rejected as unknown keys. Remove both keys from
 existing configuration before starting this release.
+
+Configuration does not select a prompt size. The Rust runtime reads the chat
+server's active context window and uses its template/tokenizer endpoints before
+every submitted generation. Round, tool, tool-result, and retry bounds are
+fixed safety behavior rather than operator-tunable settings.
+
+Changing schema-era configuration does not migrate state. For every Rust test
+cutover, stop the service, retain an optional operator backup, remove the active
+test database, and allow the new binary to create a fresh canonical database.

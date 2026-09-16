@@ -1,18 +1,19 @@
 ---
-title: OpenClaw Go
-summary: The supported surface of the slim personal reminder assistant
+title: OpenClaw Rust
+summary: Local single-owner tasks, reminders, memory, and conversation recall
 ---
 
-OpenClaw Go is a self-hosted assistant for exactly one trusted owner per
-deployment. It supports Telegram text conversations, an HTTP chat endpoint,
-owner-global tasks, one-shot and recurring reminders, durable semantic memory,
-automatic semantic recall from SQLite conversation history, and optional
-provenance-gated background memory consolidation.
+OpenClaw is a self-hosted assistant for exactly one trusted owner per
+deployment. The canonical Rust runtime supports Telegram private text chats,
+a loopback HTTP chat endpoint, owner-global tasks, reminders, revisioned
+memory, hybrid conversation recall, and detailed SQLite traces.
 
-The runtime connects only to two operator-managed local `llama-server`
-processes: one for chat and tool generation and one for EmbeddingGemma
-embeddings. Configuration and secrets are mounted separately; state lives in
-one mounted SQLite database.
+Chat and embedding inference remain local through operator-controlled
+`llama-server` instances. SQLite contains all authoritative application state;
+the runtime has no hosted-model fallback, plugin platform, browser automation,
+or alternate filesystem memory.
 
-Start with [installation](/install), then review [security](/security) before
-exposing the Gateway or Telegram bot.
+Start with [Installation](/install), then review [Configuration](/configuration)
+and [Security and limitations](/security) before enabling Telegram or using the
+HTTP Gateway. Operators should also understand the disposable fresh-database
+cutover and recovery procedures in [Operations](/operations).

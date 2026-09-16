@@ -1,53 +1,65 @@
 ---
 title: Telegram
-summary: Supported Telegram behavior and limitations
+summary: Supported private-owner text behavior and limitations
 ---
 
-Telegram is the only messaging channel. The adapter uses long polling and
-handles text updates only when the sender id and private-chat id both equal the
-one configured numeric owner id. Other senders and group, supergroup, channel,
-or mismatched private-chat shapes are discarded before agent handling or
-persistence. The sender id remains the owner identity; the chat id is stored
-separately as the conversation route and delivery target. One level of reply
-context is preserved, including quoted text when Telegram provides it.
-Current text and reply context normalize CRLF and CR newlines to LF before
-persistence. C0/C1 controls other than LF and TAB are rejected, as are current
-text or reply bodies above 16 KiB and selected quotes above 4 KiB.
+Telegram is the only messaging channel. The Rust adapter uses Bot API long
+polling and admits text updates only when all three facts agree:
 
-Accepted updates are written to SQLite before the long-poll checkpoint moves
-past them. A separate gateway worker claims the oldest unfinished event with a
-renewable lease. Processing survives restarts, uses at most five attempts with
-bounded backoff, and resumes the original response trace. Stored successful
-model rounds and exact tool results are reused, so replaying an update cannot
-repeat a committed task, reminder, or memory mutation. Completed, actively
-processing, retryable, and permanently failed duplicates have deterministic
-no-reexecution behavior. An identity collision whose stored canonical payload
-differs fails closed without advancing the checkpoint.
+- `chat.type` is `private`;
+- `from.id` equals the one configured numeric owner ID; and
+- `chat.id` equals that same owner ID.
 
-An inbound event completes only when the Telegram reply and its SQLite trace,
-assistant transcript, and derived index changes have committed. Delivery is
-at-least-once: a process failure after Telegram accepts `sendMessage` but
-before the receipt commits locally can produce a duplicate reply. Recovery
-still reuses the stored output and never repeats generation or tools for that
-delivery ambiguity.
+Other senders, mismatched private chats, groups, supergroups, and channels are
+rejected before agent handling, traces, transcripts, model calls, or tools.
+Sender identity is used for admission; chat identity remains a separate
+conversation and delivery route. Neither value is accepted from prompt text or
+model-controlled tool arguments.
 
-Reminder delivery sends a text message to the stored numeric Telegram chat id.
-The notification body is rendered by the local chat model using the
-fixed neutral behavior, recent conversation, and semantic recall, without tools.
-Provider, retrieval, generation, or indexing failures leave the reminder due
-and retryable; stored text is not used as a generation fallback. Successful
-deliveries are stored as structured conversation exchanges. One-shot reminders
-are deleted after successful delivery, and recurring reminders advance only
-after successful delivery.
+One replied-to message and Telegram's selected quote are preserved as bounded
+structured data. Current text and reply bodies normalize CRLF and CR to LF.
+C0/C1 controls other than LF and TAB are rejected. Current text and reply
+bodies are limited to 16 KiB and selected quotes to 4 KiB.
 
-Not yet implemented:
+At the model boundary, minimal route facts and optional reply data occupy an
+application-produced `user` carrier immediately before a separate `user`
+message containing only current owner text. Human text that resembles a carrier
+delimiter is escaped. Old carriers are not stored or replayed as owner text.
 
-- pairing beyond the one configured owner allowlist;
-- group, supergroup, channel, topic, or thread handling;
-- media, reactions, or edits;
-- multiple Telegram accounts;
-- idempotent external Telegram delivery receipts;
-- durable reminder-delivery claims and leases.
+## Durable processing
 
-The configured owner id is derived from Telegram ingress and is never accepted
-from model-controlled arguments or message text.
+An accepted update is inserted in SQLite before the polling checkpoint
+advances. A gateway worker claims the oldest unfinished event with a renewable,
+generation-fenced lease. Work survives restarts, uses at most five attempts
+with bounded backoff, and resumes the same response trace. Successful model
+rounds and exact tool results are reused, so a duplicate or retry cannot repeat
+a committed task, reminder, or memory mutation.
+
+Completed, active, retryable, and permanently failed duplicates have explicit
+no-reexecution behavior. Reusing a Telegram identity with different canonical
+content fails closed without moving the polling checkpoint.
+
+An inbound event completes only after Telegram accepts the response and the
+delivery receipt, assistant transcript, derived conversation index, and trace
+commit locally. Delivery is at-least-once: a crash after Telegram accepts
+`sendMessage` but before the local receipt commits can send the stored response
+again. That ambiguity does not rerun generation or tools.
+
+Reminder notifications use the stored numeric chat route and the same required
+local recall stages, without exposing tools. A failure leaves the reminder due.
+One-shot reminders are removed, and recurring reminders advance, only after a
+successful Telegram delivery commit.
+
+## Unsupported Telegram surfaces
+
+- pairing beyond the configured numeric owner allowlist;
+- groups, supergroups, channels, topics, and threads;
+- media, reactions, edits, and voice transcription;
+- multiple bot accounts; and
+- an external idempotency key for Bot API delivery.
+
+The deployment verification procedure includes a real private-owner message,
+restart persistence, duplicate-state inspection, route matching, and a Bot API
+credential check. Unsupported chat shapes remain covered by deterministic
+ingress fixtures because the Bot API cannot synthesize messages from another
+user account.

@@ -1,6 +1,6 @@
 ---
 title: Tasks, reminders, and memory
-summary: Persistent owner-state tools retained by the Go runtime
+summary: Persistent owner-state tools in the canonical Rust runtime
 ---
 
 The model receives exactly fifteen tools, in deterministic order:
@@ -50,8 +50,8 @@ Memory is global to the one owner. Every record has a stable Memory ID, a kind
 (`profile`, `durable`, or `daily`), timestamps, provenance, and immutable
 revisions. Updating a memory preserves its ID and prior revisions. Removing it
 stops recall and removes its FTS/vector rows while retaining local audit
-history. Daily memories are retrieved on demand; a bounded set of active
-profile and durable memories is included on every model turn.
+history. Daily and durable memories are retrieved on demand; a bounded set of
+active profile memories is included on every model turn.
 
 Every chat and reminder uses the same quality-first local-model pipeline. A
 dedicated chat-model pass normally rewrites the query. If its HTTP-successful
@@ -62,7 +62,7 @@ SQLite, embedding, and cancellation failures are not planner fallbacks.
 
 SQLite FTS5 and EmbeddingGemma retrieval remains required for both memory and
 conversation candidates. No confident matches is a successful empty result;
-the bounded active profile/durable core is still retained. When either
+the bounded active profile core is still retained. When either
 candidate set is nonempty, another chat-model pass must select valid evidence;
 there is no score-ranked selection fallback. The main assistant then responds.
 During chats, that same main assistant may use the validated memory tools when
@@ -70,7 +70,7 @@ persistence is material to its response. There is no separate post-response
 curator model. Reminder rendering exposes no tools and does not mutate memory.
 SQLite validates every proposal and remains the state authority.
 
-The optional native Go memory-maintenance worker performs a separate bounded
+The optional native Rust memory-maintenance worker performs a separate bounded
 background consolidation pass over complete admitted Telegram owner
 exchanges. It extracts candidates with exact history evidence IDs, applies
 deterministic provenance, recurrence, recency, novelty, contradiction, secret,

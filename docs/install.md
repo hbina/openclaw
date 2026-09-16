@@ -1,62 +1,50 @@
 ---
 title: Install
-summary: Build and run the standalone Go image
+summary: Build and run the standalone Rust gateway
 ---
 
 Prerequisites:
 
-- Docker;
+- a Rust toolchain compatible with `rust/Cargo.lock`;
 - an OpenAI-compatible local chat `llama-server`;
 - a dedicated local EmbeddingGemma `llama-server`;
 - a non-secret `openclaw.json` and separate `secrets.json`;
-- a persistent host directory for SQLite.
+- a writable directory for SQLite.
 
-For the memory-ledger release, the SQLite directory must be empty. Existing
-Node and pre-ledger Go databases are intentionally not migrated or read.
+Every Rust test deployment starts with an empty data directory. Historical
+Node, Go, and older Rust databases are intentionally not migrated or read.
 
-Build:
+Build the release binary:
 
 ```bash
-docker build -t openclaw-go:local golang
+cd rust
+cargo build --locked --release
 ```
 
-The container requires:
+The process requires:
 
-- `OPENCLAW_CONFIG_DIR`, containing read-only `openclaw.json` and
-  `secrets.json`;
-- `OPENCLAW_DATA_DIR`, pointing to a writable persistent directory;
+- `OPENCLAW_CONFIG_DIR`, containing `openclaw.json` and `secrets.json`;
+- `OPENCLAW_DATA_DIR`, pointing to the writable state directory;
 - optionally `TZ`, which controls local prompt time and omitted cron
   timezones;
-- optionally `PORT`; the default is `18789`.
+- optionally `PORT`; the default is `18789`;
+- optionally `OPENCLAW_HTTP_ADDR`, which must remain a loopback address.
 
-Example:
-
-```bash
-docker run -d \
-  --name openclaw-go \
-  --restart unless-stopped \
-  -p 127.0.0.1:18789:18789 \
-  -e OPENCLAW_CONFIG_DIR=/config \
-  -e OPENCLAW_DATA_DIR=/data \
-  -e TZ=Asia/Kuala_Lumpur \
-  -v /absolute/path/openclaw.json:/config/openclaw.json:ro \
-  -v /absolute/path/secrets.json:/config/secrets.json:ro \
-  -v /absolute/path/state:/data \
-  openclaw-go:local
-```
-
-Keep the Gateway on loopback or another trusted network until HTTP
-authentication and request limits are implemented.
-
-For a guarded transition from an existing container, use the repository's
-fresh-state helper rather than pointing Go at an older database:
+Start it directly:
 
 ```bash
-scripts/deploy-go-docker.py cutover --yes \
-  --previous-container PREVIOUS_CONTAINER
+OPENCLAW_CONFIG_DIR=/absolute/path/config \
+OPENCLAW_DATA_DIR=/absolute/path/empty-state \
+TZ=Asia/Kuala_Lumpur \
+./rust/target/release/openclaw-rust
 ```
 
-The helper retains the stopped previous container and prints the corresponding
-rollback command after all automated proof passes. Telegram owner and rejected
-non-owner delivery still require manual acceptance before declaring the
-cutover complete.
+For a service deployment, put those variables in a root-readable environment
+file and configure the service to execute the release binary. Keep configuration
+and state outside the build tree, run as an unprivileged account, and grant
+write access only to the data directory.
+
+The repository does not yet ship the final standalone Rust container or
+Compose definition. Do not use the retained Go image or its deployment helper
+as an alternate production runtime. Root-image and Compose cutover remains a
+separate production-readiness item.

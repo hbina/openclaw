@@ -1,38 +1,50 @@
 ---
 title: Security and limitations
-summary: Current trust boundary and known gaps
+summary: Current trust boundary and deliberately unsupported surfaces
 ---
 
-This is a single-owner assistant. Each owner runs a separate deployment.
-Sender ids establish owner identity while channel and conversation ids route
-conversations and reminder delivery; they are not tenant ids and do not
-isolate data inside the runtime. Tasks, durable memory, and semantic
-conversation recall are intentionally owner-global.
+OpenClaw is a single-owner local assistant. Each owner runs a separate
+deployment. Telegram sender identity establishes admission, while channel and
+conversation identifiers route delivery; they are not tenant boundaries.
+Tasks, memories, and semantic conversation recall are intentionally
+owner-global after admission.
 
-Keep these boundaries:
+Keep these operational boundaries:
 
-- mount public config read-only;
-- mount `secrets.json` separately and never commit or log it;
-- persist SQLite outside the image;
-- connect only to operator-controlled local model endpoints;
-- expose the Gateway only to a trusted network or authenticated reverse proxy.
+- mount public configuration read-only;
+- mount `secrets.json` separately and never commit, print, or image it;
+- persist or deliberately discard the one SQLite database as a unit;
+- connect only to operator-controlled local model endpoints; and
+- leave the unauthenticated HTTP Gateway loopback-bound.
 
-Known high-priority gaps:
+The Rust Gateway rejects non-loopback bind addresses and non-loopback peers. It
+uses fixed header, body, current-message, sender-key, connection, and request
+time limits and returns stable JSON error codes. It has no HTTP authentication
+or per-owner rate limiter, so a reverse proxy does not broaden the supported
+trust model unless the operator supplies equivalent local admission controls.
 
-- `/chat` has no authentication, request-size limit, rate limit, safe-bind
-  policy, or stable error envelope;
-- Telegram has one startup-validated numeric owner allowlist and enforces its
-  private-DM chat shape. Accepted messages and polling progress are durable,
-  lease-fenced, bounded-retry events whose committed tools are replay-safe,
-  but there is no pairing beyond that allowlist or live credential-backed
-  acceptance proof;
-- Telegram chat delivery is at-least-once; a crash in the external
-  acceptance/local-receipt gap can duplicate a reply without replaying tools;
-- reminder delivery has no durable claim/lease or delivery-idempotency token;
-- backup/restore is an operator procedure, not an in-product command;
-- live Telegram delivery still needs credential-backed acceptance proof.
+Telegram admits only the configured numeric owner's private chat. Routing
+identity comes from the parsed Bot API update and cannot be supplied by prompt
+text or tool arguments. Accepted updates are durable lease-fenced work and
+committed tools are replay-safe across retries and restarts. Pairing beyond the
+single allowlist is unsupported.
 
-Unsupported surfaces include hosted model providers, cloud fallbacks, plugins,
-skills, arbitrary command execution, browser automation, webhooks, WhatsApp,
-Discord, media, multi-account operation, multi-user accounts, and multi-agent
-routing.
+Telegram delivery is at-least-once. A crash after Bot API acceptance but before
+the local receipt commit can duplicate the already-stored reply, although it
+does not rerun generation or tools. Reminder delivery also has no external
+idempotency token; a failed send remains due and retryable.
+
+Prompt trust is structural rather than role-name magic. The application owns
+the current-turn carrier, escapes its delimiters, labels quoted text as data,
+and keeps current owner text separate. Historical messages, recalled evidence,
+tool output, and quotes remain non-authoritative. Ingress admission and tool
+execution—not model interpretation—enforce identity and permissions.
+
+Unsupported surfaces include hosted model providers, cloud fallback, plugins,
+skills, arbitrary commands, browser automation, webhooks, WhatsApp, Discord,
+Telegram groups/media, multi-account operation, multi-user accounts, and
+multi-agent routing.
+
+Historical Node, Go, and older Rust databases are intentionally incompatible.
+Fresh-state cutover is the supported test policy; retained backups are forensic
+operator artifacts, not migration inputs.

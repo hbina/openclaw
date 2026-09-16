@@ -1,27 +1,25 @@
 # OpenClaw Rust
 
-This directory contains a standalone Rust reimplementation of the retained Go
-runtime. It keeps the same one-owner product boundary, canonical SQLite schema,
-local OpenAI-compatible chat and embedding protocols, task/reminder tools,
-semantic memory and conversation recall, contextual reminder delivery,
-Telegram text channel, provenance traces, and native memory maintenance.
+This directory contains the canonical standalone OpenClaw runtime. It provides
+the one-owner SQLite state model, local OpenAI-compatible chat and embedding
+clients, task/reminder/memory tools, hybrid recall, contextual reminder
+delivery, Telegram private-text admission, HTTP chat, provenance traces, and
+native background memory maintenance.
 
-The Rust runtime intentionally does not read or migrate historical Node or
-pre-ledger state. Start it with a fresh database, or with a canonical database
-created by the retained Go runtime.
+Historical Node, Go, and pre-ledger Rust state is deliberately unsupported.
+Start every Rust test cutover with a fresh database created by this runtime.
 
 ## Develop
 
 ```bash
-cd rust
 cargo fmt --all -- --check
-cargo clippy --all-targets --locked -- -D warnings
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --locked
 cargo build --locked --release
 ```
 
-Runtime startup uses the same `openclaw.json` and `secrets.json` configuration
-contract as the Go implementation:
+Runtime startup reads the strict `openclaw.json` and separately mounted
+`secrets.json` contract:
 
 ```bash
 OPENCLAW_CONFIG_DIR=/path/to/config \
@@ -29,66 +27,24 @@ OPENCLAW_DATA_DIR=/path/to/data \
 cargo run --locked
 ```
 
-The HTTP gateway defaults to `127.0.0.1:18789` and rejects non-loopback bind
-addresses. This keeps the unauthenticated CLI endpoint inside the local-machine
-trust boundary. `PORT` changes the loopback port; `OPENCLAW_HTTP_ADDR` may set a
-different loopback IP socket address.
+The Gateway defaults to loopback port `18789` and rejects non-loopback bind
+addresses. `PORT` changes the port; `OPENCLAW_HTTP_ADDR` may select another
+loopback socket address.
 
-Runtime logs are written to standard error with UTC timestamps, levels, targets,
-and structured fields. By default OpenClaw emits debug-and-higher events while
-dependency crates emit warnings and errors. Logs include lifecycle, request,
-trace, retrieval, model, tool, delivery, reminder, Telegram, and maintenance
-metadata, but exclude message bodies, model payloads, responses, and
-credentials. Override the filter with standard `RUST_LOG` directives:
-
-```bash
-# Less output.
-RUST_LOG=info cargo run --locked
-
-# Include the most detailed OpenClaw events.
-RUST_LOG='warn,openclaw=trace' cargo run --locked
-```
-
-Useful operator commands include:
+Useful commands include:
 
 ```bash
 cargo run --locked -- health
 cargo run --locked -- chat "List my open tasks"
 cargo run --locked -- trace list --database /path/to/openclaw-agent.sqlite
 cargo run --locked -- memory status --database /path/to/openclaw-agent.sqlite
-cargo run --locked -- memory maintenance status --database /path/to/openclaw-agent.sqlite
 ```
 
-The command-line interface uses `clap`, so every command and nested subcommand
-provides generated usage, option descriptions, validation errors, and help. Use
-`cargo run --locked -- --help` for the top-level command tree or append `--help`
-to a command such as `memory maintenance --help`. `--version` prints the Rust
-package version.
+## Container status
 
-## Container
+The final standalone Rust image and Compose definition are not yet present.
+Run the release binary directly for current testing. The retained Go image and
+deployment scripts are historical and are not a supported Rust path.
 
-Build the standalone, non-root image from the repository root:
-
-```bash
-docker build -t openclaw-rust:local rust
-```
-
-Mount configuration read-only and state read-write. On Linux, host networking
-lets the container reach llama-server processes bound to host loopback while
-keeping the gateway on that same loopback boundary. Otherwise, point the model
-URLs at an explicitly reachable trusted host address. Telegram delivery does
-not need an inbound published port.
-
-```bash
-docker run -d --name openclaw-rust \
-  --network host \
-  -v /path/to/config:/config:ro \
-  -v /path/to/data:/data \
-  openclaw-rust:local
-
-docker exec openclaw-rust /app/openclaw chat "List my open tasks"
-```
-
-Local-model and live Telegram evidence still depends on the operator's actual
-llama-server processes and bot credentials; unit tests do not substitute for
-those delivery checks.
+Credential-backed Telegram and live-model proof depends on the operator's
+actual local services; unit tests do not substitute for those checks.

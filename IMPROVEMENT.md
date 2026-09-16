@@ -5,7 +5,7 @@ summary: Planned alignment of Rust current-turn handling with OpenAI Chat Comple
 
 # Input Prompt Improvement Plan
 
-Status: **in progress; Phases 1–3 implemented, later phases remain planned**
+Status: **in progress; Phases 1–6 implemented, Phase 7 remains planned**
 
 This document tracks improvements to the canonical Rust runtime's handling of
 an admitted Telegram message, from private-DM ingress through the final local
@@ -64,7 +64,7 @@ workspace prompts, or hosted services.
 | [x] | Inbound messages, assistant messages, exact tool calls, and tool results are persisted as structured transcript rows. | `rust/src/state/conversation.rs`, `rust/src/gateway/history.rs` |
 | [x] | Complete tool-call/result sequences are reconstructed without replaying an incomplete tool tail. | `rust/src/gateway/history.rs` |
 | [x] | Recall planning has a strict tool contract and falls back to the trimmed current request without explicit keywords when that contract is invalid. | `rust/src/gateway/agent.rs` |
-| [x] | Active memories use hybrid keyword and vector retrieval; older complete conversation exchanges use vector retrieval. | `rust/src/memory.rs`, `rust/src/gateway/rag.rs` |
+| [x] | Active memories and older complete conversation exchanges use deterministic hybrid keyword and vector retrieval. | `rust/src/memory.rs`, `rust/src/gateway/rag.rs`, `rust/src/state/rag.rs` |
 | [x] | Nonempty recall candidates undergo a structured evidence-selection call before final generation. | `rust/src/gateway/agent.rs` |
 | [x] | Recalled conversations are marked as historical evidence rather than current instructions. | `rust/src/gateway/agent.rs`, `rust/src/gateway/rag.rs` |
 | [x] | Chat requests send structured function schemas, disable parallel tool calls, and preserve exact tool-call identifiers. | `rust/src/providers.rs`, `rust/src/gateway/agent.rs` |
@@ -261,40 +261,65 @@ request appeared only in quoted data.
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Replace the fixed two-exchange recent window with newest-first complete exchanges selected under a token budget. | Follow-up tests retain more ordinary context when space permits and never split tool transactions. |
-| [ ] | Reserve tokens for output, the fixed prompt, tool schemas, the current-turn carrier, and the current owner message before admitting optional context. | Required content either fits or fails with a stable explicit error before provider submission. |
-| [ ] | Jointly budget reply context, recent history, active core memory, recalled memory, and recalled conversations. | The final request remains within the discovered `llama-server` context size for worst-case fixtures. |
-| [ ] | Bound individual and aggregate tool-result replay sizes while preserving call/result pairing and exact IDs. | Oversized tool results are deterministically reduced or excluded without producing an invalid transcript. |
-| [ ] | Record per-component token counts and every truncation/exclusion decision in the trace. | A trace report explains exactly why each optional context component was included or omitted. |
+| [x] | Replace the fixed two-exchange recent window with newest-first complete exchanges selected under a token budget. | Follow-up tests retain more ordinary context when space permits and never split tool transactions. |
+| [x] | Reserve tokens for output, the fixed prompt, tool schemas, the current-turn carrier, and the current owner message before admitting optional context. | Required content either fits or fails with a stable explicit error before provider submission. |
+| [x] | Jointly budget reply context, recent history, active core memory, recalled memory, and recalled conversations. | The final request remains within the discovered `llama-server` context size for worst-case fixtures. |
+| [x] | Bound individual and aggregate tool-result replay sizes while preserving call/result pairing and exact IDs. | Oversized tool results are deterministically reduced or excluded without producing an invalid transcript. |
+| [x] | Record per-component token counts and every truncation/exclusion decision in the trace. | A trace report explains exactly why each optional context component was included or omitted. |
 
 Required content must not be silently truncated. If the fixed prompt, current
 message, tool schemas, and output reserve cannot fit together, the turn fails
 explicitly rather than submitting a request whose meaning has been changed.
 
+Phase 4 uses the chat server's reported context size and exact prompt tokenizer
+before context assembly and again before every generation. The SQLite trace
+records the reserved output and safety allowance, final input count, and each
+reply, profile-memory, complete-exchange, recall, and tool-replay decision.
+Focused tests cover four retained ordinary exchanges, required-content
+overflow before provider submission, later-round overflow, and deterministic
+tool-result reduction with the original call identifier intact.
+
 ### Phase 5: Refine memory and conversation recall
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Retain mandatory recall planning, retrieval, evidence selection when candidates exist, generation, and synchronous indexing. | Existing failure semantics remain intact under focused tests. |
-| [ ] | Keep SQLite memory and transcript rows as the only recall corpus; do not add Markdown or workspace-file memory. | Configuration and runtime contain no alternate memory source. |
-| [ ] | Add bounded SQLite FTS candidates for conversation chunks and merge them deterministically with vector candidates before evidence selection. | Exact names, identifiers, and phrases can be recalled even when semantic similarity is weak. |
-| [ ] | Deduplicate always-present core memory and selected memory by stable Memory ID. | The same memory revision appears no more than once in the final request. |
-| [ ] | Consider always injecting only bounded profile memory while retrieving durable and daily memory semantically. | Live-model comparison demonstrates the quality/latency trade-off before changing behavior. |
-| [ ] | Include provenance and observation time for mutable recalled facts and direct the final model to verify stale operational claims. | Live tests do not present old operational evidence as certainly current. |
+| [x] | Retain mandatory recall planning, retrieval, evidence selection when candidates exist, generation, and synchronous indexing. | Existing failure semantics remain intact under focused tests. |
+| [x] | Keep SQLite memory and transcript rows as the only recall corpus; do not add Markdown or workspace-file memory. | Configuration and runtime contain no alternate memory source. |
+| [x] | Add bounded SQLite FTS candidates for conversation chunks and merge them deterministically with vector candidates before evidence selection. | Exact names, identifiers, and phrases can be recalled even when semantic similarity is weak. |
+| [x] | Deduplicate always-present core memory and selected memory by stable Memory ID. | The same memory revision appears no more than once in the final request. |
+| [x] | Consider always injecting only bounded profile memory while retrieving durable and daily memory semantically. | Live-model comparison demonstrates the quality/latency trade-off before changing behavior. |
+| [x] | Include provenance and observation time for mutable recalled facts and direct the final model to verify stale operational claims. | Live tests do not present old operational evidence as certainly current. |
 
 The upstream model-optional `memory_search` pattern will not replace mandatory
 recall. The existing main-assistant `search_memory` tool remains useful for an
 explicit deeper search after the required pre-generation recall stage.
 
+Phase 5 keeps bounded profile memory in the automatic core and retrieves
+durable and daily memory through the mandatory hybrid recall path. A live test
+on 2026-09-16 against local
+`gemma-4-26B-A4B-it-UD-Q6_K.gguf` (100096-token context) answered the profile
+fixture correctly with both policies; profile-only reduced the measured prompt
+from 2996 to 972 tokens and the observed request time from 5644 ms to 2974 ms.
+The same test qualified a 2020 production-version memory instead of asserting
+that it established the current deployment state. Timing is one observation,
+not a general latency guarantee.
+
 ### Phase 6: Bound the agent and provider boundary
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Add maximum agent rounds, cumulative tool calls, and cumulative generated/tool-result context. | A looping mock model terminates with a stable audited error. |
-| [ ] | Detect an unchanged repeated tool call and prevent an accidental mutation loop. | Repeated-call tests execute the mutation at most once. |
-| [ ] | Recount or validate the request budget before every tool-loop model call. | Added tool calls/results cannot grow a later request past the context limit. |
-| [ ] | Add narrowly bounded retries for safe transient local generation failures before a response is accepted. | Timeout and transient HTTP tests retry safely without replaying committed tools. |
-| [ ] | Keep `/chat/completions`, non-streaming final responses, and local-only provider configuration. | No hosted credential, provider fallback, Responses API, or partial Telegram delivery path is introduced. |
+| [x] | Add maximum agent rounds, cumulative tool calls, and cumulative generated/tool-result context. | A looping mock model terminates with a stable audited error. |
+| [x] | Detect an unchanged repeated tool call and prevent an accidental mutation loop. | Repeated-call tests execute the mutation at most once. |
+| [x] | Recount or validate the request budget before every tool-loop model call. | Added tool calls/results cannot grow a later request past the context limit. |
+| [x] | Add narrowly bounded retries for safe transient local generation failures before a response is accepted. | Timeout and transient HTTP tests retry safely without replaying committed tools. |
+| [x] | Keep `/chat/completions`, non-streaming final responses, and local-only provider configuration. | No hosted credential, provider fallback, Responses API, or partial Telegram delivery path is introduced. |
+
+Phase 6 bounds a turn at eight model rounds, 32 cumulative tool calls, and 512
+KiB of cumulative generated/tool-result context. Each replayed tool result is
+bounded at 64 KiB. Generation receives at most one retry, limited to local
+timeouts, connection failures, HTTP 408/429, and selected 5xx statuses; the
+retry occurs only around an individual generation request and never replays an
+already committed tool execution.
 
 ### Phase 7: Verification and cutover evidence
 

@@ -6,8 +6,8 @@ summary: Canonical tables, columns, relationships, and rebuild policy
 The runtime supports one exact schema. Startup creates it only for a new
 database and then validates the complete table and column set. It does not run
 legacy `ALTER TABLE` migrations. A non-canonical database fails startup. This
-cutover requires an empty new database; prior Go and Node state is deliberately
-not migrated.
+cutover requires an empty new database; prior Node, Go, and older Rust state is
+deliberately not migrated.
 
 ## Memory ledger
 
