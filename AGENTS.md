@@ -132,7 +132,7 @@ revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
 main-assistant memory tools, provenance-gated native background consolidation,
 synchronous derived indexing, fixed neutral
 behavior, contextual reminders, structured transcripts, Telegram text delivery,
-HTTP endpoints, and a standalone image without Node or hosted-model dependencies.
+HTTP endpoints, and a standalone Rust binary without Node or hosted-model dependencies.
 
 Historical Node and former Go state are accepted discards rather than migration
 targets. The Rust runtime starts from its canonical SQLite state and does not
@@ -159,8 +159,6 @@ work is prioritized by the user harm it prevents:
    capability.
 5. **Backup, restore, corruption, restart, and rollback drills** establish that
    local ownership is meaningful during failure, not only during normal use.
-6. **Compose and root-image cutover** remove the final ambiguity about which
-   runtime operators are expected to deploy.
 
 Close these risks in order unless the user chooses a different priority. A
 complete, proven slice is more valuable than several partially implemented
@@ -202,9 +200,9 @@ translation, or compatibility path.
 Production cutover is complete only when the retained behaviors have focused
 tests and live local-model proof, HTTP and Telegram enforce the one-owner
 admission boundary, reminder delivery is crash-safe and idempotent, recovery
-and image rollback drills pass, and the documented deployment uses the
-standalone Rust image. Historical Node and Go state continuity is explicitly
-outside this cutover and requires no importer or parity proof.
+and binary-release rollback drills pass. Historical Node and Go state
+continuity is explicitly outside this cutover and requires no importer or
+parity proof.
 
 The removal of Node, the retirement of Go as a production path, and the removal
 of unsupported cloud/platform surfaces are already complete. They narrow the

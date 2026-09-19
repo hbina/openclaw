@@ -108,7 +108,7 @@ sqlite3 /path/to/openclaw-agent.sqlite \
 sqlite3 /path/to/openclaw-agent.sqlite.backup "PRAGMA integrity_check;"
 ```
 
-Keep the backup outside the image. Memories, revisions, maintenance runs and
+Keep the backup outside the application working directory. Memories, revisions, maintenance runs and
 checkpoints, tasks, task context, reminders, transcripts, and traces are authoritative. FTS5
 tables, memory and task vectors, and conversation chunks are derived and rebuilt only
 with the explicit offline `memory reindex` command.
@@ -121,7 +121,7 @@ Inspect recent traces locally:
 ./openclaw trace show --database /data/openclaw-agent.sqlite --id 42 --json
 ```
 
-## Deployment gate
+## Release gate
 
 1. Run `cargo fmt --all -- --check`, strict Clippy, the full test suite, ignored
    local-Gemma tests, and a locked release build.
@@ -139,5 +139,5 @@ Inspect recent traces locally:
 7. Run `PRAGMA integrity_check`, create a SQLite backup of the new state, and
    rehearse opening that backup with the same release.
 
-The final standalone Rust image and Compose definition are not yet shipped. Do
-not use the retained Go deployment scripts as a cutover or rollback path.
+Run the Rust release binary directly. The retained Go deployment scripts are
+not a supported Rust path.

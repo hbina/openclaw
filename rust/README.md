@@ -46,11 +46,10 @@ cargo run --locked -- trace list --database /path/to/openclaw-agent.sqlite
 cargo run --locked -- memory status --database /path/to/openclaw-agent.sqlite
 ```
 
-## Container status
+## Release binary
 
-The final standalone Rust image and Compose definition are not yet present.
-Run the release binary directly for current testing. The retained Go image and
-deployment scripts are historical and are not a supported Rust path.
+Run the release binary directly. The retained Go image and deployment scripts
+are historical and are not a supported Rust path.
 
 Credential-backed Telegram and live-model proof depends on the operator's
 actual local services; unit tests do not substitute for those checks.

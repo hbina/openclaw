@@ -308,18 +308,20 @@ not a general latency guarantee.
 
 | Status | Work item | Acceptance evidence |
 | --- | --- | --- |
-| [x] | Add maximum agent rounds, cumulative tool calls, and cumulative generated/tool-result context. | A looping mock model terminates with a stable audited error. |
+| [x] | Bound tool-loop progress with maximum cumulative tool calls and cumulative generated/tool-result context. | A looping mock model terminates with a stable audited error. |
 | [x] | Detect an unchanged repeated tool call and prevent an accidental mutation loop. | Repeated-call tests execute the mutation at most once. |
 | [x] | Recount or validate the request budget before every tool-loop model call. | Added tool calls/results cannot grow a later request past the context limit. |
 | [x] | Add narrowly bounded retries for safe transient local generation failures before a response is accepted. | Timeout and transient HTTP tests retry safely without replaying committed tools. |
 | [x] | Keep `/chat/completions`, non-streaming final responses, and local-only provider configuration. | No hosted credential, provider fallback, Responses API, or partial Telegram delivery path is introduced. |
 
-Phase 6 bounds a turn at eight model rounds, 32 cumulative tool calls, and 512
-KiB of cumulative generated/tool-result context. Each replayed tool result is
-bounded at 64 KiB. Generation receives at most one retry, limited to local
-timeouts, connection failures, HTTP 408/429, and selected 5xx statuses; the
-retry occurs only around an individual generation request and never replays an
-already committed tool execution.
+Phase 6 bounds tool-loop progress at 1,024 cumulative tool calls and 512 KiB
+of cumulative generated/tool-result context. Since each continuing tool-loop
+round must contain at least one tool call, this permits at most 1,025 model
+generations in one turn; an unchanged repeated call stops earlier. Each
+replayed tool result is bounded at 64 KiB. Generation receives at most one
+retry, limited to local timeouts, connection failures, HTTP 408/429, and
+selected 5xx statuses; the retry occurs only around an individual generation
+request and never replays an already committed tool execution.
 
 ### Phase 7: Verification and cutover evidence
 
