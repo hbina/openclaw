@@ -4,8 +4,8 @@ summary: Health, memory maintenance, backup, deployment, and recovery
 ---
 
 The chat server, embedding server, and SQLite are required services. Startup
-probes both model servers and verifies that every active memory and completed
-conversation has a current derived index. The Gateway does not start in a
+probes both model servers and verifies that every active memory, task document,
+and completed conversation has a current derived index. The Gateway does not start in a
 degraded mode.
 
 ```bash
@@ -41,6 +41,12 @@ agent. The Rust Gateway enforces loopback binding, bounded requests and
 connections, and stable errors, but it has no HTTP authentication; keep it
 local.
 
+Tasks can carry dated context. Create a task with its initial scope, then give
+a progress or blocker update in a later chat turn. The agent stores clear
+owner-stated updates under the Task ID and retrieves relevant notes when that
+task is discussed again. An uncertain match should lead to a clarifying
+question. Task context is not a reminder or schedule.
+
 ## Fresh-state cutover
 
 Every Rust test cutover uses a new empty database. Existing Node, Go, and older
@@ -74,8 +80,8 @@ human-readable only:
 
 `memory search` uses the local chat model to plan and rerank hybrid FTS5/vector
 results. It remains a strict standalone maintenance command and does not use
-the chat/reminder planner fallback. `memory reindex` embeds every active memory
-and completed conversation before replacing all derived rows in one
+the chat/reminder planner fallback. `memory reindex` embeds every active memory,
+task description, active task note, and completed conversation before replacing all derived rows in one
 transaction. A failure leaves the previous derived index intact.
 
 `memory maintenance preview` runs extraction, deterministic gates, hybrid
@@ -103,8 +109,8 @@ sqlite3 /path/to/openclaw-agent.sqlite.backup "PRAGMA integrity_check;"
 ```
 
 Keep the backup outside the image. Memories, revisions, maintenance runs and
-checkpoints, tasks, reminders, transcripts, and traces are authoritative. FTS5
-tables, memory vectors, and conversation chunks are derived and rebuilt only
+checkpoints, tasks, task context, reminders, transcripts, and traces are authoritative. FTS5
+tables, memory and task vectors, and conversation chunks are derived and rebuilt only
 with the explicit offline `memory reindex` command.
 
 Inspect recent traces locally:

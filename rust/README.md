@@ -6,6 +6,12 @@ clients, task/reminder/memory tools, hybrid recall, contextual reminder
 delivery, Telegram private-text admission, HTTP chat, provenance traces, and
 native background memory maintenance.
 
+Tasks have stable IDs and dated context notes for owner-stated progress,
+decisions, blockers, and next steps. Clear task updates can be captured during
+ordinary chat; uncertain task references are not written. Task descriptions
+and active notes have local keyword and embedding indexes, while the task and
+its notes remain authoritative SQLite state.
+
 Historical Node, Go, and pre-ledger Rust state is deliberately unsupported.
 Start every Rust test cutover with a fresh database created by this runtime.
 

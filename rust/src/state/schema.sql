@@ -69,6 +69,36 @@
         completed_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS task_context (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('context', 'progress', 'decision', 'blocker', 'next_step')),
+        content TEXT NOT NULL,
+        recorded_at DATETIME NOT NULL,
+        source_history_id INTEGER REFERENCES conversation_history(id),
+        source_trace_event_id INTEGER UNIQUE REFERENCES trace_events(id),
+        supersedes_id INTEGER UNIQUE REFERENCES task_context(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_task_context_task
+        ON task_context(task_id, recorded_at, id);
+
+    CREATE TABLE IF NOT EXISTS task_embeddings (
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        context_id INTEGER NOT NULL DEFAULT 0,
+        embedding_model TEXT NOT NULL,
+        dimensions INTEGER NOT NULL,
+        embedding BLOB NOT NULL,
+        PRIMARY KEY (task_id, context_id, embedding_model)
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS task_fts USING fts5(
+        content,
+        task_id UNINDEXED,
+        context_id UNINDEXED,
+        tokenize = 'unicode61'
+    );
+
     CREATE TABLE IF NOT EXISTS inbound_events (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         channel_id          TEXT NOT NULL,

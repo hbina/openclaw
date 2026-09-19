@@ -7,7 +7,10 @@ use sha2::{Digest, Sha256};
 
 use crate::vector;
 
-use super::{ConversationReindexEntry, StateError, StateTx, Store, decode_time, encode_time};
+use super::{
+    ConversationReindexEntry, StateError, StateTx, Store, TaskReindexEntry, decode_time,
+    encode_time,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -447,6 +450,7 @@ impl Store {
         &self,
         memories: &[MemoryReindexEntry],
         conversations: &[ConversationReindexEntry],
+        tasks: &[TaskReindexEntry],
         now: DateTime<Utc>,
     ) -> Result<(), StateError> {
         self.with_tx(|tx| {
@@ -482,6 +486,7 @@ impl Store {
                     &item.chunks,
                 )?;
             }
+            tx.replace_task_indexes(tasks)?;
             Ok(())
         })
     }

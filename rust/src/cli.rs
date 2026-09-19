@@ -605,6 +605,14 @@ async fn memory(arguments: MemoryArgs) -> Result<(), Box<dyn std::error::Error>>
         MemoryCommand::Reindex(arguments) => {
             let (store, service, config, embedder) = configured_memory(&arguments)?;
             let memories = service.prepare_reindex().await?;
+            let task_service = crate::task_context::TaskContextService::new(
+                Arc::clone(&store),
+                Arc::clone(&embedder),
+                config.models.embeddings.index_id.clone(),
+                config.models.embeddings.dimensions as usize,
+                config.agents.defaults.history_search.min_score,
+            );
+            let tasks = task_service.prepare_reindex().await?;
             let chat = Arc::new(configured_chat(&arguments.config_dir, &config)?);
             let sizer: Arc<dyn PromptSizer> = chat;
             let rag = RagService::new(
@@ -616,10 +624,11 @@ async fn memory(arguments: MemoryArgs) -> Result<(), Box<dyn std::error::Error>>
                 config.agents.defaults.history_search.min_score,
             );
             let conversations = rag.prepare_reindex().await?;
-            store.replace_derived_indexes(&memories, &conversations, Utc::now())?;
+            store.replace_derived_indexes(&memories, &conversations, &tasks, Utc::now())?;
             println!(
-                "Reindexed {} active memories and {} completed conversations.",
+                "Reindexed {} active memories, {} task documents, and {} completed conversations.",
                 memories.len(),
+                tasks.len(),
                 conversations.len()
             );
         }

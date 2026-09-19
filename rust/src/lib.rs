@@ -11,5 +11,6 @@ pub mod maintenance;
 pub mod memory;
 pub mod providers;
 pub mod state;
+pub mod task_context;
 pub mod tools;
 pub mod vector;

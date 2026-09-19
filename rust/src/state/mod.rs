@@ -4,6 +4,7 @@ mod maintenance;
 mod memory;
 mod rag;
 mod reminders;
+mod task_context;
 mod tasks;
 mod trace;
 
@@ -38,6 +39,7 @@ pub use rag::{
 };
 pub(crate) use reminders::validate_standard_cron;
 pub use reminders::{Reminder, ReminderSchedule, ScheduleKind, next_reminder_run};
+pub use task_context::{TaskContext, TaskIndex, TaskReindexEntry, TaskSearchHit};
 pub use tasks::{Task, TaskStatus};
 pub use trace::{
     ContextBudgetComponent, ContextBudgetTrace, MemoryRagTraceMatch, RagTrace, RagTraceMatch,

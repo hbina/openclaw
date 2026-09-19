@@ -12,8 +12,9 @@ use crate::{
     state::{
         AUDIENCE_CONVERSATION, CONTENT_TOOL_RESULT, MemoryFilter, MemoryKind, MemoryOrigin,
         MemorySource, MemoryStatus, MemoryWrite, ReminderSchedule, ScheduleKind, StateError,
-        StateTx, Store, Task, TaskStatus, next_reminder_run,
+        StateTx, Store, Task, TaskIndex, TaskStatus, next_reminder_run,
     },
+    task_context::{TaskContextError, TaskContextService},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -55,6 +56,8 @@ pub enum ToolError {
     Validation(String),
     #[error("memory operation failed: {0}")]
     Memory(#[from] MemoryError),
+    #[error("task context operation failed: {0}")]
+    TaskContext(#[from] TaskContextError),
     #[error("state operation failed: {0}")]
     State(#[from] StateError),
     #[error("JSON operation failed: {0}")]
@@ -68,6 +71,7 @@ pub struct Executor {
     dimensions: usize,
     min_score: f64,
     memory: MemoryService,
+    task_context: TaskContextService,
     now: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
 }
 
@@ -119,6 +123,12 @@ struct MemoryToolInput {
     mutated: bool,
 }
 
+#[derive(Default)]
+struct TaskToolInput {
+    title_index: Option<TaskIndex>,
+    context_index: Option<TaskIndex>,
+}
+
 impl Executor {
     pub fn new(
         store: Arc<Store>,
@@ -154,11 +164,18 @@ impl Executor {
         let memory_now = Arc::clone(&now);
         let memory = MemoryService::with_clock(
             Arc::clone(&store),
-            embedder,
+            Arc::clone(&embedder),
             index_id.clone(),
             dimensions,
             min_score,
             move || memory_now(),
+        );
+        let task_context = TaskContextService::new(
+            Arc::clone(&store),
+            embedder,
+            index_id.clone(),
+            dimensions,
+            min_score,
         );
         Ok(Self {
             store,
@@ -167,6 +184,7 @@ impl Executor {
             dimensions,
             min_score,
             memory,
+            task_context,
             now,
         })
     }
@@ -197,9 +215,16 @@ impl Executor {
         };
 
         let mut memory_input = None;
+        let mut task_input = None;
         if validation_error.is_none() {
             match self.prepare_memory_input(call).await {
                 Ok(input) => memory_input = input,
+                Err(error) => validation_error = Some(error.to_string()),
+            }
+        }
+        if validation_error.is_none() {
+            match self.prepare_task_input(call).await {
+                Ok(input) => task_input = input,
                 Err(error) => validation_error = Some(error.to_string()),
             }
         }
@@ -219,7 +244,13 @@ impl Executor {
                     (self.now)(),
                 )?;
             }
-            result.content = self.execute(tx, context, call, memory_input.as_mut())?;
+            result.content = self.execute(
+                tx,
+                context,
+                call,
+                memory_input.as_mut(),
+                task_input.as_ref(),
+            )?;
             save_result(tx, context, &result)?;
             let mut committed = tool_mutation(&call.function.name);
             if is_memory_mutation_tool(&call.function.name) {
@@ -334,22 +365,80 @@ impl Executor {
         }
     }
 
+    async fn prepare_task_input(
+        &self,
+        call: &ToolCall,
+    ) -> Result<Option<TaskToolInput>, ToolError> {
+        let mut input = TaskToolInput::default();
+        match call.function.name.as_str() {
+            "add_task" => {
+                let args: TaskDescriptionArguments = decode_arguments(&call.function.arguments)?;
+                if !args.description.trim().is_empty() {
+                    input.title_index =
+                        Some(self.task_context.prepare_index(&args.description).await?);
+                }
+                if let Some(context) = args.context.filter(|item| !item.trim().is_empty()) {
+                    input.context_index = Some(self.task_context.prepare_index(&context).await?);
+                }
+            }
+            "update_task" => {
+                let args: TaskUpdateArguments = decode_arguments(&call.function.arguments)?;
+                if !args.description.trim().is_empty() {
+                    input.title_index =
+                        Some(self.task_context.prepare_index(&args.description).await?);
+                }
+            }
+            "add_task_context" => {
+                let args: TaskContextArguments = decode_arguments(&call.function.arguments)?;
+                if !args.content.trim().is_empty() {
+                    input.context_index =
+                        Some(self.task_context.prepare_index(&args.content).await?);
+                }
+            }
+            "correct_task_context" => {
+                let args: CorrectTaskContextArguments = decode_arguments(&call.function.arguments)?;
+                if !args.content.trim().is_empty() {
+                    input.context_index =
+                        Some(self.task_context.prepare_index(&args.content).await?);
+                }
+            }
+            "complete_task" => {
+                let args: TaskCompletionArguments = decode_arguments(&call.function.arguments)?;
+                if let Some(content) = args.context.filter(|item| !item.trim().is_empty()) {
+                    input.context_index = Some(self.task_context.prepare_index(&content).await?);
+                }
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(input))
+    }
+
     fn execute(
         &self,
         tx: &StateTx<'_>,
         context: &ToolContext,
         call: &ToolCall,
         memory_input: Option<&mut MemoryToolInput>,
+        task_input: Option<&TaskToolInput>,
     ) -> Result<String, ToolError> {
         match call.function.name.as_str() {
             "add_reminder" => self.add_reminder(tx, context, &call.function.arguments),
             "list_reminders" => self.list_reminders(tx, context, &call.function.arguments),
             "update_reminder" => self.update_reminder(tx, context, &call.function.arguments),
             "remove_reminder" => self.remove_reminder(tx, context, &call.function.arguments),
-            "add_task" => self.add_task(tx, &call.function.arguments),
+            "add_task" => self.add_task(tx, context, &call.function.arguments, task_input),
             "list_tasks" => self.list_tasks(tx, &call.function.arguments),
-            "update_task" => self.update_task(tx, &call.function.arguments),
-            "complete_task" => self.complete_task(tx, &call.function.arguments),
+            "get_task" => self.get_task(tx, &call.function.arguments),
+            "update_task" => self.update_task(tx, &call.function.arguments, task_input),
+            "add_task_context" => {
+                self.add_task_context(tx, context, &call.function.arguments, task_input)
+            }
+            "correct_task_context" => {
+                self.correct_task_context(tx, context, &call.function.arguments, task_input)
+            }
+            "complete_task" => {
+                self.complete_task(tx, context, &call.function.arguments, task_input)
+            }
             "remove_task" => self.remove_task(tx, &call.function.arguments),
             "store_memory" => {
                 let input = require_memory_input(memory_input)?;
@@ -413,7 +502,13 @@ impl Executor {
         }
     }
 
-    fn add_task(&self, tx: &StateTx<'_>, raw: &str) -> Result<String, ToolError> {
+    fn add_task(
+        &self,
+        tx: &StateTx<'_>,
+        context: &ToolContext,
+        raw: &str,
+        prepared: Option<&TaskToolInput>,
+    ) -> Result<String, ToolError> {
         let args: TaskDescriptionArguments = decode_arguments(raw)?;
         if args.description.trim().is_empty() {
             return Err(ToolError::Validation(
@@ -421,8 +516,36 @@ impl Executor {
             ));
         }
         let task = tx.add_task(&args.description, (self.now)())?;
+        let prepared =
+            prepared.ok_or_else(|| ToolError::Validation("task index missing".into()))?;
+        tx.index_task_title(
+            task.id,
+            &task.description,
+            prepared
+                .title_index
+                .as_ref()
+                .ok_or_else(|| ToolError::Validation("task title index missing".into()))?,
+        )?;
+        let initial_context =
+            if let Some(content) = args.context.filter(|item| !item.trim().is_empty()) {
+                Some(tx.append_task_context(
+                    task.id,
+                    "context",
+                    &content,
+                    valid_history_id(context),
+                    valid_trace_event_id(context),
+                    None,
+                    (self.now)(),
+                    prepared.context_index.as_ref().ok_or_else(|| {
+                        ToolError::Validation("task context index missing".into())
+                    })?,
+                )?)
+            } else {
+                None
+            };
         Ok(serde_json::to_string(&json!({
             "added": self.task_content(&task),
+            "initial_context": initial_context,
             "display_timezone": self.timezone.name(),
         }))?)
     }
@@ -451,7 +574,72 @@ impl Executor {
         }))?)
     }
 
-    fn update_task(&self, tx: &StateTx<'_>, raw: &str) -> Result<String, ToolError> {
+    fn get_task(&self, tx: &StateTx<'_>, raw: &str) -> Result<String, ToolError> {
+        let args: IdArguments = decode_arguments(raw)?;
+        positive_id(args.id)?;
+        Ok(serde_json::to_string(&json!({
+            "task": self.task_content(&tx.get_task(args.id)?),
+            "context": tx.task_context(args.id)?,
+        }))?)
+    }
+
+    fn add_task_context(
+        &self,
+        tx: &StateTx<'_>,
+        context: &ToolContext,
+        raw: &str,
+        prepared: Option<&TaskToolInput>,
+    ) -> Result<String, ToolError> {
+        let args: TaskContextArguments = decode_arguments(raw)?;
+        positive_id(args.task_id)?;
+        let index = prepared
+            .and_then(|item| item.context_index.as_ref())
+            .ok_or_else(|| ToolError::Validation("task context index missing".into()))?;
+        let note = tx.append_task_context(
+            args.task_id,
+            &args.kind,
+            &args.content,
+            valid_history_id(context),
+            valid_trace_event_id(context),
+            None,
+            (self.now)(),
+            index,
+        )?;
+        Ok(serde_json::to_string(&json!({"added": note}))?)
+    }
+
+    fn correct_task_context(
+        &self,
+        tx: &StateTx<'_>,
+        context: &ToolContext,
+        raw: &str,
+        prepared: Option<&TaskToolInput>,
+    ) -> Result<String, ToolError> {
+        let args: CorrectTaskContextArguments = decode_arguments(raw)?;
+        positive_id(args.note_id)?;
+        let old = tx.get_task_context_note(args.note_id)?;
+        let index = prepared
+            .and_then(|item| item.context_index.as_ref())
+            .ok_or_else(|| ToolError::Validation("task context index missing".into()))?;
+        let note = tx.append_task_context(
+            old.task_id,
+            &old.kind,
+            &args.content,
+            valid_history_id(context),
+            valid_trace_event_id(context),
+            Some(old.id),
+            (self.now)(),
+            index,
+        )?;
+        Ok(serde_json::to_string(&json!({"corrected": note}))?)
+    }
+
+    fn update_task(
+        &self,
+        tx: &StateTx<'_>,
+        raw: &str,
+        prepared: Option<&TaskToolInput>,
+    ) -> Result<String, ToolError> {
         let args: TaskUpdateArguments = decode_arguments(raw)?;
         if args.id < 1 || args.description.trim().is_empty() {
             return Err(ToolError::Validation(
@@ -459,18 +647,53 @@ impl Executor {
             ));
         }
         let task = tx.update_task(args.id, &args.description)?;
+        tx.index_task_title(
+            task.id,
+            &task.description,
+            prepared
+                .and_then(|item| item.title_index.as_ref())
+                .ok_or_else(|| ToolError::Validation("task title index missing".into()))?,
+        )?;
         Ok(serde_json::to_string(&json!({
             "updated": self.task_content(&task),
             "display_timezone": self.timezone.name(),
         }))?)
     }
 
-    fn complete_task(&self, tx: &StateTx<'_>, raw: &str) -> Result<String, ToolError> {
-        let args: IdArguments = decode_arguments(raw)?;
+    fn complete_task(
+        &self,
+        tx: &StateTx<'_>,
+        context: &ToolContext,
+        raw: &str,
+        prepared: Option<&TaskToolInput>,
+    ) -> Result<String, ToolError> {
+        let args: TaskCompletionArguments = decode_arguments(raw)?;
         positive_id(args.id)?;
+        let final_context =
+            if let Some(content) = args.context.filter(|item| !item.trim().is_empty()) {
+                Some(
+                    tx.append_task_context(
+                        args.id,
+                        "progress",
+                        &content,
+                        valid_history_id(context),
+                        valid_trace_event_id(context),
+                        None,
+                        (self.now)(),
+                        prepared
+                            .and_then(|item| item.context_index.as_ref())
+                            .ok_or_else(|| {
+                                ToolError::Validation("task context index missing".into())
+                            })?,
+                    )?,
+                )
+            } else {
+                None
+            };
         let task = tx.complete_task(args.id, (self.now)())?;
         Ok(serde_json::to_string(&json!({
             "completed": self.task_content(&task),
+            "final_context": final_context,
             "display_timezone": self.timezone.name(),
         }))?)
     }
@@ -748,8 +971,8 @@ pub fn definitions(timezone: &str) -> Vec<ToolDefinition> {
         ),
         definition(
             "add_task",
-            "Add one owner-global task. Tasks start immediately and have no schedule.",
-            json!({"type":"object","additionalProperties":false,"properties":{"description":{"type":"string"}},"required":["description"]}),
+            "Add one owner-global task. Put material context from the current owner request in context. Tasks have no schedule.",
+            json!({"type":"object","additionalProperties":false,"properties":{"description":{"type":"string"},"context":{"type":"string"}},"required":["description"]}),
         ),
         definition(
             "list_tasks",
@@ -757,14 +980,29 @@ pub fn definitions(timezone: &str) -> Vec<ToolDefinition> {
             json!({"type":"object","additionalProperties":false,"properties":{"status":{"type":"string","enum":["open","completed","all"]}}}),
         ),
         definition(
+            "get_task",
+            "Get one task and its dated context notes.",
+            id_schema(),
+        ),
+        definition(
             "update_task",
             "Replace the description of one open owner-global task.",
             json!({"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer","minimum":1},"description":{"type":"string"}},"required":["id","description"]}),
         ),
         definition(
+            "add_task_context",
+            "Append one owner-stated progress, decision, blocker, next step, or other context to an open task. Never record your own suggestion as owner progress.",
+            json!({"type":"object","additionalProperties":false,"properties":{"task_id":{"type":"integer","minimum":1},"kind":{"type":"string","enum":["context","progress","decision","blocker","next_step"]},"content":{"type":"string"}},"required":["task_id","kind","content"]}),
+        ),
+        definition(
+            "correct_task_context",
+            "Replace an incorrect active task context note while retaining its history.",
+            json!({"type":"object","additionalProperties":false,"properties":{"note_id":{"type":"integer","minimum":1},"content":{"type":"string"}},"required":["note_id","content"]}),
+        ),
+        definition(
             "complete_task",
-            "Complete one open owner-global task. Completion is final.",
-            id_schema(),
+            "Complete one open owner-global task. Include an optional final outcome from the current owner message as context. Completion is final.",
+            json!({"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer","minimum":1},"context":{"type":"string"}},"required":["id"]}),
         ),
         definition("remove_task", "Remove one owner-global task.", id_schema()),
         definition(
@@ -953,6 +1191,8 @@ fn tool_mutation(name: &str) -> bool {
             | "update_task"
             | "complete_task"
             | "remove_task"
+            | "add_task_context"
+            | "correct_task_context"
             | "store_memory"
             | "update_memory"
             | "remove_memory"
@@ -977,6 +1217,7 @@ struct IdArguments {
 #[serde(deny_unknown_fields)]
 struct TaskDescriptionArguments {
     description: String,
+    context: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -990,6 +1231,36 @@ struct TaskListArguments {
 struct TaskUpdateArguments {
     id: i64,
     description: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskCompletionArguments {
+    id: i64,
+    context: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskContextArguments {
+    task_id: i64,
+    kind: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CorrectTaskContextArguments {
+    note_id: i64,
+    content: String,
+}
+
+fn valid_history_id(context: &ToolContext) -> Option<i64> {
+    (context.source_history_id > 0).then_some(context.source_history_id)
+}
+
+fn valid_trace_event_id(context: &ToolContext) -> Option<i64> {
+    (context.trace_event_id > 0).then_some(context.trace_event_id)
 }
 
 #[derive(Default, Deserialize)]
@@ -1137,6 +1408,92 @@ mod tests {
                 .iter()
                 .all(|turn| turn.content_type == CONTENT_TOOL_RESULT)
         );
+    }
+
+    #[tokio::test]
+    async fn task_context_tools_preserve_notes_and_reject_completed_updates() {
+        let (store, executor, context, _) = setup();
+        let created = executor
+            .execute_and_record(
+                &context,
+                &call(
+                    "create",
+                    "add_task",
+                    r#"{"description":"Build strategy","context":"Start with daily bars"}"#,
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(!created.is_error);
+        let created_value: Value = serde_json::from_str(&created.content).unwrap();
+        let task_id = created_value["added"]["id"].as_i64().unwrap();
+        let initial_id = created_value["initial_context"]["id"].as_i64().unwrap();
+        let appended = executor
+            .execute_and_record(
+                &context,
+                &call(
+                    "note",
+                    "add_task_context",
+                    &format!(
+                        r#"{{"task_id":{task_id},"kind":"blocker","content":"Need clean data"}}"#
+                    ),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(!appended.is_error);
+        let corrected = executor
+            .execute_and_record(
+                &context,
+                &call(
+                    "correct",
+                    "correct_task_context",
+                    &format!(
+                        r#"{{"note_id":{initial_id},"content":"Start with daily OHLC and volume"}}"#
+                    ),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(!corrected.is_error);
+        let fetched = executor
+            .execute_and_record(
+                &context,
+                &call("get", "get_task", &format!(r#"{{"id":{task_id}}}"#)),
+            )
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_str(&fetched.content).unwrap();
+        assert_eq!(value["context"].as_array().unwrap().len(), 3);
+        assert_eq!(value["context"][0]["superseded"], true);
+        let completed = executor
+            .execute_and_record(
+                &context,
+                &call(
+                    "complete",
+                    "complete_task",
+                    &format!(r#"{{"id":{task_id},"context":"Finished a working notebook"}}"#),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(!completed.is_error);
+        assert!(completed.content.contains("Finished a working notebook"));
+        let rejected = executor
+            .execute_and_record(
+                &context,
+                &call(
+                    "late",
+                    "add_task_context",
+                    &format!(
+                        r#"{{"task_id":{task_id},"kind":"progress","content":"Later update"}}"#
+                    ),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(rejected.is_error);
+        assert_eq!(store.get_task_with_context(task_id).unwrap().1.len(), 4);
     }
 
     #[tokio::test]
@@ -1333,7 +1690,7 @@ mod tests {
     #[test]
     fn catalog_has_only_single_purpose_tools_without_identity_arguments() {
         let definitions = definitions("UTC");
-        assert_eq!(definitions.len(), 15);
+        assert_eq!(definitions.len(), 18);
         for definition in definitions {
             let properties = &definition.function.parameters["properties"];
             assert!(properties.get("channel_id").is_none());

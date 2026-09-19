@@ -131,8 +131,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let dimensions = config.models.embeddings.dimensions as usize;
-    debug!("validating derived memory and conversation indexes");
+    debug!("validating derived memory, task, and conversation indexes");
     store.validate_derived_memory_state(&config.models.embeddings.index_id, dimensions)?;
+    store.validate_task_indexes(&config.models.embeddings.index_id, dimensions)?;
     let gaps =
         store.count_conversation_index_gaps(&config.models.embeddings.index_id, 1, dimensions)?;
     if gaps != 0 {

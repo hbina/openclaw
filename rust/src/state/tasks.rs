@@ -57,8 +57,13 @@ impl StateTx<'_> {
             "INSERT INTO tasks (description, started_at, completed_at) VALUES (?1, ?2, NULL)",
             params![description, encode_time(started_at)],
         )?;
+        let id = self.transaction.last_insert_rowid();
+        self.transaction.execute(
+            "INSERT INTO task_fts(content,task_id,context_id) VALUES (?1,?2,0)",
+            params![description, id],
+        )?;
         Ok(Task {
-            id: self.transaction.last_insert_rowid(),
+            id,
             description: description.into(),
             started_at,
             completed_at: None,
@@ -128,6 +133,14 @@ impl StateTx<'_> {
             return Err(StateError::Validation(format!("task {id} is not open")));
         }
         task.description = description.into();
+        self.transaction.execute(
+            "DELETE FROM task_fts WHERE task_id=?1 AND context_id=0",
+            [id],
+        )?;
+        self.transaction.execute(
+            "INSERT INTO task_fts(content,task_id,context_id) VALUES (?1,?2,0)",
+            params![description, id],
+        )?;
         Ok(task)
     }
 
@@ -151,6 +164,8 @@ impl StateTx<'_> {
 
     pub fn delete_task(&self, id: i64) -> Result<Task, StateError> {
         let task = self.get_task(id)?;
+        self.transaction
+            .execute("DELETE FROM task_fts WHERE task_id=?1", [id])?;
         if self
             .transaction
             .execute("DELETE FROM tasks WHERE id=?1", [id])?
@@ -162,9 +177,9 @@ impl StateTx<'_> {
     }
 }
 
-type RawTask = (i64, String, String, Option<String>);
+pub(crate) type RawTask = (i64, String, String, Option<String>);
 
-fn raw_task(row: &Row<'_>) -> rusqlite::Result<RawTask> {
+pub(crate) fn raw_task(row: &Row<'_>) -> rusqlite::Result<RawTask> {
     Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
 }
 

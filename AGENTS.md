@@ -77,6 +77,12 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
   removed. They have no due date, schedule, recurrence, timezone, delivery
   route, or reminder linkage. Keeping the ledgers independent prevents an
   unfinished-work request from silently becoming a notification commitment.
+- **Task context belongs to the task.** Owner-stated progress, decisions,
+  blockers, and next steps are dated records attached to a stable Task ID.
+  Clear updates should survive ordinary chat without requiring a special
+  "remember" command. Ambiguous references must be clarified before writing;
+  recalled text and assistant suggestions are not new owner progress. This
+  keeps a short task title from losing the history needed to act on it later.
 
 ## Behavioral Invariants and Their Rationale
 
@@ -121,7 +127,7 @@ Upstream OpenClaw’s broader platform surface is not the goal of this fork.
 ## Migration Truth and Current Risk
 
 The canonical Rust runtime supports local chat and structured single-item tools,
-owner-global tasks and reminders, one-shot and recurring schedules, a
+owner-global tasks with dated context and reminders, one-shot and recurring schedules, a
 revisioned profile/durable/daily memory ledger, model-planned hybrid recall,
 main-assistant memory tools, provenance-gated native background consolidation,
 synchronous derived indexing, fixed neutral
